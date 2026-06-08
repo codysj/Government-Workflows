@@ -6,7 +6,6 @@ or deleted. Helpers exist for each spec 3.5 event type.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -41,21 +40,16 @@ class AuditLog:
             actor=actor,
             details=details or {},
         )
-        # SQLite (append-only INSERT, never UPDATE/DELETE).
-        self.ledger.conn.execute(
-            "INSERT INTO audit_events "
-            "(event_id, run_id, timestamp, event_type, actor, details) "
-            "VALUES (?,?,?,?,?,?)",
-            (
-                event.event_id,
-                event.run_id,
-                event.timestamp.isoformat(),
-                event.event_type.value,
-                event.actor,
-                json.dumps(event.details, default=str),
-            ),
+        # SQLite (append-only INSERT, never UPDATE/DELETE). The ledger owns the
+        # connection lifecycle so this stays thread-safe under Streamlit reruns.
+        self.ledger.append_audit_event(
+            event_id=event.event_id,
+            run_id=event.run_id,
+            timestamp=event.timestamp.isoformat(),
+            event_type=event.event_type.value,
+            actor=event.actor,
+            details=event.details,
         )
-        self.ledger.conn.commit()
         # JSONL (append-only file).
         if self.write_jsonl:
             path = self.audit_dir / f"{run_id}.jsonl"
@@ -64,16 +58,7 @@ class AuditLog:
         return event
 
     def list_events(self, run_id: str) -> list[dict]:
-        rows = self.ledger.conn.execute(
-            "SELECT * FROM audit_events WHERE run_id = ? ORDER BY timestamp ASC",
-            (run_id,),
-        ).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["details"] = json.loads(d["details"]) if d["details"] else {}
-            out.append(d)
-        return out
+        return self.ledger.list_audit_events(run_id)
 
     # ------------------------------------------------------------------ #
     # Typed helpers for each spec 3.5 event.

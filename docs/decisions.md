@@ -367,3 +367,30 @@ known-answer datasets, or the spec-named export files. After it, the suite is
   smallest-safe-change choice. (2) report_review's CSV export intentionally still
   uses `pandas.to_csv` (not the shared `write_csv`) so the file keeps its column
   header on an empty frame.
+
+## Run ledger threading: per-operation SQLite connections
+
+**Decision.** `RunLedger` opens a fresh `sqlite3` connection per operation for
+file-backed databases (created, used, and closed in the calling thread) instead
+of holding one long-lived connection. In-memory (`:memory:`) ledgers keep a
+single shared connection because an in-memory DB is private to its connection
+and cannot be reopened; that path is test-only and uses
+`check_same_thread=False`.
+
+**Why.** Streamlit reruns the script on rotating ScriptRunner threads, and the
+ledger is cached with `@st.cache_resource` (shared across reruns/sessions). A
+connection created in one thread and reused in another raises
+`sqlite3.ProgrammingError: SQLite objects created in a thread can only be used
+in that same thread`, which crashed the History, Review Run, and Export Center
+pages on `ledger.list_runs()` / `get_run()`. Per-operation connections are the
+simplest correct fix for a low-concurrency local audit store and are preferred
+over sharing one `Connection` with `check_same_thread=False`.
+
+**Adjacent change.** `AuditLog` previously reached into `ledger.conn` directly
+(so the connection escaped the ledger and re-introduced the cross-thread
+hazard). Audit reads/writes now go through public `RunLedger.append_audit_event`
+/ `list_audit_events`, and child records are read via public
+`list_findings` / `list_llm_responses` / `list_validation_results` (etc.)
+accessors. No method, schema, or stored data changed. Covered by
+`tests/unit/test_run_ledger.py` (round-trips + cross-thread + concurrent-write
+regression tests).

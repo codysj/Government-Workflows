@@ -101,20 +101,11 @@ def test_valid_request_produces_logged_validated_response(tmp_path, pipeline):
     # The mock cites the real request source row.
     assert "freeform_request:0" in validation.checked_source_refs
 
-    # Findings + LLM response + validation persisted to the ledger.
-    run = ledger.get_run  # ensure ledger usable
-    findings_rows = ledger.conn.execute(
-        "SELECT COUNT(*) AS n FROM findings WHERE run_id = ?", ("run-ok",)
-    ).fetchone()["n"]
-    assert findings_rows >= 1
-    llm_rows = ledger.conn.execute(
-        "SELECT COUNT(*) AS n FROM llm_responses WHERE run_id = ?", ("run-ok",)
-    ).fetchone()["n"]
-    assert llm_rows == 1
-    val_rows = ledger.conn.execute(
-        "SELECT COUNT(*) AS n FROM validation_results WHERE run_id = ?", ("run-ok",)
-    ).fetchone()["n"]
-    assert val_rows == 1
+    # Findings + LLM response + validation persisted to the ledger. Read them
+    # back through public accessors (no reaching into the raw connection).
+    assert len(ledger.list_findings("run-ok")) >= 1
+    assert len(ledger.list_llm_responses("run-ok")) == 1
+    assert len(ledger.list_validation_results("run-ok")) == 1
 
     # Export packet written.
     for name in freeform.EXPORT_FILE_NAMES:
