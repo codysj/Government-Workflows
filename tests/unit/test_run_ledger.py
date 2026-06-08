@@ -33,6 +33,14 @@ from src.core.schemas import (
 )
 
 
+def _make_llm(provider="mock", name="mock-llm", template="bank.v1"):
+    return LLMResponse(
+        prompt_template_version=template, model_provider=provider,
+        model_name=name, response_json={"summary": "ok"},
+        referenced_source_rows=["bank:0"],
+    )
+
+
 def _make_run(run_id: str = "run-1", workflow_type: str = "bank_reconciliation") -> WorkflowRun:
     return WorkflowRun(
         run_id=run_id,
@@ -176,6 +184,35 @@ def test_audit_events_via_ledger(tmp_path):
         EventType.RUN_COMPLETED.value,
     ]
     assert events[0]["details"]["note"] == "created"
+
+
+# --------------------------------------------------------------------------- #
+# AI interaction history (Tier 1 searchable AI usage log)
+# --------------------------------------------------------------------------- #
+def test_list_llm_interactions(tmp_path):
+    ledger = RunLedger(str(tmp_path / "ledger.db"))
+    ledger.create_run(_make_run("run-a", "bank_reconciliation"))
+    ledger.update_run_status("run-a", "completed",
+                             summary={"validation_status": "passed"})
+    ledger.store_llm_response("run-a", _make_llm(template="bank.v1"))
+    # Second run, approved by a human -> final.
+    ledger.create_run(_make_run("run-b", "budget_variance"))
+    ledger.store_llm_response("run-b", _make_llm(template="budget.v1"))
+    ledger.store_human_review_action("run-b", HumanReviewAction(
+        run_id="run-b", action="approve_draft", actor="director"))
+
+    rows = ledger.list_llm_interactions()
+    assert len(rows) == 2
+    by_run = {r["run_id"]: r for r in rows}
+    assert by_run["run-a"]["workflow_type"] == "bank_reconciliation"
+    assert by_run["run-a"]["prompt_template_version"] == "bank.v1"
+    assert by_run["run-a"]["validation_status"] == "passed"
+    assert by_run["run-a"]["ai_draft_status"] == "draft"
+    assert by_run["run-b"]["ai_draft_status"] == "final (human-approved)"
+
+
+def test_list_llm_interactions_empty(tmp_path):
+    assert RunLedger(str(tmp_path / "ledger.db")).list_llm_interactions() == []
 
 
 # --------------------------------------------------------------------------- #

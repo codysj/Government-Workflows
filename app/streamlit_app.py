@@ -34,6 +34,7 @@ import streamlit as st  # noqa: E402
 from app.app_settings import AppSettings  # noqa: E402
 from app import workflow_registry as wfr  # noqa: E402
 from src.core.audit_log import AuditLog  # noqa: E402
+from src.core import review_packet as rp  # noqa: E402
 from src.core.run_ledger import RunLedger  # noqa: E402
 
 PAGES = (
@@ -42,6 +43,7 @@ PAGES = (
     "Workflow History",
     "Review Run",
     "Export Center",
+    "AI Audit Log",
     "Settings",
     "About / Safety",
 )
@@ -79,6 +81,19 @@ def get_settings() -> AppSettings:
     if "settings" not in st.session_state:
         st.session_state["settings"] = AppSettings.load()
     return st.session_state["settings"]
+
+
+def _settings_to_config(settings: AppSettings) -> dict:
+    """Map Settings onto the run config threaded into each workflow.
+
+    Uploaded config/threshold files always take precedence over these (see
+    ``workflow_registry._config_for``)."""
+    return {
+        "amount_tolerance": settings.amount_tolerance,
+        "date_tolerance_days": settings.date_tolerance_days,
+        "variance_dollar_threshold": settings.variance_dollar_threshold,
+        "variance_threshold_pct": settings.variance_threshold_pct,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -146,6 +161,43 @@ def _collect_inputs(descriptor, run_tmp: Path, use_example: bool) -> dict:
     return inputs
 
 
+def _is_csv_data_field(u) -> bool:
+    """CSV data inputs get a source-format selector (not JSON configs/freeform)."""
+    return u.key != "uploaded_files" and tuple(u.file_types) == ("csv",)
+
+
+def _render_upload_field(descriptor, u) -> None:
+    """Render a file uploader plus, for CSV data inputs, a source-format selector."""
+    st.file_uploader(
+        u.label, type=list(u.file_types),
+        key=f"upload__{descriptor.workflow_type}__{u.key}", help=u.help,
+    )
+    if _is_csv_data_field(u):
+        st.selectbox(
+            f"↳ {u.label} — source format",
+            range(len(wfr.SOURCE_FORMAT_CHOICES)),
+            format_func=lambda i: wfr.SOURCE_FORMAT_CHOICES[i][0],
+            key=f"fmt__{descriptor.workflow_type}__{u.key}",
+            help=("If this file uses ERP-style column names (e.g. 'Posting "
+                  "Date', 'Transaction Amount'), pick its source format to "
+                  "normalize the columns before analysis. Standard files need "
+                  "no preset."),
+        )
+
+
+def _collect_source_formats(descriptor) -> dict:
+    """Read the per-upload source-format selections into {input_key: preset}."""
+    out: dict = {}
+    for u in descriptor.uploads:
+        if not _is_csv_data_field(u):
+            continue
+        idx = st.session_state.get(f"fmt__{descriptor.workflow_type}__{u.key}", 0) or 0
+        preset = wfr.SOURCE_FORMAT_CHOICES[idx][1]
+        if preset:
+            out[u.key] = preset
+    return out
+
+
 def render_run_workflow() -> None:
     settings = get_settings()
     ledger = get_ledger()
@@ -175,24 +227,22 @@ def render_run_workflow() -> None:
     # Required / optional uploads.
     required = [u for u in descriptor.uploads if u.required]
     optional = [u for u in descriptor.uploads if not u.required]
+    has_csv_field = any(_is_csv_data_field(u) for u in descriptor.uploads)
+    if has_csv_field:
+        st.caption("Tip: if a CSV uses ERP-style column names, set its **source "
+                   "format** below the uploader to normalize the columns first.")
     if required:
         st.markdown("**Required uploads**")
         for u in required:
             if u.key == "uploaded_files":
                 continue
-            st.file_uploader(
-                u.label, type=list(u.file_types), key=f"upload__{descriptor.workflow_type}__{u.key}",
-                help=u.help,
-            )
+            _render_upload_field(descriptor, u)
     if optional:
         st.markdown("**Optional uploads**")
         for u in optional:
             if u.key == "uploaded_files":
                 continue
-            st.file_uploader(
-                u.label, type=list(u.file_types), key=f"upload__{descriptor.workflow_type}__{u.key}",
-                help=u.help,
-            )
+            _render_upload_field(descriptor, u)
 
     # Freeform structured fields (Phase 5).
     freeform_inputs: dict = {}
@@ -243,32 +293,62 @@ def render_run_workflow() -> None:
                 st.error("Please provide required files: " + ", ".join(missing))
                 return
 
+        # Source-format presets apply to uploaded files (example files are
+        # already in standard format).
+        source_formats = (
+            None if (descriptor.workflow_type == "freeform" or use_example)
+            else (_collect_source_formats(descriptor) or None)
+        )
         export_dir = Path(settings.export_dir)
         provider = None  # mock default (no key / no internet)
-        try:
-            result = wfr.run_workflow(
-                descriptor.workflow_type,
-                inputs,
-                ledger=ledger,
-                audit=audit,
-                provider=provider,
-                actor=settings.default_actor,
-                export_dir=export_dir,
-            )
-        except Exception as exc:  # surface errors plainly to staff
-            st.error(f"Run failed: {exc}")
-            return
+        with st.spinner("Running deterministic analysis, then AI drafting…"):
+            try:
+                result = wfr.run_workflow(
+                    descriptor.workflow_type,
+                    inputs,
+                    ledger=ledger,
+                    audit=audit,
+                    provider=provider,
+                    actor=settings.default_actor,
+                    export_dir=export_dir,
+                    config=_settings_to_config(settings),
+                    source_formats=source_formats,
+                )
+            except Exception as exc:  # surface errors plainly to staff
+                st.error(f"Run failed: {exc}")
+                st.caption("Check that the uploaded files have date/amount (or "
+                           "account) columns and try the example files first.")
+                return
 
         if result.refused:
             st.error("Run refused: " + result.refusal_reason)
+            st.caption("Guided freeform requires the sensitivity confirmation "
+                       "(synthetic/scrubbed data only).")
             return
 
         st.success(f"Run complete. Run ID: {result.run_id}")
         st.session_state["last_run_id"] = result.run_id
         st.session_state["selected_run_id"] = result.run_id
-        st.metric("Findings", len(result.findings))
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Findings", len(result.findings))
+        c2.metric("Validation",
+                  (result.summary or {}).get("validation_status", "n/a"))
+        c3.metric("Artifacts", len(result.export_paths))
+        val = result.validation
+        if val is not None and val.invented_reference_detected:
+            st.error("Validator flagged an invented source reference in the AI "
+                     "draft — review carefully before use.")
+        elif val is not None and val.passed:
+            st.success("AI draft validated against the source data (no invented "
+                       "references; numeric claims checked).")
+        applied_fmt = (result.summary or {}).get("source_formats")
+        if applied_fmt:
+            st.caption("Applied source-format preset(s): "
+                       + ", ".join(f"{k} → {v}" for k, v in applied_fmt.items())
+                       + " (original file hashes preserved in the audit trail).")
         st.info("Open the **Review Run** page to inspect findings, the AI "
-                "explanation, validation warnings, and human-review controls.")
+                "draft, validation warnings, human-review controls, and the "
+                "exported review packet.")
 
 
 # --------------------------------------------------------------------------- #
@@ -286,13 +366,14 @@ def render_history() -> None:
     for r in runs:
         summary = r.get("summary") or {}
         rows.append({
-            "run_id": r["run_id"],
+            "run_id": r["run_id"][:8],
             "type": r["workflow_type"],
             "created_at": r["created_at"],
             "status": r["status"],
             "validation": summary.get("validation_status", "n/a"),
         })
     st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.caption(f"{len(runs)} run(s) recorded in the local ledger.")
 
     run_ids = [r["run_id"] for r in runs]
     chosen = st.selectbox("Select a run to review", run_ids)
@@ -346,10 +427,16 @@ def render_review_run() -> None:
         return
 
     summary = run.get("summary") or {}
-    c1, c2, c3 = st.columns(3)
+    actions = run.get("human_review_actions", []) or []
+    draft_status = rp.derive_draft_status(actions)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Status", run.get("status", ""))
     c2.metric("Workflow", run.get("workflow_type", ""))
     c3.metric("Validation", summary.get("validation_status", "n/a"))
+    c4.metric("AI draft", draft_status)
+    if draft_status == "draft":
+        st.caption("The AI text is an unapproved DRAFT. Use the per-finding "
+                   "controls below to approve or reject it.")
 
     # --- Validation warnings (PRIORITIZED) ------------------------------- #
     validations = run.get("validation_results", []) or []
@@ -465,13 +552,14 @@ def _render_review_controls(ledger, audit, run_id, findings, actor) -> None:
                         st.success(f"Recorded: {action_label}")
 
 
-def _download_artifact(a: dict) -> None:
+def _download_artifact(a: dict, suffix: str = "") -> None:
     path = Path(a.get("path", ""))
     name = a.get("file_name", path.name)
     if path.is_file():
         try:
             data = path.read_bytes()
-            st.download_button(f"Download {name}", data=data, file_name=name,
+            st.download_button(f"Download {name}{suffix}", data=data,
+                               file_name=name,
                                key=f"dl__{a.get('artifact_id', name)}")
         except OSError:
             st.caption(f"{name} (unreadable)")
@@ -500,85 +588,94 @@ def render_export_center() -> None:
 
     st.subheader("Generated artifacts")
     if artifacts:
-        for a in artifacts:
-            _download_artifact(a)
+        # Surface the consolidated review packet first if present.
+        ordered = sorted(
+            artifacts,
+            key=lambda a: a.get("file_name") not in rp.PACKET_FILE_NAMES)
+        for a in ordered:
+            label = ""
+            if a.get("file_name") in rp.PACKET_FILE_NAMES:
+                label = "  · consolidated review packet"
+            _download_artifact(a, suffix=label)
     else:
         st.caption("No artifacts recorded for this run.")
 
-    st.subheader("Regenerate export packet")
-    st.caption("Re-runs export generation for this run from its stored "
-               "findings, AI response, and validation result.")
-    if st.button("Generate export packet"):
-        ok = _regenerate_exports(ledger, audit, run, settings)
-        if ok:
-            st.success("Export packet generated. Reload to see download links.")
+    st.subheader("Regenerate consolidated review packet")
+    st.caption(
+        "Rebuilds review_packet.md + run_manifest.json from this run's stored "
+        "findings, AI draft, validation result, reviewer notes, approval "
+        "status, and audit history. Works for any run and reflects the latest "
+        "human-review actions. No LLM call; nothing is fabricated.")
+    if st.button("Generate review packet"):
+        if run is None:
+            st.warning("Run not found.")
         else:
-            st.warning("Could not regenerate this run's exports automatically. "
-                       "Re-run the workflow to refresh artifacts.")
+            packet = rp.generate_review_packet(
+                ledger, audit, run_id, settings.export_dir,
+                actor=settings.default_actor)
+            if packet:
+                st.success(
+                    "Review packet generated: "
+                    + ", ".join(a.file_name for a in packet)
+                    + ". Reload the page to see the download links.")
+            else:
+                st.warning("Could not generate a packet for this run.")
 
 
-def _regenerate_exports(ledger, audit, run, settings) -> bool:
-    """Best-effort re-export from stored ledger data.
+# --------------------------------------------------------------------------- #
+# AI Audit Log (Tier 1: searchable AI interaction history)
+# --------------------------------------------------------------------------- #
+def render_ai_audit_log() -> None:
+    ledger = get_ledger()
+    st.title("AI audit log")
+    st.caption(
+        "Every AI interaction in one reviewable place: which run, workflow, "
+        "model, and prompt template; whether validation passed; and whether the "
+        "draft is still a draft or has been human-approved. Supports CPRA-style "
+        "review of AI usage. This is not a public-records request platform.")
 
-    report_review and freeform can rebuild artifacts from stored data; for
-    others we report that a re-run is needed (keeps deterministic guarantees —
-    we never fabricate result tables that were not persisted)."""
-    if run is None:
-        return False
-    run_id = run["run_id"]
-    wtype = run.get("workflow_type")
-    out_dir = Path(settings.export_dir) / run_id
-    findings = run.get("findings", []) or []
-    llms = run.get("llm_responses", []) or []
-    validations = run.get("validation_results", []) or []
-    if wtype not in ("report_review", "freeform") or not findings:
-        return False
-    # Rebuild typed objects from stored payloads.
-    from src.core.schemas import DeterministicFinding, ValidationResult
-    det_findings = [DeterministicFinding(**f) for f in findings]
-    response_json = llms[-1].get("response_json", {}) if llms else {}
-    validation = (ValidationResult(**validations[-1]) if validations
-                  else ValidationResult(passed=True))
-    events = audit.list_events(run_id)
-    if wtype == "report_review":
-        from src.workflows import report_review as rr
+    interactions = ledger.list_llm_interactions()
+    if not interactions:
+        st.info("No AI interactions yet. Run a workflow to populate this log.")
+        return
 
-        class _Det:
-            findings = det_findings
-            summary = run.get("summary", {}) or {}
-        paths = rr.export_artifacts(out_dir, _Det(), response_json, validation, events)
-        artifacts = _artifacts_from_paths(run_id, paths)
-    else:  # freeform
-        from src.workflows import freeform as ff
-        det = ff.run_deterministic(
-            ff.FreeformRequest(task_type=str((run.get("summary") or {}).get(
-                "task_type", "freeform")), sensitivity_confirmation=True))
-        det.findings = det_findings
-        artifacts = ff.export_artifacts(
-            out_dir, det, response_json, validation, events, run_id=run_id)
-    for a in artifacts:
-        ledger.store_export_artifact(run_id, a)
-    audit.export_generated(run_id, settings.default_actor,
-                           artifacts=[a.file_name for a in artifacts])
-    return True
+    # --- Filters --------------------------------------------------------- #
+    wf_types = sorted({i["workflow_type"] for i in interactions if i["workflow_type"]})
+    draft_states = sorted({i["ai_draft_status"] for i in interactions})
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        wf_filter = st.multiselect("Workflow", wf_types, default=wf_types)
+    with f2:
+        draft_filter = st.multiselect("AI draft status", draft_states,
+                                      default=draft_states)
+    with f3:
+        query = st.text_input("Search (run id, model, template)")
 
+    def _match(i: dict) -> bool:
+        if i["workflow_type"] not in wf_filter:
+            return False
+        if i["ai_draft_status"] not in draft_filter:
+            return False
+        if query:
+            hay = " ".join(str(i.get(k, "")) for k in (
+                "run_id", "model_provider", "model_name",
+                "prompt_template_version", "validation_status")).lower()
+            if query.strip().lower() not in hay:
+                return False
+        return True
 
-def _artifacts_from_paths(run_id, paths: dict):
-    """Wrap a name->path mapping (report_review style) as ExportArtifacts."""
-    import hashlib
-
-    from src.core.schemas import ArtifactType, ExportArtifact
-    type_map = {".md": ArtifactType.MARKDOWN, ".csv": ArtifactType.CSV,
-                ".json": ArtifactType.JSON}
-    out = []
-    for name, p in paths.items():
-        p = Path(p)
-        sha = (hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else "")
-        out.append(ExportArtifact(
-            run_id=run_id,
-            artifact_type=type_map.get(p.suffix, ArtifactType.OTHER),
-            file_name=name, path=str(p), sha256=sha))
-    return out
+    filtered = [i for i in interactions if _match(i)]
+    st.caption(f"Showing {len(filtered)} of {len(interactions)} AI interactions.")
+    st.dataframe(
+        [{"run_id": i["run_id"][:8], "workflow": i["workflow_type"],
+          "model": f"{i['model_provider']}/{i['model_name']}",
+          "template": i["prompt_template_version"],
+          "validation": i["validation_status"],
+          "ai_draft_status": i["ai_draft_status"],
+          "created_at": i["created_at"]} for i in filtered],
+        use_container_width=True, hide_index=True)
+    st.caption("Open **Review Run** to inspect or approve/reject a specific "
+               "AI draft.")
 
 
 # --------------------------------------------------------------------------- #
@@ -589,6 +686,9 @@ def render_settings() -> None:
     st.title("Settings")
     st.caption("No authentication in the MVP. Settings persist to "
                "app_settings.json at the repo root.")
+    st.info("Tolerances and thresholds below are applied to NEW runs (unless a "
+            "run uploads its own config/threshold file, which takes precedence).",
+            icon="⚙️")
 
     with st.form("settings_form"):
         city = st.text_input("City name", settings.city_name)
@@ -662,6 +762,7 @@ PAGE_RENDERERS = {
     "Workflow History": render_history,
     "Review Run": render_review_run,
     "Export Center": render_export_center,
+    "AI Audit Log": render_ai_audit_log,
     "Settings": render_settings,
     "About / Safety": render_about,
 }

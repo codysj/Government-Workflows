@@ -50,5 +50,18 @@ Justification recorded in `docs/research/workflow_selection_scorecard.md` and
   approval language, missing refs, invalid JSON.
 - Only synthetic data; no secrets, no PII, no real integrations.
 
+## Post-MVP polish pass (Tier 1)
+- [x] Bank reconciliation runnable from the Streamlit UI (all 4 workflows in-app)
+- [x] Settings tolerances/thresholds thread into runs (uploaded configs win)
+- [x] Per-run export isolation (`export_dir/<run_id>/`)
+- [x] Consolidated review packet (`review_packet.md` + `run_manifest.json`)
+- [x] Uniform export-artifact recording across all workflows
+- [x] Consistent, non-duplicated audit lifecycle (single owner)
+- [x] AI Audit Log page + `RunLedger.list_llm_interactions()` (draft-vs-final)
+- [x] Import presets / ERP-style column aliases + sample dataset
+- [x] Import presets wired into Run Workflow UI (per-upload "source format" selector)
+- [x] UX polish (spinners, result metrics, draft status, empty/error states)
+- [x] Tests: 140 passed; AppTest manual verification of all 8 pages + format selectors; PII sweep clean
+
 ## Architecture decision log
 Major decisions recorded in `docs/decisions.md` as implemented.

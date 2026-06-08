@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from src.core.audit_log import AuditLog
+from src.core.review_packet import generate_review_packet
 from src.core.run_ledger import RunLedger
 from src.core.schemas import (
     DeterministicFinding,
@@ -38,7 +39,24 @@ from src.core.schemas import (
     make_id,
 )
 from src.ingest.csv_loader import load_csv, to_input_file
-from src.workflows import budget_variance, freeform, report_review
+from src.ingest.presets import normalize_csv
+from src.workflows import (
+    bank_reconciliation,
+    budget_variance,
+    freeform,
+    report_review,
+)
+
+# Source-format choices for the per-upload "source format" selector. Each is
+# (label shown to staff, preset name or None). ``None`` means standard /
+# auto-detect (no aliasing). Presets are generic, local-file column-alias maps
+# (see src/ingest/presets.py) — NOT vendor integrations.
+SOURCE_FORMAT_CHOICES: tuple[tuple[str, Optional[str]], ...] = (
+    ("Standard / auto-detect", None),
+    ("Generic ERP export", "generic_erp"),
+    ("Tyler/Munis-style export", "tyler_munis_style"),
+    ("OpenGov-style export", "opengov_style"),
+)
 
 # Repo root (this file lives in app/).
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -70,9 +88,6 @@ class WorkflowDescriptor:
     note: str = ""
 
 
-# Bank reconciliation has no implemented module / synthetic data in this build
-# (no Expand agent delivered it). We surface it as a known-but-unavailable
-# workflow so the UI is honest and never imports a missing module.
 BANK_RECONCILIATION = WorkflowDescriptor(
     workflow_type="bank_reconciliation",
     title="Bank reconciliation",
@@ -83,17 +98,17 @@ BANK_RECONCILIATION = WorkflowDescriptor(
         "the unmatched items."
     ),
     uploads=(
-        UploadField("bank_statement", "Bank statement (CSV)", True),
+        UploadField("bank", "Bank statement (CSV)", True),
         UploadField("ledger", "Ledger export (CSV)", True),
         UploadField("chart_of_accounts", "Chart of accounts (CSV)", False),
-        UploadField("config", "Reconciliation config (JSON)", False, ("json",)),
+        UploadField("reconciliation_config", "Reconciliation config (JSON)",
+                    False, ("json",)),
     ),
-    example_files={},
-    available=False,
-    note=(
-        "Not available in this build. The deterministic bank-reconciliation "
-        "module has not been implemented yet."
-    ),
+    example_files={
+        "bank": "bank_reconciliation/bank.csv",
+        "ledger": "bank_reconciliation/ledger.csv",
+        "reconciliation_config": "bank_reconciliation/reconciliation_config.json",
+    },
 )
 
 BUDGET_VARIANCE = WorkflowDescriptor(
@@ -249,6 +264,32 @@ def _run_budget_variance(inputs, provider, export_dir, run_id):
     )
 
 
+def _run_bank_reconciliation(
+    inputs, provider, export_dir, run_id, ledger, audit, actor, config
+):
+    res = bank_reconciliation.run(
+        inputs,
+        provider=provider,
+        ledger=ledger,
+        audit=audit,
+        run_id=run_id,
+        actor=actor,
+        export_dir=export_dir,
+        config=config,
+    )
+    det = res["deterministic"]
+    return UniformRunResult(
+        run_id=run_id,
+        workflow_type="bank_reconciliation",
+        findings=res["findings"],
+        summary=res["summary"],
+        result_tables=getattr(det, "result_tables", {}) or {},
+        llm_response=res["llm_response"],
+        validation=res["validation"],
+        export_paths={k: str(v) for k, v in res.get("export_paths", {}).items()},
+    )
+
+
 def _run_report_review(inputs, provider, export_dir, run_id, ledger, audit, actor):
     res = report_review.run(
         inputs,
@@ -296,6 +337,130 @@ def _run_freeform(inputs, provider, export_dir, run_id, ledger, audit, actor):
 
 
 # --------------------------------------------------------------------------- #
+# Audit lifecycle ownership
+# --------------------------------------------------------------------------- #
+class _LifecycleSuppressingAudit:
+    """Audit proxy that forwards granular events but no-ops runner-owned ones.
+
+    Some workflow modules (bank_reconciliation, freeform) emit
+    ``run_created`` / ``run_completed`` / ``run_failed`` / ``export_generated``
+    internally. ``run_workflow`` is the single, consistent owner of those events,
+    so when it calls a workflow it passes this proxy to suppress the duplicates
+    while still letting the workflow's granular events
+    (deterministic_analysis_completed, llm_request_sent, llm_response_received,
+    validation_completed) flow through to the real audit log. This keeps the
+    audit trail uniform across all four workflows.
+    """
+
+    _OWNED_BY_RUNNER = {
+        "run_created", "run_completed", "run_failed", "export_generated",
+    }
+
+    def __init__(self, inner: Optional[AuditLog]):
+        self._inner = inner
+
+    def __getattr__(self, name: str):
+        if name in self._OWNED_BY_RUNNER:
+            return lambda *a, **k: None
+        return getattr(self._inner, name)
+
+
+_ARTIFACT_TYPE_BY_SUFFIX = {
+    ".md": "markdown", ".csv": "csv", ".json": "json", ".zip": "zip",
+}
+
+
+def _ensure_export_artifacts_recorded(
+    ledger: RunLedger, run_id: str, export_paths: dict[str, str]
+) -> None:
+    """Record any workflow export files not already in the ledger.
+
+    bank_reconciliation/freeform self-store their artifacts; budget_variance and
+    report_review only return paths. This makes every workflow's artifacts appear
+    in the ledger uniformly (idempotent by file_name, so self-stored ones are not
+    duplicated). sha256 is computed from the file on disk.
+    """
+    from src.core.exports import sha256_file
+    from src.core.schemas import ArtifactType, ExportArtifact
+
+    existing = {a.get("file_name") for a in ledger.list_export_artifacts(run_id)}
+    for name, path in export_paths.items():
+        if name in existing:
+            continue
+        p = Path(path)
+        if not p.is_file():
+            continue
+        atype = _ARTIFACT_TYPE_BY_SUFFIX.get(p.suffix.lower(), "other")
+        ledger.store_export_artifact(run_id, ExportArtifact(
+            run_id=run_id, artifact_type=ArtifactType(atype),
+            file_name=name, path=str(p), sha256=sha256_file(p)))
+
+
+def _apply_source_formats(
+    inputs: dict[str, Any],
+    source_formats: Optional[dict[str, str]],
+    work_dir: Path,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Apply column-alias presets to selected CSV inputs (import adapter).
+
+    For each input key mapped to a non-empty preset whose value is an existing
+    CSV path, writes an aliased copy into ``work_dir`` and substitutes its path.
+    Returns ``(new_inputs, applied)`` where ``applied`` maps input key -> preset
+    name actually applied. Non-CSV values, missing files, and ``None``/empty
+    preset selections are left untouched. The workflow still reads a plain CSV
+    path, so its deterministic logic is unchanged.
+    """
+    if not source_formats:
+        return inputs, {}
+    new_inputs = dict(inputs)
+    applied: dict[str, str] = {}
+    for key, preset in source_formats.items():
+        if not preset:
+            continue
+        val = inputs.get(key)
+        if not isinstance(val, (str, Path)):
+            continue
+        p = Path(val)
+        if not (p.is_file() and p.suffix.lower() == ".csv"):
+            continue
+        try:
+            new_inputs[key] = str(normalize_csv(p, preset, work_dir))
+            applied[key] = preset
+        except Exception:
+            # Never block a run on a preset failure; fall back to the raw file.
+            new_inputs[key] = str(p)
+    return new_inputs, applied
+
+
+def _config_for(workflow_type: str, inputs: dict, config: Optional[dict]) -> Any:
+    """Map UI/Settings config onto each workflow's expected shape.
+
+    Settings tolerances/thresholds are applied to a run unless the user supplied
+    an explicit config/threshold file in ``inputs`` (uploaded files win).
+    """
+    config = config or {}
+    if workflow_type == "bank_reconciliation":
+        if inputs.get("reconciliation_config"):
+            return None  # uploaded config file takes precedence
+        out: dict[str, Any] = {}
+        if "amount_tolerance" in config:
+            out["amount_tolerance"] = str(config["amount_tolerance"])
+        if "date_tolerance_days" in config:
+            out["date_tolerance_days"] = int(config["date_tolerance_days"])
+        return out or None
+    if workflow_type == "budget_variance":
+        if not inputs.get("thresholds") and (
+            "variance_dollar_threshold" in config
+            or "variance_threshold_pct" in config
+        ):
+            inputs["thresholds"] = {
+                "dollar_threshold": config.get("variance_dollar_threshold"),
+                "pct_threshold": config.get("variance_threshold_pct"),
+            }
+    return None
+
+
+# --------------------------------------------------------------------------- #
 # Uniform pipeline entry point
 # --------------------------------------------------------------------------- #
 def run_workflow(
@@ -307,21 +472,46 @@ def run_workflow(
     provider: Any = None,
     actor: str = "finance_staff",
     export_dir: Optional[str | Path] = None,
+    config: Optional[dict] = None,
+    source_formats: Optional[dict[str, str]] = None,
+    review_packet: bool = True,
 ) -> UniformRunResult:
     """Drive any registered workflow through the shared ledger/audit/export
     pipeline and return a uniform result.
 
     ``provider`` defaults to None, which means each workflow uses its built-in
     mock LLM (no API key / no internet) — the spec's default path.
+
+    ``config`` carries UI/Settings options (tolerances, thresholds). Uploaded
+    config/threshold files in ``inputs`` always take precedence over it.
+
+    ``source_formats`` maps an input key (e.g. ``"bank"``) to an import preset
+    name (see ``src.ingest.presets``). Matching CSV inputs are column-aliased to
+    the canonical names before the workflow reads them; the recorded input-file
+    hashes still reflect the ORIGINAL uploads, and the applied presets are noted
+    in the run summary + an audit event for traceability.
+
+    When ``review_packet`` is True and ``export_dir`` is set, a consolidated
+    review packet (``review_packet.md`` + ``run_manifest.json``) is generated
+    after the run from the persisted ledger data.
     """
     descriptor = DESCRIPTORS.get(workflow_type)
     if descriptor is None or not descriptor.available:
         raise ValueError(f"Workflow '{workflow_type}' is not available.")
 
     run_id = make_id()
+    # Each run gets its own export subdirectory so runs never overwrite each
+    # other's artifacts (important for the Export Center / a live demo).
+    run_export_dir: Optional[Path] = None
     if export_dir is not None:
         export_dir = Path(export_dir)
-        export_dir.mkdir(parents=True, exist_ok=True)
+        run_export_dir = export_dir / run_id
+        run_export_dir.mkdir(parents=True, exist_ok=True)
+
+    wf_config = _config_for(workflow_type, inputs, config)
+    # The workflow modules own their granular audit events; run_workflow owns the
+    # run lifecycle. Suppress duplicate lifecycle events from self-managing modules.
+    wf_audit = _LifecycleSuppressingAudit(audit) if audit is not None else None
 
     # 1. Ledger entry + input-file metadata.
     input_files = _input_files_for(inputs)
@@ -339,9 +529,23 @@ def run_workflow(
             audit.file_uploaded(run_id, actor, file_name=f.file_name,
                                 file_hash=f.file_hash)
 
+    # Import adapter: apply source-format presets to CSV inputs (if any). The
+    # ORIGINAL uploads are what input_files (above) hashed; the workflow reads
+    # the aliased copies. Done after metadata so the source of record is intact.
+    if run_export_dir is not None:
+        norm_dir = run_export_dir / "_normalized_inputs"
+    else:
+        import tempfile
+        norm_dir = Path(tempfile.mkdtemp(prefix="govwf_src_"))
+    wf_inputs, applied_formats = _apply_source_formats(
+        inputs, source_formats, norm_dir)
+    if applied_formats and audit is not None:
+        audit.file_parsed(run_id, actor, source_formats=applied_formats)
+
     try:
         if workflow_type == "budget_variance":
-            result = _run_budget_variance(inputs, provider, export_dir, run_id)
+            result = _run_budget_variance(
+                wf_inputs, provider, run_export_dir, run_id)
             # budget_variance does not self-persist; do it here.
             ledger.store_findings(run_id, result.findings)
             if audit is not None:
@@ -361,18 +565,26 @@ def run_workflow(
                 if audit is not None:
                     audit.validation_completed(
                         run_id, actor, passed=result.validation.passed)
+        elif workflow_type == "bank_reconciliation":
+            result = _run_bank_reconciliation(
+                wf_inputs, provider, run_export_dir, run_id, ledger, wf_audit,
+                actor, wf_config)
         elif workflow_type == "report_review":
             # report_review self-persists findings/llm/validation when given
             # ledger+audit; it does not write a run row (we did that above).
             result = _run_report_review(
-                inputs, provider, export_dir, run_id, ledger, audit, actor)
+                wf_inputs, provider, run_export_dir, run_id, ledger, wf_audit,
+                actor)
         elif workflow_type == "freeform":
             result = _run_freeform(
-                inputs, provider, export_dir, run_id, ledger, audit, actor)
+                wf_inputs, provider, run_export_dir, run_id, ledger, wf_audit,
+                actor)
         else:  # pragma: no cover - guarded above
             raise ValueError(workflow_type)
     except freeform.SensitivityNotConfirmedError as exc:
         ledger.update_run_status(run_id, RunStatus.FAILED.value)
+        if audit is not None:
+            audit.run_failed(run_id, actor, reason="sensitivity_not_confirmed")
         return UniformRunResult(
             run_id=run_id,
             workflow_type=workflow_type,
@@ -391,9 +603,11 @@ def run_workflow(
             audit.run_failed(run_id, actor)
         raise
 
-    # 4/5. Persist export artifacts to the ledger (report_review/freeform
-    # already store their own; budget_variance + any others recorded here).
-    if export_dir is not None and result.export_paths:
+    # 4/5. Ensure every workflow's export artifacts are recorded in the ledger
+    # (bank_reconciliation/freeform self-store; budget_variance/report_review
+    # only returned paths), then emit one workflow-artifacts export event.
+    if run_export_dir is not None and result.export_paths:
+        _ensure_export_artifacts_recorded(ledger, run_id, result.export_paths)
         if audit is not None:
             audit.export_generated(
                 run_id, actor, artifacts=sorted(result.export_paths))
@@ -407,12 +621,26 @@ def run_workflow(
     )
     summary = dict(result.summary or {})
     summary["validation_status"] = validation_status
+    if applied_formats:
+        summary["source_formats"] = applied_formats
     ledger.update_run_status(
         run_id, RunStatus.COMPLETED.value, summary=summary)
     if audit is not None:
         audit.run_completed(run_id, actor,
                             validation_status=validation_status)
     result.summary = summary
+
+    # 7. Consolidated review packet (built from persisted ledger data).
+    if review_packet and export_dir is not None:
+        try:
+            packet = generate_review_packet(
+                ledger, audit, run_id, export_dir, actor=actor)
+            for a in packet:
+                result.export_paths[a.file_name] = a.path
+        except Exception:
+            # A packet failure must never fail an otherwise-successful run.
+            pass
+
     return result
 
 

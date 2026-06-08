@@ -403,6 +403,61 @@ class RunLedger:
         return out
 
     # ------------------------------------------------------------------ #
+    # Cross-run AI interaction history (Tier 1: searchable AI usage log)
+    # ------------------------------------------------------------------ #
+    def list_llm_interactions(self) -> list[dict]:
+        """Return one row per stored LLM response, joined with run metadata.
+
+        Powers the AI Audit Log surface. Each row carries the run's workflow
+        type, validation status, and the model / prompt-template metadata so AI
+        usage is reviewable in one place. ``ai_draft_status`` is derived from
+        recorded human-review actions (``approve_draft`` -> final,
+        ``reject_ai_explanation`` -> rejected, else draft).
+        """
+        with self._connect() as conn:
+            llm_rows = conn.execute(
+                "SELECT l.run_id AS run_id, l.payload AS payload, "
+                "r.workflow_type AS workflow_type, r.created_at AS created_at, "
+                "r.status AS status, r.summary AS summary "
+                "FROM llm_responses l LEFT JOIN runs r ON l.run_id = r.run_id"
+            ).fetchall()
+            action_rows = conn.execute(
+                "SELECT run_id, payload FROM human_review_actions"
+            ).fetchall()
+
+        actions_by_run: dict[str, set[str]] = {}
+        for ar in action_rows:
+            payload = json.loads(ar["payload"])
+            actions_by_run.setdefault(ar["run_id"], set()).add(
+                payload.get("action", ""))
+
+        out: list[dict] = []
+        for row in llm_rows:
+            resp = json.loads(row["payload"])
+            summary = json.loads(row["summary"]) if row["summary"] else {}
+            names = actions_by_run.get(row["run_id"], set())
+            if "approve_draft" in names:
+                draft_status = "final (human-approved)"
+            elif "reject_ai_explanation" in names:
+                draft_status = "rejected"
+            else:
+                draft_status = "draft"
+            out.append({
+                "run_id": row["run_id"],
+                "workflow_type": row["workflow_type"],
+                "created_at": resp.get("created_at") or row["created_at"],
+                "model_provider": resp.get("model_provider"),
+                "model_name": resp.get("model_name"),
+                "prompt_template_version": resp.get("prompt_template_version"),
+                "validation_status": summary.get("validation_status", "n/a"),
+                "ai_draft_status": draft_status,
+                "referenced_source_rows": resp.get("referenced_source_rows", []),
+                "response_json": resp.get("response_json", {}),
+            })
+        out.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+        return out
+
+    # ------------------------------------------------------------------ #
     def close(self) -> None:
         # File-backed ledgers hold no long-lived connection (per-operation
         # connections are already closed). Only the shared in-memory connection

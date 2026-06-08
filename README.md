@@ -71,12 +71,18 @@ from the deterministic findings. Prompt templates are versioned in
 | **Financial report consistency review** | Check a draft report for subtotal mismatches, invalid account codes, duplicate lines, missing sections, large changes from a prior version, and inconsistent naming. | Explain each flagged issue and draft a review checklist. |
 | **Guided freeform** | A structured (not chat) fallback that routes ad-hoc tasks through the same logging and validation; fails closed unless sensitivity is confirmed. | Produce a DRAFT output, source-linked where possible, for human review. |
 
-All four are exposed through the CLI and the registry
-(`src/workflows/registry.py`). In the Streamlit UI, bank reconciliation is
-surfaced as a known-but-unavailable workflow (its deterministic module and
-synthetic data exist and are driven by the CLI and eval harness, but the UI
-adapter marks it unavailable); budget variance, report review, and guided
-freeform are runnable from the UI.
+All four are exposed through the CLI, the registry
+(`src/workflows/registry.py`), and the Streamlit UI — every workflow, including
+bank reconciliation, is runnable end-to-end from the app on the bundled
+synthetic sample data.
+
+Every completed run also produces a **consolidated review packet**
+(`review_packet.md` + `run_manifest.json`) on top of the workflow-specific
+artifacts. The packet cleanly separates run metadata, source-file SHA-256
+hashes, deterministic findings, the AI-assisted draft language (clearly
+labelled), validation results, reviewer notes and actions, approval/rejection
+status, and the audit history — built deterministically from the ledger, with no
+LLM call. See `src/core/review_packet.py`.
 
 ## Architecture
 
@@ -112,7 +118,8 @@ freeform are runnable from the UI.
           v
   +-------------------------+
   | EXPORTABLE PACKET       |   *_summary.md, *.csv detail, draft memos,
-  | (deterministic format)  |   validation_report.json
+  | (deterministic format)  |   validation_report.json + consolidated
+  |                         |   review_packet.md + run_manifest.json
   +-------------------------+
           |
           v
@@ -167,7 +174,52 @@ streamlit run app/streamlit_app.py
 ```
 
 The app has Home, Run Workflow, Workflow History, Review Run, Export Center,
-Settings, and About / Safety pages.
+**AI Audit Log**, Settings, and About / Safety pages. The AI Audit Log is a
+searchable/filterable history of every AI interaction (run, workflow, model,
+prompt-template version, validation status, and draft-vs-final approval state) —
+a CPRA-style review surface for AI usage. The Settings tolerances and thresholds
+are applied to new runs (an uploaded config/threshold file takes precedence).
+
+## Demo path
+
+A 2–3 minute end-to-end walkthrough on synthetic data only:
+
+1. **Start the app:** `streamlit run app/streamlit_app.py`.
+2. **Home / About → Safety:** read what the tool does and does not do (no
+   chatbot, deterministic calculations, AI is advisory and source-linked).
+3. **Run Workflow → Bank reconciliation:** check *Use example files (load
+   synthetic data)* and click **Run workflow**. The result shows findings count,
+   validation status, and artifact count, with a note that the AI draft was
+   validated against the source data.
+   - *Import-preset demo (optional):* instead of the example files, upload
+     `data/synthetic/bank_reconciliation/erp_style_bank.csv` for the bank
+     statement and `ledger.csv` for the ledger, set the bank statement's
+     **source format** to *Generic ERP export*, and run. The ERP-style headers
+     ("Posting Date", "Memo", "Transaction Amount") are column-aliased to the
+     canonical names before analysis; the recorded source-file hash is still the
+     original upload, and the applied preset is noted in the run summary and
+     audit trail. (Without the preset the run is rejected — the date column is
+     not auto-detected.)
+4. **Review Run:** inspect the run — validation warnings first, then the
+   deterministic findings table (each citing `bank:row` / `ledger:row` source
+   refs), the AI draft (labelled DRAFT), input-file hashes, and the audit
+   events. Use a per-finding control (e.g. **Approve draft for export** or
+   **Needs follow-up**); the AI-draft metric flips from `draft` to
+   `final (human-approved)`.
+5. **Export Center:** download `review_packet.md` (open it to show the clean
+   separation of deterministic vs AI-draft vs validation vs reviewer vs audit)
+   and `run_manifest.json` (machine-readable bundle with model metadata, source
+   hashes, and export history). Click **Generate review packet** to regenerate
+   it reflecting the latest review actions.
+6. **AI Audit Log:** filter by workflow / draft status / search to show every
+   AI interaction and which drafts a human has approved.
+7. **Repeat** with Budget variance and Report review (also example files), then
+   try **Guided freeform** — note it refuses to run unless the sensitivity
+   confirmation is checked.
+
+To explain the architecture in one line: *deterministic code does all the math
+and matching; the LLM only drafts language and must cite source rows; every run
+is logged, validated, and exported for a human to approve.*
 
 ## How to run tests
 
@@ -214,8 +266,12 @@ CLI, persistence (SQLite run ledger), validation, and LLM wrapper kept separate
 so workflows never touch Streamlit or provider code.
 
 **Workflow implementation.** Three high-value workflows plus a guided-freeform
-fallback share that pipeline through a uniform registry, each producing
-source-linked findings and an exportable review packet.
+fallback share that pipeline through a uniform registry — all four runnable from
+the CLI and the Streamlit UI — each producing source-linked findings and a
+consolidated review packet (`review_packet.md` + `run_manifest.json`) that
+separates deterministic findings, the AI draft, validation, reviewer notes,
+approval status, and audit history. A searchable AI Audit Log surfaces every AI
+interaction with its model/template metadata and draft-vs-final approval state.
 
 **Validation.** A deterministic validation layer checks every LLM output against
 the source data, rejecting or flagging invented references and numeric claims not

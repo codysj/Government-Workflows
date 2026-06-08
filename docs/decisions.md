@@ -394,3 +394,123 @@ hazard). Audit reads/writes now go through public `RunLedger.append_audit_event`
 accessors. No method, schema, or stored data changed. Covered by
 `tests/unit/test_run_ledger.py` (round-trips + cross-thread + concurrent-write
 regression tests).
+
+## Post-MVP polish pass (Tier 1 roadmap)
+
+Scope: demoability, exports, and audit/CPRA readiness — no Tier 2/3 features, no
+new heavy dependencies, no change to deterministic workflow logic.
+
+- **Bank reconciliation re-enabled in the Streamlit UI.** The UI registry
+  (`app/workflow_registry.py`) previously marked bank reconciliation
+  `available=False` with a stale note ("module not implemented"). The module,
+  synthetic data, CLI subcommand, and eval coverage all existed and passed, so
+  the flagship MVP workflow was simply hidden from the app. Fixed: descriptor is
+  now `available=True` with example files, and a `_run_bank_reconciliation`
+  adapter (mirroring report_review/freeform) drives it. All four workflows now
+  run end-to-end from the UI.
+
+- **Settings now thread into runs.** `app/workflow_registry.run_workflow` gained
+  a `config` parameter; the Settings page builds it (`_settings_to_config`) and
+  passes it. `_config_for` maps it onto each workflow (bank tolerances; budget
+  thresholds). Uploaded config/threshold files always take precedence over
+  Settings. Previously the Settings tolerances/thresholds were saved but never
+  used — the page was decorative.
+
+- **Per-run export isolation.** The app wrote every run's artifacts into one flat
+  `export_dir`, so runs overwrote each other (Export Center download links for
+  older runs pointed at newer content). Runs now write to
+  `export_dir/<run_id>/`. (The CLI already used explicit per-invocation dirs and
+  is unchanged.)
+
+- **Consolidated review packet (`src/core/review_packet.py`).** Every completed
+  run now also gets `review_packet.md` (human-readable) + `run_manifest.json`
+  (machine-readable), built deterministically from persisted ledger data — no
+  LLM call. They separate run metadata, source-file hashes, deterministic
+  findings, AI draft (labelled), validation, reviewer notes, approval status,
+  and audit history. Regeneratable from the Export Center for ANY run (reflects
+  the latest review actions), replacing the old report_review/freeform-only
+  regenerate path. Tradeoff: no PDF — markdown is dependency-free, diffable, and
+  demo-friendly; a PDF renderer would add a heavy dependency for little MVP gain
+  (left to the roadmap).
+
+- **Uniform export-artifact recording.** budget_variance and report_review wrote
+  their artifacts to disk on the app path but never recorded them in the ledger
+  (only bank/freeform self-stored). `_ensure_export_artifacts_recorded` now
+  records any workflow's artifacts idempotently (by file name, with sha256), so
+  Export Center / the manifest see a complete artifact set for every workflow.
+
+- **Consistent audit lifecycle.** bank_reconciliation and freeform emit
+  `run_created` / `run_completed` / `export_generated` internally; the registry
+  also emitted them, so freeform already had duplicate events. A small
+  `_LifecycleSuppressingAudit` proxy makes `run_workflow` the single owner of
+  those runner-level events while granular events still flow from the workflow,
+  yielding one consistent, non-duplicated audit trail across all four workflows.
+
+- **AI Audit Log (Tier 1: searchable AI interaction history).** New
+  `RunLedger.list_llm_interactions()` joins each stored LLM response with run +
+  review metadata and derives draft-vs-final status (`approve_draft` -> final,
+  `reject_ai_explanation` -> rejected). A new Streamlit page filters by workflow
+  / draft status / free-text and shows model provider+name, prompt-template
+  version, and validation status. This is a CPRA-style AI-usage review surface,
+  not a public-records request platform.
+
+- **Import presets (Tier 1: import adapters).** `src/ingest/presets.py` adds a
+  generic, local-file-only column-alias layer mapping ERP-style headers
+  ("Posting Date", "GL Date", "Transaction Amount", ...) onto the canonical
+  names the workflows expect. Opt-in (does not change the core pipeline) and
+  demonstrated by `data/synthetic/bank_reconciliation/erp_style_bank.csv`. The
+  vendor presets (Tyler/Munis, OpenGov) are illustrative placeholders, not real
+  schemas — no API integration or authentication, per the constraints.
+
+- **UX polish.** Run Workflow shows a spinner plus findings / validation /
+  artifact metrics and a validation note; Review Run shows an AI draft-vs-final
+  metric; History shows a run count and short ids; Settings notes that
+  tolerances apply to new runs; error/empty states give finance-staff-friendly
+  guidance.
+
+Manual verification (this pass): `pytest` 135 passed; all 8 Streamlit pages
+render via `streamlit.testing.AppTest`; bank reconciliation runs end-to-end from
+the Run Workflow page (8 findings, validation passed, 8 artifacts incl. the
+packet); a per-finding Approve button and the Export Center packet button work;
+secret/PII sweep over source + data + exports is clean.
+
+## Import presets wired into the Run Workflow UI
+
+Follow-up to the post-MVP pass: the column-alias presets (`src/ingest/presets.py`)
+are now reachable from the UI, making the import-adapter capability demoable.
+
+- **Per-upload "source format" selector.** Each CSV *data* input on the Run
+  Workflow page (not JSON config files, not freeform's mixed uploads) gets a
+  small selectbox: *Standard / auto-detect* (default), *Generic ERP export*,
+  *Tyler/Munis-style*, *OpenGov-style*. Selecting a preset column-aliases that
+  file's headers onto the canonical names before the workflow reads it.
+
+- **File-rewrite strategy (workflow-agnostic).** When a preset is selected,
+  `workflow_registry._apply_source_formats` writes an *aliased copy* of the CSV
+  (`src.ingest.presets.normalize_csv`) and passes that path to the workflow. All
+  three tabular workflows read CSV paths (report_review requires a path), so a
+  rewrite is the uniform, lowest-risk choice and the deterministic workflow logic
+  is completely unchanged. Presets are applied to uploaded files only — example
+  files are already in standard format.
+
+- **Source of record preserved.** `run_workflow` builds input-file metadata
+  (SHA-256 hashes) from the ORIGINAL uploads BEFORE aliasing, so the audit
+  trail/manifest hash the file the user actually provided. The applied preset is
+  recorded in the run summary (`source_formats`) and a `file_parsed` audit event,
+  so a reviewer can see both the original file and the normalization applied.
+  Tradeoff considered: hashing the aliased copy would be simpler but less honest
+  for CPRA review; recording the original + the preset is the defensible choice.
+
+- **Scope.** Only the bank-reconciliation ERP sample
+  (`data/synthetic/bank_reconciliation/erp_style_bank.csv`) is shipped/tested
+  end-to-end; the selector is available for all CSV inputs but ERP samples for
+  budget/report were out of scope. Presets remain generic, local-file column
+  maps — no vendor API, no authentication. A preset failure never blocks a run
+  (falls back to the raw file).
+
+Tests: `test_presets.normalize_csv*`; `test_app_registry` proves the ERP file
+reconciles with the preset, is rejected without it, records `source_formats` +
+`file_parsed`, and keeps the original file hash. An AppTest confirms the
+selectors render (one per CSV input, four choices each). A test-isolation fixture
+redirects the guided-freeform discovery log to a temp file so the integration
+tests never append to `docs/research/freeform_task_observations.md`.

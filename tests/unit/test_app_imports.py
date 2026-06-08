@@ -39,6 +39,7 @@ def test_all_page_renderers_exist():
         "Workflow History": "render_history",
         "Review Run": "render_review_run",
         "Export Center": "render_export_center",
+        "AI Audit Log": "render_ai_audit_log",
         "Settings": "render_settings",
         "About / Safety": "render_about",
     }
