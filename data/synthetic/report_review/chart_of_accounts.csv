@@ -1,0 +1,10 @@
+account_code,account_name,normal_balance
+4010,Property Tax Revenue,credit
+4020,Sales Tax Revenue,credit
+4030,Charges for Services,credit
+4040,Investment Earnings,credit
+5010,Salaries and Wages,debit
+5020,Employee Benefits,debit
+5030,Supplies,debit
+5040,Professional Services,debit
+5050,Utilities,debit

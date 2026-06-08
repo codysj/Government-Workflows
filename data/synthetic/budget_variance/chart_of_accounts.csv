@@ -1,0 +1,8 @@
+fund,account,department,object,account_name
+General,5001,Police,Salaries,Police Salaries
+General,5002,Fire,Salaries,Fire Salaries
+General,5003,Parks,Supplies,Parks Supplies
+Water,6001,Utilities,Maintenance,Water System Maintenance
+General,5010,Library,Books,Library Books
+General,5020,Recreation,Equipment,Recreation Equipment
+General,5099,Finance,Audit,External Audit Services

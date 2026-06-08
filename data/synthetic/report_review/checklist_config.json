@@ -1,0 +1,11 @@
+{
+  "required_sections": ["Revenues", "Expenditures", "Fund Balance"],
+  "negative_not_allowed_sections": ["Revenues", "Expenditures"],
+  "prior_change_pct_threshold": 25.0,
+  "prior_change_min_amount": 10000,
+  "section_column": "section",
+  "account_code_column": "account_code",
+  "account_name_column": "account_name",
+  "line_type_column": "line_type",
+  "amount_column": "amount"
+}

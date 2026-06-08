@@ -1,0 +1,6 @@
+fund,account,department,object,actual_amount
+General,5001,Police,Salaries,50500
+General,5002,Fire,Salaries,235000
+General,5003,Parks,Supplies,3000
+Water,6001,Utilities,Maintenance,79000
+General,5020,Recreation,Equipment,12000

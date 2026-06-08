@@ -1,0 +1,14 @@
+section,account_code,account_name,line_type,amount
+Revenues,4010,Property Tax Revenue,line_item,500000
+Revenues,4020,Sales Tax Revenue,line_item,300000
+Revenues,4030,Charges for Services,line_item,150000
+Revenues,4040,Investment Earnings,line_item,50000
+Revenues,,Total Revenues,subtotal,1000000
+Expenditures,5010,Salaries and Wages,line_item,400000
+Expenditures,5020,Employee Benefits,line_item,120000
+Expenditures,5030,Supplies,line_item,80000
+Expenditures,5030,Supplies,line_item,80000
+Expenditures,5040,Professional Services,line_item,60000
+Expenditures,5040,Prof. Services,line_item,30000
+Expenditures,5099,Contingency,line_item,40000
+Expenditures,,Total Expenditures,subtotal,700000
