@@ -26,6 +26,10 @@ class AppSettings:
     variance_threshold_pct: float = 10.0
     variance_dollar_threshold: float = 10000.0
     export_dir: str = str(DEFAULT_EXPORT_DIR)
+    # Tier 1: role-specific views (no auth — display emphasis only) and the
+    # default records-retention category applied to new runs.
+    role: str = "Accountant"
+    default_retention_category: str = "draft_working"
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "AppSettings":

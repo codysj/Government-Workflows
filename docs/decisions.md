@@ -514,3 +514,153 @@ reconciles with the preset, is rejected without it, records `source_formats` +
 selectors render (one per CSV input, four choices each). A test-isolation fixture
 redirects the guided-freeform discovery log to a temp file so the integration
 tests never append to `docs/research/freeform_task_observations.md`.
+
+## Import presets extended to budget & report + applied-preset surfacing
+
+Follow-up extending the import-preset capability across all three workflows and
+making the applied preset visible everywhere it matters.
+
+- **Generic preset now covers budget + report dimensions.** Added 7 purely
+  additive aliases to `GENERIC_ERP` (no existing mapping changed): budget join
+  dims `account_key→account`, `cost_center→department`, `object_class→object`;
+  report dims `statement_section→section`, `account_description→account_name`,
+  `row_type→line_type`, `reported_amount→amount`. The account-vs-account_code
+  ambiguity (budget uses `account`, report uses `account_code`) is avoided by
+  giving each domain a distinct ERP source name (`account_key` vs `account_no`),
+  so one generic preset serves all three workflows without conflict.
+
+- **ERP-style samples for all three workflows.**
+  `data/synthetic/budget_variance/erp_style_{budget,actuals}.csv` and
+  `data/synthetic/report_review/erp_style_report.csv` mirror the standard
+  samples with ERP headers. With the preset they reproduce the IDENTICAL
+  deterministic findings as the standard files (asserted by equivalence tests);
+  without it they fail cleanly (budget → no join keys; report → no `section`
+  column), so the demo shows the preset doing real, necessary work.
+
+- **Value-preservation fix in `normalize_csv`.** Plain `pd.read_csv` coerced
+  integer-like account codes with blank subtotal rows to floats ("5010" →
+  "5010.0"), which then failed to match the chart of accounts / prior version
+  (11 false "invalid code" findings instead of 1). Fixed by reading with
+  `dtype=str, keep_default_na=False` so aliasing renames columns ONLY and never
+  rewrites values; the workflows still parse amounts/dates themselves. This made
+  the ERP report run exactly equivalent to the standard run.
+
+- **Applied preset surfaced everywhere.** The review packet's source-files
+  section (`review_packet.md` §2) now notes which presets were applied and that
+  the listed hashes are the ORIGINAL uploads; `run_manifest.json` gained a
+  top-level `source_formats` field; and the Review Run page shows the applied
+  presets in the Input files area. (The Run Workflow result already showed them.)
+
+Scope held: presets remain opt-in (never auto-applied), only the standard-data
+column contracts are reused (no workflow logic changed), and the new aliases are
+additive so existing standard runs and the bank ERP demo are unaffected.
+Tests: +7 (147 total) — new-alias coverage, value preservation, budget/report
+ERP equivalence + fail-without-preset, and packet/manifest surfacing.
+
+## Tier 1 completion (near-term extensions)
+
+Final Tier 1 feature set, with the key decisions and tradeoffs actually made.
+Scope held throughout: no new third-party dependencies, no change to
+deterministic workflow logic, synthetic data only, and the deterministic /
+LLM-only separation preserved (none of these features lets the model calculate,
+match, approve, or write final official language).
+
+- **Retention category (`RetentionCategory` enum).** Each run is tagged with a
+  records-retention category. The five values
+  (`draft_working` [default], `transitory`, `administrative_record`,
+  `audit_record`, `permanent`) are a deliberately small, government-records-
+  oriented set rather than a full retention-schedule taxonomy — enough to
+  demonstrate the concept and drive the review packet/manifest without modeling a
+  jurisdiction-specific schedule. Unknown values fall back to `draft_working`
+  (fail-safe). **Safe ledger migration:** the `runs` table gains a
+  `retention_category TEXT` column via a guarded `PRAGMA table_info` check +
+  `ALTER TABLE ... ADD COLUMN` at DB init, so existing on-disk ledgers migrate
+  automatically and NULLs default-fill to `draft_working` on read — no destructive
+  rebuild. It is persisted on `WorkflowRun`, mirrored into `summary`, added as a
+  `run_created` audit detail, and surfaced in `review_packet.md` §1 and
+  `run_manifest.json` (top-level). Code: `src/core/schemas.py`,
+  `src/core/run_ledger.py`, `src/core/review_packet.py`,
+  `app/workflow_registry.py`.
+
+- **Exportable AI usage log (`src/core/ai_usage_log.py`).** A deterministic
+  exporter that flattens each stored LLM interaction (run, workflow, model
+  provider/name, prompt-template version, validation status, draft-vs-final
+  state, referenced-source-row count) into one row, writing `ai_usage_log.csv`
+  and/or `ai_usage_log.json`. Built on the existing
+  `RunLedger.list_llm_interactions()` join rather than a new query path. This
+  makes the CPRA-style AI-usage surface downloadable for an external reviewer;
+  empty ledgers produce a header-only CSV / empty JSON list (no crash).
+
+- **Prompt/response diffing (`src/core/diffing.py`).** Compares two stored AI
+  interactions: prompt-template change, model change, a unified text diff of the
+  draft summary, and referenced-rows added/removed. **Decision: stdlib `difflib`
+  only** — no third-party diff library — keeping the no-new-dependency rule and
+  staying fully deterministic. Pure functions; no LLM call (the diff is
+  mechanical, not model-judged).
+
+- **PDF summary export (`src/core/pdf_export.py`).** A **pure-Python PDF writer**
+  that hand-emits a valid PDF 1.4 file (catalog, pages tree, content streams,
+  byte-accurate xref, trailer). **Why hand-written:** the constraints forbid new
+  third-party dependencies (no reportlab/fpdf), and a review packet is plain text,
+  so a minimal writer is sufficient and dependency-free. **Limits (by design):**
+  text-only, single base-14 font (Courier, no font embedding), no images/colors/
+  markdown rendering, Latin-1/ASCII only (un-encodable chars become `?`), fixed
+  character-count wrapping and fixed lines-per-page pagination. This resolves the
+  earlier "no PDF" tradeoff noted in the post-MVP packet decision without taking on
+  a heavy dependency.
+
+- **Chart-of-accounts import preset.** Added a `chart_of_accounts` preset to
+  `src/ingest/presets.py` mapping ERP-style COA headers
+  (e.g. `GL Code`, `Account Title`, `Balance Type`) onto canonical
+  `account_code` / `account_name` / `normal_balance` (plus `fund` when present).
+  Consistent with the existing opt-in, local-file-only, value-preserving preset
+  design (column rename only, never value rewrite); registered in
+  `SOURCE_FORMAT_CHOICES`. Synthetic sample:
+  `data/synthetic/report_review/erp_style_chart_of_accounts.csv`.
+
+- **Role-specific views (`app/role_views.py`).** A sidebar role selector (AP
+  clerk, Accountant, Finance analyst, Finance director) reorders and emphasizes
+  findings for the selected role. **Decision: presentation-only, not
+  authentication** — it is a non-destructive ordering/emphasis layer that never
+  hides, filters out, or deletes data (a "Show all findings" toggle always
+  restores full order), so it carries no security/access-control claim. This
+  honors the "no production auth" constraint while still demonstrating
+  role-tailored review. Lives in the app layer only; no core/workflow code role-
+  aware.
+
+- **Redaction assist — regex PROTOTYPE (`src/core/redaction.py`).** A
+  deterministic regex scanner/redactor for SSN, email, phone, credit-card, and
+  long-number (account-like) patterns, with most-specific-first precedence
+  (e.g. 16-digit → credit_card, 9-digit → long_number) and masked previews.
+  **Explicitly a demonstration prototype, NOT a compliance/public-records
+  redaction tool:** regex PII detection has false positives/negatives, covers only
+  a handful of patterns, and makes no completeness guarantee. The UI page carries a
+  synthetic-only PROTOTYPE warning. It does not redact stored runs or exports — it
+  is an assist surface for review.
+
+- **Scheduled runs (`src/core/scheduler.py`).** Local, **manual-trigger** recurring
+  schedules (monthly / quarterly / before-agenda / custom-interval) persisted to a
+  JSON file (`runs/schedules.json`). **Decision: no daemon, no cron, no background
+  process.** `advance_due` is a pure function that takes the reference date as a
+  parameter and never reads the system clock (the UI passes `date.today()` only at
+  the app boundary), keeping the core deterministic and testable. Schedules are
+  recorded and surfaced as "due"; the user clicks **Run now** to execute — there is
+  no autonomous execution, consistent with the local-first, human-in-the-loop,
+  no-background-service posture of the MVP.
+
+### Intentionally NOT built
+
+- **No full CPRA / public-records platform.** The AI usage log export and the
+  redaction prototype are review/demonstration surfaces, not a public-records
+  request intake, tracking, or compliant-redaction system. Compliant redaction,
+  request workflows, and legal review remain out of scope.
+- **No retention-schedule engine.** `RetentionCategory` is a tag, not a
+  disposition/destruction scheduler; the MVP does not auto-expire, archive, or
+  destroy records.
+- **No PDF rendering engine.** The PDF writer is intentionally text-only with no
+  fonts/images/markup; rich rendering is out of scope.
+- **No authentication / access control.** Role views are presentation-only.
+- **No scheduler daemon / background automation.** Scheduling is manual-trigger
+  only; no cron, no service, no autonomous runs.
+- **No new third-party dependencies.** Every Tier 1 feature uses the existing
+  stack (stdlib + pandas/pydantic/openpyxl/streamlit).

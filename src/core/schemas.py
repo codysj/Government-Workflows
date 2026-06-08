@@ -85,6 +85,20 @@ class ArtifactType(str, Enum):
     OTHER = "other"
 
 
+class RetentionCategory(str, Enum):
+    """Records-retention classification for a run (Tier 1 extension).
+
+    Lets staff tag each run for public-records / retention-schedule purposes.
+    Deterministic metadata only; the AI never sets it.
+    """
+
+    DRAFT_WORKING = "draft_working"
+    TRANSITORY = "transitory"
+    ADMINISTRATIVE = "administrative_record"
+    AUDIT_RECORD = "audit_record"
+    PERMANENT = "permanent"
+
+
 # --------------------------------------------------------------------------- #
 # Schemas
 # --------------------------------------------------------------------------- #
@@ -220,6 +234,7 @@ class WorkflowRun(BaseModel):
     llm_results: Optional[LLMResponse] = None
     validation_results: Optional[ValidationResult] = None
     human_review_status: HumanReviewStatus = HumanReviewStatus.PENDING
+    retention_category: RetentionCategory = RetentionCategory.DRAFT_WORKING
     export_artifacts: list[ExportArtifact] = Field(default_factory=list)
     # In-memory only (not persisted to ledger): result tables + summary for UI.
     result_tables: dict[str, Any] = Field(default_factory=dict, exclude=True)

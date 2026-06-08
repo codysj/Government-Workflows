@@ -71,6 +71,41 @@ def test_normalize_csv_unknown_preset_raises(tmp_path):
         presets.normalize_csv(ERP_BANK, "nope", tmp_path)
 
 
+def test_generic_erp_covers_budget_dimensions():
+    df = pd.DataFrame({
+        "Fund Code": ["General"], "Account Key": ["5001"],
+        "Cost Center": ["Police"], "Object Class": ["Salaries"],
+        "Budget Amount": ["50000"],
+    })
+    out = presets.apply_preset(df, "generic_erp")
+    assert {"fund", "account", "department", "object", "budget_amount"} <= set(out.columns)
+
+
+def test_generic_erp_covers_report_dimensions():
+    df = pd.DataFrame({
+        "Statement Section": ["Revenues"], "Account No": ["4010"],
+        "Account Description": ["Property Tax"], "Row Type": ["line_item"],
+        "Reported Amount": ["500000"],
+    })
+    out = presets.apply_preset(df, "generic_erp")
+    assert {"section", "account_code", "account_name", "line_type", "amount"} <= set(out.columns)
+
+
+def test_normalize_csv_preserves_integer_codes_and_blanks(tmp_path):
+    """Aliasing must rename columns only — integer-like account codes must not
+    become floats ('5010' not '5010.0') and blank subtotal cells stay blank."""
+    erp_report = (
+        Path(__file__).resolve().parents[2]
+        / "data" / "synthetic" / "report_review" / "erp_style_report.csv"
+    )
+    dest = presets.normalize_csv(erp_report, "generic_erp", tmp_path)
+    out = pd.read_csv(dest, dtype=str, keep_default_na=False)
+    codes = list(out["account_code"])
+    assert "5010" in codes and "5010.0" not in codes
+    # Subtotal rows keep a blank account code.
+    assert "" in codes
+
+
 def test_erp_style_file_reconciles_after_aliasing():
     """An ERP-style export (Posting Date / Memo / Transaction Amount) only
     reconciles once its columns are aliased onto the canonical names."""
@@ -86,6 +121,58 @@ def test_erp_style_file_reconciles_after_aliasing():
     # The duplicate Acme payment (same amount+date class) and the matches show
     # the deterministic engine ran on the aliased ERP data.
     assert out.summary["matched"] >= 1
+
+
+ERP_COA = (
+    Path(__file__).resolve().parents[2]
+    / "data" / "synthetic" / "report_review" / "erp_style_chart_of_accounts.csv"
+)
+
+
+def test_chart_of_accounts_in_list_presets():
+    assert "chart_of_accounts" in presets.list_presets()
+
+
+def test_apply_preset_maps_coa_headers():
+    df = pd.DataFrame({
+        "GL Code": ["5010"],
+        "Account Title": ["Salaries and Wages"],
+        "Balance Type": ["debit"],
+    })
+    out = presets.apply_preset(df, "chart_of_accounts")
+    assert {"account_code", "account_name", "normal_balance"} <= set(out.columns)
+    assert out.loc[0, "account_code"] == "5010"
+    assert out.loc[0, "account_name"] == "Salaries and Wages"
+    assert out.loc[0, "normal_balance"] == "debit"
+
+
+def test_apply_preset_coa_covers_header_variants():
+    df = pd.DataFrame({
+        "Acct No": ["4010"], "Account Desc": ["Property Tax"],
+        "Normal Bal": ["credit"], "Fund Code": ["General"],
+    })
+    out = presets.apply_preset(df, "chart_of_accounts")
+    assert {"account_code", "account_name", "normal_balance", "fund"} <= set(out.columns)
+
+
+def test_normalize_csv_coa_yields_canonical_columns(tmp_path):
+    """The ERP-style COA file, after preset + dtype=str normalize, matches the
+    report_review chart_of_accounts contract with codes preserved as strings."""
+    dest = presets.normalize_csv(ERP_COA, "chart_of_accounts", tmp_path)
+    out = pd.read_csv(dest, dtype=str, keep_default_na=False)
+    assert list(out.columns) == ["account_code", "account_name", "normal_balance"]
+    codes = list(out["account_code"])
+    # Integer-like codes preserved as strings (no float coercion).
+    assert "5010" in codes and "5010.0" not in codes
+    assert "4010" in codes
+    # Could substitute for the canonical chart_of_accounts.csv.
+    canonical = pd.read_csv(
+        Path(__file__).resolve().parents[2]
+        / "data" / "synthetic" / "report_review" / "chart_of_accounts.csv",
+        dtype=str, keep_default_na=False,
+    )
+    assert list(out.columns) == list(canonical.columns)
+    assert out.equals(canonical)
 
 
 _TMP: list = []

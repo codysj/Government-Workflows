@@ -66,6 +66,18 @@ GENERIC_ERP: dict[str, str] = {
     "dept": "department",
     "department_name": "department",
     "division": "department",
+    # Budget-to-actual dimensions (budget_variance joins on
+    # fund/account/department/object). Distinct source names avoid the
+    # account-vs-account_code ambiguity with the report dimensions below.
+    "account_key": "account",
+    "cost_center": "department",
+    "object_class": "object",
+    # Financial-report dimensions (report_review expects
+    # section/account_code/account_name/line_type/amount).
+    "statement_section": "section",
+    "account_description": "account_name",
+    "row_type": "line_type",
+    "reported_amount": "amount",
 }
 
 # Vendor-flavored placeholders (NOT real schemas — illustrative for the demo).
@@ -82,10 +94,41 @@ OPENGOV_STYLE: dict[str, str] = {
     "account_label": "description",
 }
 
+# Chart-of-accounts (COA) aliases. A COA export lists the accounts themselves
+# (not transactions), so it maps onto the report_review COA contract:
+# account_code, account_name, normal_balance (+ fund where present). Kept as a
+# SEPARATE, COA-specific dict so it does not perturb the transaction presets
+# above (where, e.g., "description" is a memo, not an account title).
+CHART_OF_ACCOUNTS: dict[str, str] = {
+    # account_code
+    "acct": "account_code",
+    "acct_no": "account_code",
+    "acct_code": "account_code",
+    "gl_code": "account_code",
+    "account": "account_code",
+    "account_number": "account_code",
+    "account_no": "account_code",
+    # account_name
+    "acct_desc": "account_name",
+    "account_desc": "account_name",
+    "account_title": "account_name",
+    "description": "account_name",
+    "name": "account_name",
+    "account_description": "account_name",
+    # normal_balance
+    "normal_bal": "normal_balance",
+    "dr_cr": "normal_balance",
+    "balance_type": "normal_balance",
+    # fund
+    "fund_code": "fund",
+    "fund_no": "fund",
+}
+
 PRESETS: dict[str, dict[str, str]] = {
     "generic_erp": GENERIC_ERP,
     "tyler_munis_style": {**GENERIC_ERP, **TYLER_MUNIS_STYLE},
     "opengov_style": {**GENERIC_ERP, **OPENGOV_STYLE},
+    "chart_of_accounts": CHART_OF_ACCOUNTS,
 }
 
 
@@ -144,7 +187,12 @@ def normalize_csv(
     logic is unchanged. Raises ``KeyError`` for an unknown preset name.
     """
     src = Path(src_path)
-    df = pd.read_csv(src)
+    # Read every cell as a string and keep blanks as empty strings so aliasing
+    # ONLY renames columns and never coerces values (e.g. an integer-like
+    # account code "5010" with blank subtotal rows must not become "5010.0",
+    # which would stop matching the chart of accounts / prior version). The
+    # workflows parse amounts and dates themselves downstream.
+    df = pd.read_csv(src, dtype=str, keep_default_na=False)
     aliased = apply_preset(df, preset, extra=extra)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -157,6 +205,7 @@ __all__ = [
     "GENERIC_ERP",
     "TYLER_MUNIS_STYLE",
     "OPENGOV_STYLE",
+    "CHART_OF_ACCOUNTS",
     "PRESETS",
     "list_presets",
     "apply_aliases",

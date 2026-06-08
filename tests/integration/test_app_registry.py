@@ -205,6 +205,56 @@ def test_source_format_preset_normalizes_erp_file(tmp_path):
     assert Path(manifest["path"]).is_file()
 
 
+def test_erp_budget_normalizes_via_preset(tmp_path):
+    """ERP-style budget/actuals reconcile to the SAME findings as the standard
+    files once the preset is applied, and fail cleanly without it."""
+    ledger, audit = _pipeline(tmp_path)
+    std = wfr.run_workflow("budget_variance", _budget_inputs(),
+                           ledger=ledger, audit=audit, export_dir=tmp_path / "std")
+    erp_inputs = {
+        "budget": str(SD / "budget_variance" / "erp_style_budget.csv"),
+        "actuals": str(SD / "budget_variance" / "erp_style_actuals.csv"),
+    }
+    erp = wfr.run_workflow(
+        "budget_variance", erp_inputs, ledger=ledger, audit=audit,
+        export_dir=tmp_path / "erp",
+        source_formats={"budget": "generic_erp", "actuals": "generic_erp"})
+    assert erp.summary["flagged_variances"] == std.summary["flagged_variances"] == 2
+    assert len(erp.findings) == len(std.findings)
+    assert erp.summary.get("source_formats") == {
+        "budget": "generic_erp", "actuals": "generic_erp"}
+    # Without the preset the ERP headers have no join keys -> clean failure.
+    with pytest.raises(Exception):
+        wfr.run_workflow("budget_variance", erp_inputs, ledger=ledger,
+                         audit=audit, export_dir=tmp_path / "nofmt")
+
+
+def test_erp_report_normalizes_via_preset(tmp_path):
+    """ERP-style report produces the SAME findings as the standard report once
+    the preset is applied, and fails cleanly without it."""
+    ledger, audit = _pipeline(tmp_path)
+    std_inputs = {
+        "report_table": str(SD / "report_review" / "report_table.csv"),
+        "chart_of_accounts": str(SD / "report_review" / "chart_of_accounts.csv"),
+        "prior_version": str(SD / "report_review" / "prior_version.csv"),
+    }
+    std = wfr.run_workflow("report_review", std_inputs, ledger=ledger,
+                           audit=audit, export_dir=tmp_path / "std")
+    erp_inputs = dict(std_inputs)
+    erp_inputs["report_table"] = str(SD / "report_review" / "erp_style_report.csv")
+    erp = wfr.run_workflow(
+        "report_review", erp_inputs, ledger=ledger, audit=audit,
+        export_dir=tmp_path / "erp",
+        source_formats={"report_table": "generic_erp"})
+    assert len(erp.findings) == len(std.findings)
+    assert erp.summary.get("findings_by_rule") == std.summary.get("findings_by_rule")
+    assert erp.summary.get("source_formats") == {"report_table": "generic_erp"}
+    # Without the preset the report has no 'section' column -> clean failure.
+    with pytest.raises(Exception):
+        wfr.run_workflow("report_review", erp_inputs, ledger=ledger,
+                         audit=audit, export_dir=tmp_path / "nofmt")
+
+
 def test_source_format_choices_exposed():
     labels = [c[0] for c in wfr.SOURCE_FORMAT_CHOICES]
     presets = [c[1] for c in wfr.SOURCE_FORMAT_CHOICES]

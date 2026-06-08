@@ -60,8 +60,22 @@ Justification recorded in `docs/research/workflow_selection_scorecard.md` and
 - [x] AI Audit Log page + `RunLedger.list_llm_interactions()` (draft-vs-final)
 - [x] Import presets / ERP-style column aliases + sample dataset
 - [x] Import presets wired into Run Workflow UI (per-upload "source format" selector)
+- [x] Import presets extended to budget + report (ERP samples for all 3 workflows)
+- [x] Applied preset surfaced on Review Run + review packet (§2) + run manifest
 - [x] UX polish (spinners, result metrics, draft status, empty/error states)
-- [x] Tests: 140 passed; AppTest manual verification of all 8 pages + format selectors; PII sweep clean
+- [x] Tests: 147 passed; AppTest manual verification of all 8 pages + format selectors; PII sweep clean
+
+## Tier 1 near-term extensions (complete)
+- [x] Retention category (`RetentionCategory` enum + safe ledger column migration; in summary/packet/manifest/History)
+- [x] Exportable AI usage log (`src/core/ai_usage_log.py`; CSV/JSON download)
+- [x] Prompt/response diffing (`src/core/diffing.py`, stdlib `difflib`; compare two AI interactions)
+- [x] Redaction assist prototype (`src/core/redaction.py`; regex SSN/email/phone/credit-card/long-number — not a compliance tool)
+- [x] Chart-of-accounts import preset (`chart_of_accounts` in `src/ingest/presets.py` + synthetic sample)
+- [x] Scheduled runs (`src/core/scheduler.py`; local, manual-trigger, no daemon/cron)
+- [x] Role-specific views (`app/role_views.py`; presentation-only, no auth)
+- [x] PDF summary export (`src/core/pdf_export.py`; pure-stdlib PDF writer, text-only)
+- [x] New Streamlit pages wired (Scheduled runs, Redaction assist) + AppSettings `role` / `default_retention_category`
+- [x] Final verification: `pytest` **235 passed**; 3 CLI sample runs exit 0 (Validation PASSED); all 10 Streamlit pages render via AppTest; secret/PII sweep clean
 
 ## Architecture decision log
 Major decisions recorded in `docs/decisions.md` as implemented.

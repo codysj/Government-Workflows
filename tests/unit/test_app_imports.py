@@ -40,6 +40,8 @@ def test_all_page_renderers_exist():
         "Review Run": "render_review_run",
         "Export Center": "render_export_center",
         "AI Audit Log": "render_ai_audit_log",
+        "Scheduled runs": "render_scheduled_runs",
+        "Redaction assist": "render_redaction_assist",
         "Settings": "render_settings",
         "About / Safety": "render_about",
     }
@@ -49,6 +51,17 @@ def test_all_page_renderers_exist():
         fn = getattr(mod, fn_name, None)
         assert callable(fn), f"missing renderer: {fn_name}"
         assert mod.PAGE_RENDERERS[page] is fn
+
+
+def test_tier1_new_pages_present():
+    """The two new Tier 1 pages exist with callable renderers."""
+    mod = importlib.import_module("app.streamlit_app")
+    assert "Scheduled runs" in mod.PAGES
+    assert "Redaction assist" in mod.PAGES
+    assert callable(mod.render_scheduled_runs)
+    assert callable(mod.render_redaction_assist)
+    assert mod.PAGE_RENDERERS["Scheduled runs"] is mod.render_scheduled_runs
+    assert mod.PAGE_RENDERERS["Redaction assist"] is mod.render_redaction_assist
 
 
 def test_main_is_guarded_not_called_on_import():
@@ -99,3 +112,59 @@ def test_app_settings_round_trips(tmp_path):
     assert loaded.city_name == "Testville"
     assert loaded.variance_threshold_pct == 12.5
     assert loaded.mock_mode is True  # mock default
+
+
+def test_app_settings_tier1_fields_default_and_round_trip(tmp_path):
+    """Tier 1 fields (role, default_retention_category) exist and persist."""
+    from app.app_settings import AppSettings
+
+    # Defaults.
+    default = AppSettings()
+    assert default.role == "Accountant"
+    assert default.default_retention_category == "draft_working"
+
+    # Round-trip non-default values.
+    p = tmp_path / "app_settings.json"
+    s = AppSettings(role="Finance director",
+                    default_retention_category="permanent")
+    s.save(p)
+    loaded = AppSettings.load(p)
+    assert loaded.role == "Finance director"
+    assert loaded.default_retention_category == "permanent"
+
+
+def test_role_views_config_complete():
+    """Role view config covers the four spec roles with non-destructive helpers."""
+    from app import role_views
+
+    assert set(role_views.ROLE_ORDER) == {
+        "AP clerk", "Accountant", "Finance analyst", "Finance director"}
+    assert role_views.DEFAULT_ROLE == "Accountant"
+    # order_findings_for_role never drops data for the default role.
+    findings = [
+        {"finding_type": "unmatched", "severity": "high"},
+        {"finding_type": "variance", "severity": "low"},
+    ]
+    full = role_views.order_findings_for_role(findings, "Accountant")
+    assert len(full) == 2
+    # show_all=True always returns the full set even for a collapsing role.
+    shown = role_views.order_findings_for_role(
+        findings, "Finance director", show_all=True)
+    assert len(shown) == 2
+
+
+def test_appstest_renders_each_page_without_exception():
+    """Each page renders without raising under streamlit's AppTest harness."""
+    from streamlit.testing.v1 import AppTest
+
+    app_path = str(REPO_ROOT / "app" / "streamlit_app.py")
+    for page in (
+        "Home", "Run Workflow", "Workflow History", "Review Run",
+        "Export Center", "AI Audit Log", "Scheduled runs",
+        "Redaction assist", "Settings", "About / Safety",
+    ):
+        at = AppTest.from_file(app_path, default_timeout=30)
+        at.run()
+        # Select the page in the sidebar radio, then re-run.
+        at.sidebar.radio[0].set_value(page).run()
+        assert not at.exception, f"page '{page}' raised: {at.exception}"

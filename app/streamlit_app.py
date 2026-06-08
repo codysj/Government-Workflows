@@ -32,10 +32,17 @@ if str(REPO_ROOT) not in sys.path:
 import streamlit as st  # noqa: E402
 
 from app.app_settings import AppSettings  # noqa: E402
+from app import role_views  # noqa: E402
 from app import workflow_registry as wfr  # noqa: E402
 from src.core.audit_log import AuditLog  # noqa: E402
+from src.core import ai_usage_log as ai_log  # noqa: E402
+from src.core import diffing  # noqa: E402
+from src.core import pdf_export  # noqa: E402
+from src.core import redaction  # noqa: E402
 from src.core import review_packet as rp  # noqa: E402
+from src.core import scheduler  # noqa: E402
 from src.core.run_ledger import RunLedger  # noqa: E402
+from src.core.schemas import RetentionCategory  # noqa: E402
 
 PAGES = (
     "Home",
@@ -44,9 +51,22 @@ PAGES = (
     "Review Run",
     "Export Center",
     "AI Audit Log",
+    "Scheduled runs",
+    "Redaction assist",
     "Settings",
     "About / Safety",
 )
+
+# Records-retention category options (value, human label) for the UI selectors.
+RETENTION_CHOICES: tuple[tuple[str, str], ...] = (
+    (RetentionCategory.DRAFT_WORKING.value, "Draft / working"),
+    (RetentionCategory.TRANSITORY.value, "Transitory"),
+    (RetentionCategory.ADMINISTRATIVE.value, "Administrative record"),
+    (RetentionCategory.AUDIT_RECORD.value, "Audit record"),
+    (RetentionCategory.PERMANENT.value, "Permanent"),
+)
+_RETENTION_VALUES = [v for v, _ in RETENTION_CHOICES]
+_RETENTION_LABELS = {v: lbl for v, lbl in RETENTION_CHOICES}
 
 DATA_SAFETY_WARNING = (
     "Use SYNTHETIC or scrubbed sample data only. Do NOT upload real bank "
@@ -75,6 +95,11 @@ def get_ledger() -> RunLedger:
 @st.cache_resource
 def get_audit(_ledger: RunLedger) -> AuditLog:
     return AuditLog(_ledger, audit_dir=str(REPO_ROOT / "runs" / "audit"))
+
+
+@st.cache_resource
+def get_schedule_store() -> scheduler.ScheduleStore:
+    return scheduler.ScheduleStore(str(REPO_ROOT / "runs" / "schedules.json"))
 
 
 def get_settings() -> AppSettings:
@@ -269,6 +294,22 @@ def render_run_workflow() -> None:
             help="Runs the workflow on the bundled synthetic dataset.",
         )
 
+    # Per-run records-retention category (defaults to the Settings value).
+    default_ret = settings.default_retention_category
+    ret_index = (
+        _RETENTION_VALUES.index(default_ret)
+        if default_ret in _RETENTION_VALUES else 0
+    )
+    retention_category = st.selectbox(
+        "Records-retention category",
+        _RETENTION_VALUES,
+        index=ret_index,
+        format_func=lambda v: _RETENTION_LABELS.get(v, v),
+        help=("Tags this run for public-records / retention-schedule purposes. "
+              "Deterministic metadata only — the AI never sets it. Defaults to "
+              "your Settings value."),
+    )
+
     if st.button("Run workflow", type="primary"):
         run_tmp = REPO_ROOT / "runs" / "uploads" / wfr.make_id_safe()
         if descriptor.workflow_type == "freeform":
@@ -313,6 +354,7 @@ def render_run_workflow() -> None:
                     export_dir=export_dir,
                     config=_settings_to_config(settings),
                     source_formats=source_formats,
+                    retention_category=retention_category,
                 )
             except Exception as exc:  # surface errors plainly to staff
                 st.error(f"Run failed: {exc}")
@@ -365,12 +407,18 @@ def render_history() -> None:
     rows = []
     for r in runs:
         summary = r.get("summary") or {}
+        retention = (
+            r.get("retention_category")
+            or summary.get("retention_category")
+            or "draft_working"
+        )
         rows.append({
             "run_id": r["run_id"][:8],
             "type": r["workflow_type"],
             "created_at": r["created_at"],
             "status": r["status"],
             "validation": summary.get("validation_status", "n/a"),
+            "retention": retention,
         })
     st.dataframe(rows, use_container_width=True, hide_index=True)
     st.caption(f"{len(runs)} run(s) recorded in the local ledger.")
@@ -429,14 +477,24 @@ def render_review_run() -> None:
     summary = run.get("summary") or {}
     actions = run.get("human_review_actions", []) or []
     draft_status = rp.derive_draft_status(actions)
-    c1, c2, c3, c4 = st.columns(4)
+    retention = (
+        run.get("retention_category")
+        or summary.get("retention_category")
+        or "draft_working"
+    )
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Status", run.get("status", ""))
     c2.metric("Workflow", run.get("workflow_type", ""))
     c3.metric("Validation", summary.get("validation_status", "n/a"))
     c4.metric("AI draft", draft_status)
+    c5.metric("Retention", _RETENTION_LABELS.get(retention, retention))
     if draft_status == "draft":
         st.caption("The AI text is an unapproved DRAFT. Use the per-finding "
                    "controls below to approve or reject it.")
+
+    # Role-specific focus (display emphasis only; never hides data destructively).
+    role_view = role_views.get_role_view(settings.role)
+    st.caption(role_view.caption)
 
     # --- Validation warnings (PRIORITIZED) ------------------------------- #
     validations = run.get("validation_results", []) or []
@@ -454,11 +512,26 @@ def render_review_run() -> None:
         if v.get("passed") and not (v.get("errors") or v.get("warnings")):
             st.success("Validation passed with no warnings.")
 
-    # --- Deterministic findings (review TABLE, prioritized) -------------- #
+    # --- Deterministic findings (review TABLE, role-emphasized) ---------- #
     st.subheader("Deterministic findings")
     findings = run.get("findings", []) or []
     if findings:
-        st.dataframe(_finding_table_rows(findings),
+        show_all = st.checkbox(
+            "Show all findings (ignore role emphasis)",
+            value=False,
+            key=f"showall__{run_id}",
+            help=("Roles reorder and may collapse low-severity rows for "
+                  "readability. This never deletes data — toggle to see the "
+                  "full unfiltered list."),
+        )
+        display = role_views.order_findings_for_role(
+            findings, settings.role, show_all=show_all)
+        if len(display) < len(findings):
+            st.caption(
+                f"Showing {len(display)} of {len(findings)} findings "
+                f"emphasized for the {settings.role} role. Enable "
+                "'Show all findings' above to see the rest.")
+        st.dataframe(_finding_table_rows(display),
                      use_container_width=True, hide_index=True)
     else:
         st.caption("No deterministic findings.")
@@ -474,6 +547,13 @@ def render_review_run() -> None:
                 use_container_width=True, hide_index=True)
         else:
             st.caption("No input file metadata recorded.")
+        applied_fmt = summary.get("source_formats") or {}
+        if applied_fmt:
+            st.caption(
+                "Source-format presets applied before analysis: "
+                + ", ".join(f"{k} → {v}" for k, v in applied_fmt.items())
+                + ". Hashes above are of the original uploads; aliasing only "
+                "renamed columns.")
 
     # --- LLM explanation -------------------------------------------------- #
     st.subheader("AI explanation (DRAFT — human review required)")
@@ -506,6 +586,9 @@ def render_review_run() -> None:
     else:
         st.caption("No export artifacts recorded for this run. Use the Export "
                    "Center to generate a packet.")
+
+    # --- PDF summary (built deterministically from the review packet md) -- #
+    _render_pdf_summary_button(run, audit, run_id)
 
     # --- Audit events ----------------------------------------------------- #
     with st.expander("Audit events"):
@@ -567,6 +650,34 @@ def _download_artifact(a: dict, suffix: str = "") -> None:
         st.caption(f"{name} (missing on disk: {path})")
 
 
+def _render_pdf_summary_button(run: dict, audit, run_id: str) -> None:
+    """Build a review-packet PDF on demand and offer it as a download.
+
+    The markdown is assembled deterministically from the persisted run data via
+    ``review_packet.build_review_packet_markdown`` (no LLM call); the PDF is
+    rendered by the stdlib-only ``pdf_export.review_packet_pdf``. Bytes are read
+    back and streamed through ``st.download_button``.
+    """
+    if st.button("Build PDF summary", key=f"pdfbtn__{run_id}"):
+        import tempfile
+
+        try:
+            events = audit.list_events(run_id) if audit is not None else []
+            md = rp.build_review_packet_markdown(run, events)
+            tmp_dir = Path(tempfile.mkdtemp(prefix="govwf_pdf_"))
+            out = pdf_export.review_packet_pdf(
+                md, tmp_dir / f"review_packet_{run_id[:8]}.pdf",
+                title=f"Review Packet — {run.get('workflow_type', '')}")
+            data = Path(out).read_bytes()
+        except Exception as exc:  # never crash the page on a render error
+            st.error(f"Could not build PDF: {exc}")
+            return
+        st.download_button(
+            "Download PDF summary", data=data,
+            file_name=f"review_packet_{run_id[:8]}.pdf",
+            mime="application/pdf", key=f"pdfdl__{run_id}")
+
+
 # --------------------------------------------------------------------------- #
 # Export Center
 # --------------------------------------------------------------------------- #
@@ -620,6 +731,12 @@ def render_export_center() -> None:
                     + ". Reload the page to see the download links.")
             else:
                 st.warning("Could not generate a packet for this run.")
+
+    st.subheader("PDF summary")
+    st.caption("Render the consolidated review packet to a portable PDF "
+               "(text-only, deterministic — no LLM call).")
+    if run is not None:
+        _render_pdf_summary_button(run, audit, run_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -677,6 +794,75 @@ def render_ai_audit_log() -> None:
     st.caption("Open **Review Run** to inspect or approve/reject a specific "
                "AI draft.")
 
+    # --- Download the full AI usage log (CSV / JSON) --------------------- #
+    st.subheader("Download AI usage log")
+    st.caption("Export every AI interaction (across all runs) for oversight / "
+               "public-records review. Built deterministically from the ledger.")
+    import tempfile
+
+    try:
+        export_dir = Path(tempfile.mkdtemp(prefix="govwf_ailog_"))
+        paths = ai_log.export_ai_usage_log(ledger, export_dir, fmt="both")
+        by_name = {p.name: p for p in paths}
+        d1, d2 = st.columns(2)
+        csv_p = by_name.get(ai_log.CSV_FILE_NAME)
+        json_p = by_name.get(ai_log.JSON_FILE_NAME)
+        if csv_p is not None:
+            d1.download_button(
+                "Download CSV", data=csv_p.read_bytes(),
+                file_name=ai_log.CSV_FILE_NAME, mime="text/csv",
+                key="ailog_csv")
+        if json_p is not None:
+            d2.download_button(
+                "Download JSON", data=json_p.read_bytes(),
+                file_name=ai_log.JSON_FILE_NAME, mime="application/json",
+                key="ailog_json")
+    except Exception as exc:
+        st.error(f"Could not build AI usage log: {exc}")
+
+    # --- Compare two AI interactions (prompt/response diff) -------------- #
+    st.subheader("Compare two AI interactions")
+    st.caption("Pick two runs to see how a prompt-template change, model swap, "
+               "or re-run altered the AI draft and its cited source rows. "
+               "Deterministic difflib comparison — no LLM call.")
+    diff_run_ids = sorted({i["run_id"] for i in interactions})
+    if len(diff_run_ids) < 2:
+        st.info("Need at least two runs with AI interactions to compare.")
+    else:
+        ccol1, ccol2 = st.columns(2)
+        with ccol1:
+            run_a = st.selectbox("Run A", diff_run_ids, key="diff_run_a")
+        with ccol2:
+            run_b = st.selectbox(
+                "Run B", diff_run_ids,
+                index=1 if diff_run_ids[0] == run_a else 0,
+                key="diff_run_b")
+        if st.button("Compare", key="diff_compare"):
+            ra = ledger.get_run(run_a)
+            rb = ledger.get_run(run_b)
+            if ra is None or rb is None:
+                st.error("One of the selected runs was not found.")
+            else:
+                result = diffing.diff_runs(ra, rb)
+                f1, f2 = st.columns(2)
+                f1.metric("Template changed",
+                          "yes" if result.get("template_changed") else "no")
+                f2.metric("Model changed",
+                          "yes" if result.get("model_changed") else "no")
+                if not (result.get("has_response_a")
+                        and result.get("has_response_b")):
+                    st.warning("One or both runs have no AI response to compare.")
+                summary_diff = result.get("summary_diff") or ""
+                st.markdown("**AI summary diff**")
+                if summary_diff.strip():
+                    st.code(summary_diff, language="diff")
+                else:
+                    st.caption("No differences in the AI summary text.")
+                added = result.get("referenced_rows_added") or []
+                removed = result.get("referenced_rows_removed") or []
+                st.markdown("**Referenced source rows**")
+                st.write({"added": added, "removed": removed})
+
 
 # --------------------------------------------------------------------------- #
 # Settings
@@ -708,6 +894,14 @@ def render_settings() -> None:
         var_dollar = st.number_input("Variance dollar threshold", min_value=0.0,
                                      value=float(settings.variance_dollar_threshold))
         export_dir = st.text_input("Export directory", settings.export_dir)
+        cur_ret = settings.default_retention_category
+        ret_idx = (_RETENTION_VALUES.index(cur_ret)
+                   if cur_ret in _RETENTION_VALUES else 0)
+        default_retention = st.selectbox(
+            "Default records-retention category",
+            _RETENTION_VALUES, index=ret_idx,
+            format_func=lambda v: _RETENTION_LABELS.get(v, v),
+            help="Pre-selected on the Run Workflow page for new runs.")
         submitted = st.form_submit_button("Save settings")
         if submitted:
             new = AppSettings(
@@ -716,7 +910,9 @@ def render_settings() -> None:
                 amount_tolerance=float(amt_tol),
                 variance_threshold_pct=float(var_pct),
                 variance_dollar_threshold=float(var_dollar),
-                export_dir=export_dir)
+                export_dir=export_dir,
+                role=settings.role,
+                default_retention_category=default_retention)
             new.save()
             st.session_state["settings"] = new
             st.success("Settings saved.")
@@ -754,6 +950,184 @@ def render_about() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Scheduled runs (Tier 1 #3 — local, manual-trigger recurring runs)
+# --------------------------------------------------------------------------- #
+# Cadence (value, label) options for the add-schedule form.
+_CADENCE_CHOICES: tuple[tuple[str, str], ...] = (
+    (scheduler.CadenceType.MONTHLY.value, "Monthly"),
+    (scheduler.CadenceType.QUARTERLY.value, "Quarterly"),
+    (scheduler.CadenceType.BEFORE_AGENDA.value, "Before agenda packet"),
+    (scheduler.CadenceType.CUSTOM.value, "Custom (every N days)"),
+)
+_CADENCE_VALUES = [v for v, _ in _CADENCE_CHOICES]
+_CADENCE_LABELS = {v: lbl for v, lbl in _CADENCE_CHOICES}
+
+
+def render_scheduled_runs() -> None:
+    from datetime import date as _date, datetime as _datetime
+
+    settings = get_settings()
+    ledger = get_ledger()
+    audit = get_audit(ledger)
+    store = get_schedule_store()
+    st.title("Scheduled runs")
+    st.caption(
+        "Local, manual-trigger recurring runs (no background daemon, no cron). "
+        "The app shows which configured workflows are DUE whenever you open it; "
+        "you click 'Run now' to launch one on its bundled synthetic example "
+        "files. Synthetic data only.")
+
+    today = _date.today()  # system clock lives in the UI layer only
+    schedules = store.list()
+    due_ids = {s.schedule_id for s in store.due(today)}
+
+    # --- Existing schedules --------------------------------------------- #
+    st.subheader("Configured schedules")
+    if not schedules:
+        st.info("No schedules yet. Add one below.")
+    else:
+        st.dataframe(
+            [{"label": s.label, "workflow": s.workflow_type,
+              "cadence": _CADENCE_LABELS.get(s.cadence.value, s.cadence.value),
+              "next_due": s.next_due.isoformat(),
+              "last_run_at": (s.last_run_at.isoformat() if s.last_run_at
+                              else "—"),
+              "due?": "DUE" if s.schedule_id in due_ids else "",
+              "active": s.active}
+             for s in schedules],
+            use_container_width=True, hide_index=True)
+        n_due = len(due_ids)
+        if n_due:
+            st.warning(f"{n_due} schedule(s) due as of {today.isoformat()}.",
+                       icon="⏰")
+        else:
+            st.caption(f"Nothing due as of {today.isoformat()}.")
+
+        # --- Run now / remove controls ---------------------------------- #
+        for s in schedules:
+            badge = "  ·  DUE" if s.schedule_id in due_ids else ""
+            with st.expander(f"{s.label} ({s.workflow_type}){badge}"):
+                descriptor = wfr.DESCRIPTORS.get(s.workflow_type)
+                can_run = bool(descriptor and descriptor.example_files
+                               and descriptor.available)
+                if not can_run:
+                    st.caption("This workflow has no bundled example files to "
+                               "run automatically; trigger it from Run Workflow.")
+                cols = st.columns(2)
+                with cols[0]:
+                    if can_run and st.button(
+                            "Run now", key=f"runsched__{s.schedule_id}"):
+                        _run_scheduled(store, ledger, audit, settings, s,
+                                       _datetime.now())
+                with cols[1]:
+                    if st.button("Remove", key=f"rmsched__{s.schedule_id}"):
+                        store.remove(s.schedule_id)
+                        st.success("Schedule removed. Reload to refresh the list.")
+
+    # --- Add a schedule ------------------------------------------------- #
+    st.subheader("Add a schedule")
+    runnable = [d for d in wfr.list_descriptors()
+                if d.example_files and d.available]
+    if not runnable:
+        st.caption("No runnable workflows with example data are available.")
+        return
+    with st.form("add_schedule_form"):
+        wf_labels = {d.workflow_type: d.title for d in runnable}
+        wf_type = st.selectbox(
+            "Workflow", [d.workflow_type for d in runnable],
+            format_func=lambda t: wf_labels.get(t, t))
+        cadence = st.selectbox(
+            "Cadence", _CADENCE_VALUES,
+            format_func=lambda v: _CADENCE_LABELS.get(v, v))
+        label = st.text_input("Label", value="")
+        start = st.date_input("First due date (start)", value=today)
+        interval = st.number_input(
+            "Interval days (for Custom / Before-agenda cadences)",
+            min_value=1, value=int(scheduler.DEFAULT_INTERVAL_DAYS))
+        submitted = st.form_submit_button("Add schedule")
+        if submitted:
+            sched = scheduler.make_schedule(
+                wf_type, scheduler.CadenceType(cadence),
+                label or wf_labels.get(wf_type, wf_type),
+                start, interval_days=int(interval))
+            store.add(sched)
+            st.success(f"Added schedule '{sched.label}'. Reload to refresh.")
+
+
+def _run_scheduled(store, ledger, audit, settings, sched, when) -> None:
+    """Run a schedule's workflow on its example files, then mark it run."""
+    descriptor = wfr.DESCRIPTORS.get(sched.workflow_type)
+    inputs = {
+        key: str(wfr.example_path(rel))
+        for key, rel in (descriptor.example_files or {}).items()
+    }
+    with st.spinner(f"Running '{sched.label}' on example files…"):
+        try:
+            result = wfr.run_workflow(
+                sched.workflow_type, inputs,
+                ledger=ledger, audit=audit, provider=None,
+                actor=settings.default_actor,
+                export_dir=Path(settings.export_dir),
+                config=_settings_to_config(settings),
+                retention_category=settings.default_retention_category,
+            )
+        except Exception as exc:
+            st.error(f"Scheduled run failed: {exc}")
+            return
+    store.mark_run(sched.schedule_id, when)
+    st.success(f"Run complete (run ID {result.run_id}). Next due: "
+               f"{store.get(sched.schedule_id).next_due.isoformat()}. "
+               "Open Review Run to inspect it.")
+
+
+# --------------------------------------------------------------------------- #
+# Redaction assist (Tier 1 #1 — prototype PII scrubber)
+# --------------------------------------------------------------------------- #
+def render_redaction_assist() -> None:
+    ledger = get_ledger()
+    st.title("Redaction assist")
+    st.warning(
+        "PROTOTYPE — synthetic data only. This is a best-effort regex PII "
+        "scrubber to help a human spot obvious identifiers (SSNs, emails, "
+        "phone/card/account numbers) before sharing text. It is NOT a "
+        "certified redaction tool and may miss or over-match. Do NOT paste "
+        "real sensitive data.", icon="⚠️")
+
+    # Optionally seed the text area from a run's AI draft summary.
+    seed = ""
+    runs = ledger.list_runs()
+    if runs:
+        run_ids = ["(none)"] + [r["run_id"] for r in runs]
+        chosen = st.selectbox("Load an AI draft from a run (optional)", run_ids)
+        if chosen != "(none)":
+            run = ledger.get_run(chosen)
+            llms = (run.get("llm_responses") if run else None) or []
+            if llms:
+                rj = llms[-1].get("response_json", {}) or {}
+                seed = rj.get("summary", "") or ""
+                if not seed:
+                    st.caption("That run's AI draft has no summary text to load.")
+
+    text = st.text_area("Text to scan / redact", value=seed, height=200,
+                        key="redaction_text")
+    if st.button("Scan / redact", type="primary"):
+        result = redaction.redact_text(text or "")
+        st.subheader("Redacted text")
+        st.text_area("Result", value=result.redacted_text, height=200,
+                     key="redaction_result", disabled=True)
+        st.subheader("Findings")
+        if result.findings:
+            st.dataframe(
+                [{"type": f.pattern_type, "masked_preview": f.preview,
+                  "start": f.start, "end": f.end} for f in result.findings],
+                use_container_width=True, hide_index=True)
+            st.markdown("**Counts by type**")
+            st.write(result.counts_by_type)
+        else:
+            st.success("No PII patterns detected in the provided text.")
+
+
+# --------------------------------------------------------------------------- #
 # Dispatcher
 # --------------------------------------------------------------------------- #
 PAGE_RENDERERS = {
@@ -763,6 +1137,8 @@ PAGE_RENDERERS = {
     "Review Run": render_review_run,
     "Export Center": render_export_center,
     "AI Audit Log": render_ai_audit_log,
+    "Scheduled runs": render_scheduled_runs,
+    "Redaction assist": render_redaction_assist,
     "Settings": render_settings,
     "About / Safety": render_about,
 }
@@ -771,8 +1147,24 @@ PAGE_RENDERERS = {
 def main() -> None:
     st.set_page_config(page_title="Municipal Finance AI Workflow Tool",
                        layout="wide")
+    settings = get_settings()
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to", PAGES)
+    st.sidebar.markdown("---")
+    # Role selector (display emphasis only — NO authentication). Persisted to
+    # AppSettings so the choice survives reloads.
+    cur_role = settings.role if settings.role in role_views.ROLE_ORDER else \
+        role_views.DEFAULT_ROLE
+    role = st.sidebar.selectbox(
+        "Role", role_views.ROLE_ORDER,
+        index=role_views.ROLE_ORDER.index(cur_role),
+        help="Adjusts on-screen emphasis only. No access control; never hides "
+             "data destructively.")
+    if role != settings.role:
+        settings.role = role
+        settings.save()
+        st.session_state["settings"] = settings
+    st.sidebar.caption(role_views.get_role_view(role).caption)
     st.sidebar.markdown("---")
     st.sidebar.caption("Mock LLM mode is the default. Synthetic data only.")
     PAGE_RENDERERS[page]()

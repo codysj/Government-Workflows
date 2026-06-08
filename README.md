@@ -174,11 +174,43 @@ streamlit run app/streamlit_app.py
 ```
 
 The app has Home, Run Workflow, Workflow History, Review Run, Export Center,
-**AI Audit Log**, Settings, and About / Safety pages. The AI Audit Log is a
-searchable/filterable history of every AI interaction (run, workflow, model,
-prompt-template version, validation status, and draft-vs-final approval state) —
-a CPRA-style review surface for AI usage. The Settings tolerances and thresholds
-are applied to new runs (an uploaded config/threshold file takes precedence).
+**AI Audit Log**, **Scheduled runs**, **Redaction assist**, Settings, and
+About / Safety pages. The AI Audit Log is a searchable/filterable history of
+every AI interaction (run, workflow, model, prompt-template version, validation
+status, and draft-vs-final approval state) — a CPRA-style review surface for AI
+usage; it also **exports the AI usage log** (CSV/JSON) and can **diff two AI
+interactions** (prompt-template / model change, summary diff, referenced-row
+add/remove). The Settings tolerances and thresholds are applied to new runs (an
+uploaded config/threshold file takes precedence).
+
+### Tier 1 capabilities
+
+These near-term extensions are complete and wired into the CLI/UI on synthetic
+data only:
+
+- **Retention category** — each run is tagged with a records-retention category
+  (`draft_working` default, `transitory`, `administrative_record`,
+  `audit_record`, `permanent`); it appears in the run summary, the review packet,
+  the run manifest, and Workflow History. Set per-run on Run Workflow; default on
+  Settings.
+- **Exportable AI usage log** — download every AI interaction as CSV/JSON
+  (`src/core/ai_usage_log.py`) from the AI Audit Log page.
+- **Prompt/response diffing** — compare two stored AI interactions
+  (`src/core/diffing.py`, stdlib `difflib` only).
+- **PDF summary export** — generate a text-only PDF of the review packet
+  (`src/core/pdf_export.py`, pure-stdlib writer) from Review Run and Export Center.
+- **Chart-of-accounts import preset** — `chart_of_accounts` preset maps ERP-style
+  COA headers to canonical `account_code` / `account_name` / `normal_balance`.
+- **Role-specific views** — a presentation-only role selector (AP clerk,
+  Accountant, Finance analyst, Finance director) reorders/emphasizes findings;
+  it is not authentication and never hides or deletes data.
+- **Redaction assist (prototype)** — a regex-based PII scanner/redactor
+  (`src/core/redaction.py`) for SSN, email, phone, credit-card, and long-number
+  patterns. A demonstration prototype, **not** a compliance/public-records tool.
+- **Scheduled runs** — local, manual-trigger recurring schedules
+  (`src/core/scheduler.py`, monthly / quarterly / before-agenda / custom cadence).
+  No daemon or cron — schedules are recorded and surfaced as due; the user clicks
+  to run.
 
 ## Demo path
 
@@ -197,9 +229,15 @@ A 2–3 minute end-to-end walkthrough on synthetic data only:
      **source format** to *Generic ERP export*, and run. The ERP-style headers
      ("Posting Date", "Memo", "Transaction Amount") are column-aliased to the
      canonical names before analysis; the recorded source-file hash is still the
-     original upload, and the applied preset is noted in the run summary and
-     audit trail. (Without the preset the run is rejected — the date column is
-     not auto-detected.)
+     original upload, and the applied preset is noted in the run summary, the
+     Review Run page, the review packet, and the audit trail. (Without the
+     preset the run is rejected — the date column is not auto-detected.) The
+     same works for the other two workflows: upload
+     `data/synthetic/budget_variance/erp_style_budget.csv` +
+     `erp_style_actuals.csv` (set both to *Generic ERP export*) or
+     `data/synthetic/report_review/erp_style_report.csv` (set the report table's
+     source format) — each reproduces the exact same findings as the standard
+     samples, and is rejected without the preset.
 4. **Review Run:** inspect the run — validation warnings first, then the
    deterministic findings table (each citing `bank:row` / `ledger:row` source
    refs), the AI draft (labelled DRAFT), input-file hashes, and the audit
@@ -212,10 +250,30 @@ A 2–3 minute end-to-end walkthrough on synthetic data only:
    hashes, and export history). Click **Generate review packet** to regenerate
    it reflecting the latest review actions.
 6. **AI Audit Log:** filter by workflow / draft status / search to show every
-   AI interaction and which drafts a human has approved.
-7. **Repeat** with Budget variance and Report review (also example files), then
-   try **Guided freeform** — note it refuses to run unless the sensitivity
-   confirmation is checked.
+   AI interaction and which drafts a human has approved. Use **Export AI usage
+   log** to download the CSV/JSON, then **Compare two AI interactions** to pick
+   run A/B and see the prompt-template/model change flags, the summary diff, and
+   the referenced-rows added/removed.
+7. **Set a retention category:** on Run Workflow, pick a records-retention
+   category before running (or set the default on Settings); confirm it shows on
+   Review Run, Workflow History, and inside `review_packet.md` / `run_manifest.json`.
+8. **Download a PDF summary:** on Review Run (or Export Center), click **Download
+   PDF summary** to get a text-only PDF of the review packet.
+9. **Scheduled runs:** open the **Scheduled runs** page, add a schedule
+   (workflow + cadence: monthly / quarterly / before-agenda / custom), then click
+   **Run now** on a due schedule to run it on the synthetic example files and
+   advance its next-due date.
+10. **Redaction assist (prototype):** open the **Redaction assist** page (note the
+    synthetic-only PROTOTYPE warning), paste or seed text, and **Scan / redact**
+    to see PII spans replaced with `[REDACTED:<TYPE>]` plus a findings table and
+    per-type counts.
+11. **Switch role views:** use the sidebar **role** selector (AP clerk /
+    Accountant / Finance analyst / Finance director) and revisit Review Run — the
+    findings reorder/emphasize for the role (toggle **Show all findings**);
+    nothing is hidden or deleted.
+12. **Repeat** with Budget variance and Report review (also example files), then
+    try **Guided freeform** — note it refuses to run unless the sensitivity
+    confirmation is checked.
 
 To explain the architecture in one line: *deterministic code does all the math
 and matching; the LLM only drafts language and must cite source rows; every run

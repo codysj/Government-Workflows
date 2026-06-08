@@ -112,6 +112,7 @@ class RunLedger:
                     created_by TEXT,
                     status TEXT,
                     human_review_status TEXT,
+                    retention_category TEXT,
                     summary TEXT
                 );
                 CREATE TABLE IF NOT EXISTS input_files (
@@ -154,6 +155,12 @@ class RunLedger:
                 );
                 """
             )
+            # Backward-compatible migration for ledgers created before the
+            # retention_category column existed: add it if missing so existing
+            # on-disk DBs keep working.
+            cols = {r["name"] for r in c.execute("PRAGMA table_info(runs)")}
+            if "retention_category" not in cols:
+                c.execute("ALTER TABLE runs ADD COLUMN retention_category TEXT")
             c.commit()
 
     # ------------------------------------------------------------------ #
@@ -164,7 +171,8 @@ class RunLedger:
             conn.execute(
                 "INSERT OR REPLACE INTO runs "
                 "(run_id, workflow_type, created_at, created_by, status, "
-                "human_review_status, summary) VALUES (?,?,?,?,?,?,?)",
+                "human_review_status, retention_category, summary) "
+                "VALUES (?,?,?,?,?,?,?,?)",
                 (
                     run.run_id,
                     run.workflow_type,
@@ -172,6 +180,7 @@ class RunLedger:
                     run.created_by,
                     run.status.value,
                     run.human_review_status.value,
+                    run.retention_category.value,
                     _json(run.summary),
                 ),
             )
@@ -186,6 +195,7 @@ class RunLedger:
         status: str,
         human_review_status: Optional[str] = None,
         summary: Optional[dict] = None,
+        retention_category: Optional[str] = None,
     ) -> None:
         sets = ["status = ?"]
         params: list[Any] = [status]
@@ -195,10 +205,22 @@ class RunLedger:
         if summary is not None:
             sets.append("summary = ?")
             params.append(_json(summary))
+        if retention_category is not None:
+            sets.append("retention_category = ?")
+            params.append(retention_category)
         params.append(run_id)
         with self._connect() as conn:
             conn.execute(
                 f"UPDATE runs SET {', '.join(sets)} WHERE run_id = ?", params
+            )
+            conn.commit()
+
+    def set_retention(self, run_id: str, retention_category: str) -> None:
+        """Update only the records-retention category for a run."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE runs SET retention_category = ? WHERE run_id = ?",
+                (retention_category, run_id),
             )
             conn.commit()
 
@@ -211,6 +233,8 @@ class RunLedger:
         for r in rows:
             d = dict(r)
             d["summary"] = json.loads(d["summary"]) if d["summary"] else {}
+            d["retention_category"] = (
+                d.get("retention_category") or "draft_working")
             out.append(d)
         return out
 
@@ -223,6 +247,8 @@ class RunLedger:
                 return None
             run = dict(row)
             run["summary"] = json.loads(run["summary"]) if run["summary"] else {}
+            run["retention_category"] = (
+                run.get("retention_category") or "draft_working")
             run["input_files"] = [
                 json.loads(r["payload"])
                 for r in conn.execute(

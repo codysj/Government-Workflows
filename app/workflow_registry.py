@@ -33,6 +33,7 @@ from src.core.run_ledger import RunLedger
 from src.core.schemas import (
     DeterministicFinding,
     LLMResponse,
+    RetentionCategory,
     RunStatus,
     ValidationResult,
     WorkflowRun,
@@ -56,6 +57,7 @@ SOURCE_FORMAT_CHOICES: tuple[tuple[str, Optional[str]], ...] = (
     ("Generic ERP export", "generic_erp"),
     ("Tyler/Munis-style export", "tyler_munis_style"),
     ("OpenGov-style export", "opengov_style"),
+    ("Chart of accounts export", "chart_of_accounts"),
 )
 
 # Repo root (this file lives in app/).
@@ -474,6 +476,7 @@ def run_workflow(
     export_dir: Optional[str | Path] = None,
     config: Optional[dict] = None,
     source_formats: Optional[dict[str, str]] = None,
+    retention_category: str = "draft_working",
     review_packet: bool = True,
 ) -> UniformRunResult:
     """Drive any registered workflow through the shared ledger/audit/export
@@ -490,6 +493,11 @@ def run_workflow(
     the canonical names before the workflow reads them; the recorded input-file
     hashes still reflect the ORIGINAL uploads, and the applied presets are noted
     in the run summary + an audit event for traceability.
+
+    ``retention_category`` tags the run for records-retention / public-records
+    purposes (see ``RetentionCategory``). It is persisted on the ledger row, added
+    to the run summary, and noted on the ``run_created`` audit event. Unknown
+    values fall back to the ``draft_working`` default.
 
     When ``review_packet`` is True and ``export_dir`` is set, a consolidated
     review packet (``review_packet.md`` + ``run_manifest.json``) is generated
@@ -513,6 +521,12 @@ def run_workflow(
     # run lifecycle. Suppress duplicate lifecycle events from self-managing modules.
     wf_audit = _LifecycleSuppressingAudit(audit) if audit is not None else None
 
+    # Normalize the retention category (fall back to the default if unknown).
+    try:
+        retention = RetentionCategory(retention_category)
+    except ValueError:
+        retention = RetentionCategory.DRAFT_WORKING
+
     # 1. Ledger entry + input-file metadata.
     input_files = _input_files_for(inputs)
     run = WorkflowRun(
@@ -521,10 +535,12 @@ def run_workflow(
         created_by=actor,
         input_files=input_files,
         status=RunStatus.RUNNING,
+        retention_category=retention,
     )
     ledger.create_run(run)
     if audit is not None:
-        audit.run_created(run_id, actor, workflow_type=workflow_type)
+        audit.run_created(run_id, actor, workflow_type=workflow_type,
+                          retention_category=retention.value)
         for f in input_files:
             audit.file_uploaded(run_id, actor, file_name=f.file_name,
                                 file_hash=f.file_hash)
@@ -621,10 +637,12 @@ def run_workflow(
     )
     summary = dict(result.summary or {})
     summary["validation_status"] = validation_status
+    summary["retention_category"] = retention.value
     if applied_formats:
         summary["source_formats"] = applied_formats
     ledger.update_run_status(
-        run_id, RunStatus.COMPLETED.value, summary=summary)
+        run_id, RunStatus.COMPLETED.value, summary=summary,
+        retention_category=retention.value)
     if audit is not None:
         audit.run_completed(run_id, actor,
                             validation_status=validation_status)

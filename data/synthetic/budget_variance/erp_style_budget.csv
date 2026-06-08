@@ -1,0 +1,6 @@
+Fund Code,Account Key,Cost Center,Object Class,Budget Amount
+General,5001,Police,Salaries,50000
+General,5002,Fire,Salaries,200000
+General,5003,Parks,Supplies,2000
+Water,6001,Utilities,Maintenance,80000
+General,5010,Library,Books,15000

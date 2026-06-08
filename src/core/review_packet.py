@@ -96,6 +96,11 @@ def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
     vrs = run.get("validation_results") or []
     files = run.get("input_files") or []
     draft_status = derive_draft_status(actions)
+    retention = (
+        run.get("retention_category")
+        or summary.get("retention_category")
+        or "draft_working"
+    )
 
     lines: list[str] = []
     lines += [
@@ -114,6 +119,7 @@ def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
         f"- Status: {run.get('status', '')}",
         f"- Validation status: {validation_status_of(run)}",
         f"- AI draft status: **{draft_status}**",
+        f"- Retention category: {retention}",
         "",
     ]
 
@@ -127,6 +133,14 @@ def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
         ))
     else:
         lines.append("_No input file metadata recorded._")
+    source_formats = summary.get("source_formats") or {}
+    if source_formats:
+        lines.append("")
+        lines.append(
+            "Source-format presets applied before analysis (by input): "
+            + ", ".join(f"`{k}` -> `{v}`" for k, v in source_formats.items())
+            + ". The hashes above are of the ORIGINAL uploaded files; aliasing "
+            "only renamed columns to canonical names.")
     lines.append("")
 
     # 3. Deterministic findings.
@@ -249,10 +263,16 @@ def build_run_manifest(run: dict, audit_events: list[dict]) -> dict:
         "created_at": run.get("created_at"),
         "created_by": run.get("created_by"),
         "status": run.get("status"),
+        "retention_category": (
+            run.get("retention_category")
+            or (run.get("summary") or {}).get("retention_category")
+            or "draft_working"
+        ),
         "validation_status": validation_status_of(run),
         "ai_draft_status": derive_draft_status(actions),
         "human_review_status": run.get("human_review_status"),
         "summary": run.get("summary") or {},
+        "source_formats": (run.get("summary") or {}).get("source_formats", {}),
         "source_files": [
             {"file_name": f.get("file_name"), "file_type": f.get("file_type"),
              "row_count": f.get("row_count"), "sha256": f.get("file_hash")}
