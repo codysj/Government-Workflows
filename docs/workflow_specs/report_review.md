@@ -56,6 +56,47 @@ deterministic computed values. Sets `invented_reference_detected` and
 - `run(inputs, *, provider=None, ledger=None, audit=None, run_id=None, actor=, export_dir=None, config=None)` is the entry point. Injected provider/ledger/audit are used when present (duck-typed against existing pipeline method names); otherwise self-contained mock/validation/export fallbacks keep it runnable.
 - `register(registry)` supports both `registry[type] = run` and `registry.register(type, run)` styles. `WORKFLOW` dict exposes metadata.
 
+## Preflight & unsupported conditions
+
+This workflow exposes a module-level `CAPABILITY: CapabilitySpec` and a
+`detect_conditions(profiles, mappings, inputs, config)` consumed by the shared
+preflight layer (`src/core/preflight.py`); see
+[`docs/workflow_capabilities.md`](../workflow_capabilities.md) for the engine and
+the PASS / PARTIAL / FAIL rules.
+
+`CAPABILITY`:
+
+- required inputs: `report_table`; optional: `chart_of_accounts`, `prior_version`
+- accepted file types: `csv`, `xlsx`
+- required semantic columns: `report_table` → `section`, `line_type`, `amount`;
+  optional: `report_table` → `account_code`, `account_name`; `chart_of_accounts` →
+  `account_code`, `account_name`; `prior_version` → `account_code`, `amount`
+- supported patterns: long layout (section/line_type/amount), subtotal vs line
+  item, missing required section, duplicate account line, invalid account code,
+  prior-version change, inconsistent account naming
+- partially supported (flagged as PARTIAL): `unrecognized_line_type_values`,
+  `single_level_rollup_with_extra_labels`
+- unsupported: `wide_pivoted_report`, `multi_level_nested_rollup`
+
+`detect_conditions` emits only **non-blocking** (PARTIAL) findings; it returns
+`[]` on clean data and when the required file is absent/unreadable (the engine
+handles blocking):
+
+- `POSSIBLE_UNKNOWN_REPORT_STRUCTURE` — missing section/line_type structure, or a
+  `line_type` column with zero recognized values.
+- `POSSIBLE_ACCOUNT_ROLLUP` — nested-subtotal labels (e.g. `sub_subtotal`,
+  `rollup`) or a numeric `level`/`indent`/`depth`/`tier` column with ≥3 distinct
+  depths (a multi-level nested rollup).
+- `UNSUPPORTED_PATTERN_DETECTED` — a wide/pivoted layout: no single long `amount`
+  column but ≥3 mostly-numeric columns.
+
+A FAIL (e.g. the required `amount` column absent) refuses the run before the LLM
+is called and returns the structured report with next steps. A human-approved
+`column_mappings` override lets a user map `section` / `line_type` / `amount` /
+`account_code` / `account_name` when auto-detection is ambiguous. Recognized
+line-type values (`line_item` / `subtotal` / `grand_total` / ...) never trip the
+PARTIAL detector.
+
 ## Synthetic known-answer data — `data/synthetic/report_review/`
 `report_table.csv`, `chart_of_accounts.csv`, `prior_version.csv`,
 `checklist_config.json`. Engineered expected answers:

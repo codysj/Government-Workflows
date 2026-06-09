@@ -27,14 +27,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from src.core import preflight as preflight_engine
 from src.core.audit_log import AuditLog
-from src.core.review_packet import generate_review_packet
+from src.core.review_packet import (
+    generate_failed_preflight_packet,
+    generate_review_packet,
+)
 from src.core.run_ledger import RunLedger
 from src.core.schemas import (
     DeterministicFinding,
+    FindingType,
     LLMResponse,
+    PreflightReport,
+    PreflightStatus,
     RetentionCategory,
     RunStatus,
+    Severity,
+    SourceRowRef,
     ValidationResult,
     WorkflowRun,
     make_id,
@@ -180,6 +189,17 @@ DESCRIPTORS: dict[str, WorkflowDescriptor] = {
     for d in (BANK_RECONCILIATION, BUDGET_VARIANCE, REPORT_REVIEW, FREEFORM)
 }
 
+# Each workflow module exposes a module-level ``CAPABILITY: CapabilitySpec`` and
+# ``detect_conditions(profiles, mappings, inputs, config)`` per the preflight
+# integration convention. The runner uses these to run preflight before any
+# workflow/LLM call.
+WORKFLOW_MODULES: dict[str, Any] = {
+    "bank_reconciliation": bank_reconciliation,
+    "budget_variance": budget_variance,
+    "report_review": report_review,
+    "freeform": freeform,
+}
+
 # Display order for the Run Workflow page.
 WORKFLOW_ORDER = (
     "bank_reconciliation",
@@ -222,6 +242,12 @@ class UniformRunResult:
     export_paths: dict[str, str]
     refused: bool = False
     refusal_reason: str = ""
+    # Preflight / capability layer.
+    preflight: Optional[PreflightReport] = None
+    preflight_status: str = "pass"   # pass | partial | fail
+    partial: bool = False
+    blocked: bool = False            # True when preflight FAILed (workflow not run)
+    llm_called: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -244,8 +270,11 @@ def _input_files_for(inputs: dict[str, Any]) -> list:
     return out
 
 
-def _run_budget_variance(inputs, provider, export_dir, run_id):
+def _run_budget_variance(inputs, provider, export_dir, run_id, column_mappings=None):
     wf = budget_variance.BudgetVarianceWorkflow()
+    if column_mappings:
+        inputs = dict(inputs)
+        inputs["column_mappings"] = column_mappings
     result = wf.run(inputs, provider=provider)
     det = result.deterministic
     export_paths: dict[str, str] = {}
@@ -267,7 +296,8 @@ def _run_budget_variance(inputs, provider, export_dir, run_id):
 
 
 def _run_bank_reconciliation(
-    inputs, provider, export_dir, run_id, ledger, audit, actor, config
+    inputs, provider, export_dir, run_id, ledger, audit, actor, config,
+    column_mappings=None,
 ):
     res = bank_reconciliation.run(
         inputs,
@@ -278,6 +308,7 @@ def _run_bank_reconciliation(
         actor=actor,
         export_dir=export_dir,
         config=config,
+        column_mappings=column_mappings,
     )
     det = res["deterministic"]
     return UniformRunResult(
@@ -292,7 +323,10 @@ def _run_bank_reconciliation(
     )
 
 
-def _run_report_review(inputs, provider, export_dir, run_id, ledger, audit, actor):
+def _run_report_review(
+    inputs, provider, export_dir, run_id, ledger, audit, actor,
+    column_mappings=None,
+):
     res = report_review.run(
         inputs,
         provider=provider,
@@ -301,6 +335,7 @@ def _run_report_review(inputs, provider, export_dir, run_id, ledger, audit, acto
         run_id=run_id,
         actor=actor,
         export_dir=export_dir,
+        column_mappings=column_mappings,
     )
     det = res["deterministic"]
     return UniformRunResult(
@@ -315,7 +350,10 @@ def _run_report_review(inputs, provider, export_dir, run_id, ledger, audit, acto
     )
 
 
-def _run_freeform(inputs, provider, export_dir, run_id, ledger, audit, actor):
+def _run_freeform(
+    inputs, provider, export_dir, run_id, ledger, audit, actor,
+    column_mappings=None,
+):
     res = freeform.run(
         inputs,
         provider=provider,
@@ -324,6 +362,7 @@ def _run_freeform(inputs, provider, export_dir, run_id, ledger, audit, actor):
         run_id=run_id,
         actor=actor,
         export_dir=export_dir,
+        column_mappings=column_mappings,
     )
     det = res["deterministic"]
     return UniformRunResult(
@@ -463,6 +502,91 @@ def _config_for(workflow_type: str, inputs: dict, config: Optional[dict]) -> Any
 
 
 # --------------------------------------------------------------------------- #
+# Preflight integration helpers
+# --------------------------------------------------------------------------- #
+def _approved_mappings_from_report(
+    report: PreflightReport,
+) -> dict[str, dict[str, str]]:
+    """Derive HUMAN-approved ``{input_key: {semantic: column}}`` overrides.
+
+    Only mappings a human explicitly approved (``source == 'human'``) are passed
+    to the workflow as overrides. The engine's own ``auto`` guesses are NOT
+    forced on the workflow — each workflow keeps its own auto-detection as the
+    default path, so a clean run behaves exactly as before. Human overrides win.
+    """
+    out: dict[str, dict[str, str]] = {}
+    for m in report.column_mappings:
+        if m.source == "human" and m.mapped_column:
+            out.setdefault(m.input_key, {})[m.semantic_name] = m.mapped_column
+    return out
+
+
+def _preflight_findings_as_deterministic(
+    report: PreflightReport,
+) -> list[DeterministicFinding]:
+    """Convert non-blocking preflight findings into DeterministicFindings.
+
+    On a PARTIAL run these surface in the findings table / exports so reviewers
+    see exactly which unsupported conditions were detected. They are marked
+    ``requires_human_review=True`` and carry the preflight code/severity in
+    ``computed_values`` (no source rows — preflight is file/column level, not a
+    matched data row).
+    """
+    out: list[DeterministicFinding] = []
+    for f in report.findings:
+        if f.blocks_run:
+            continue
+        if f.severity == Severity.INFO:
+            continue
+        out.append(
+            DeterministicFinding(
+                finding_type=FindingType.OTHER,
+                severity=f.severity,
+                description=f"[preflight] {f.message}",
+                source_rows=[],
+                computed_values={
+                    "preflight_code": f.code.value,
+                    "affected_input": f.affected_input or "",
+                    "affected_column": f.affected_column or "",
+                    "suggested_action": f.suggested_action,
+                },
+                rule_used=f"preflight:{f.code.value}",
+                requires_human_review=True,
+            )
+        )
+    return out
+
+
+def _record_preflight_metadata(
+    summary: dict[str, Any],
+    report: PreflightReport,
+    *,
+    approved_mappings: dict[str, dict[str, str]],
+    llm_called: bool,
+) -> None:
+    """Stamp preflight provenance onto the run summary (in place)."""
+    summary["preflight_status"] = report.status.value
+    summary["partial"] = report.partial
+    summary["llm_called"] = llm_called
+    summary["detected_columns"] = {
+        p.input_key: list(p.detected_columns) for p in report.file_profiles
+    }
+    # All mappings the engine resolved (auto + human), for the audit trail.
+    resolved: dict[str, dict[str, str]] = {}
+    for m in report.column_mappings:
+        if m.source != "unmapped" and m.mapped_column:
+            resolved.setdefault(m.input_key, {})[m.semantic_name] = m.mapped_column
+    summary["column_mappings_resolved"] = resolved
+    # The subset of human-approved overrides actually forced on the workflow.
+    summary["column_mappings_used"] = approved_mappings
+    summary["parse_confidence"] = {
+        p.input_key: dict(p.parse_confidence) for p in report.file_profiles
+    }
+    summary["supported_checks"] = list(report.supported_checks)
+    summary["unsupported_conditions"] = list(report.unsupported_conditions)
+
+
+# --------------------------------------------------------------------------- #
 # Uniform pipeline entry point
 # --------------------------------------------------------------------------- #
 def run_workflow(
@@ -478,6 +602,7 @@ def run_workflow(
     source_formats: Optional[dict[str, str]] = None,
     retention_category: str = "draft_working",
     review_packet: bool = True,
+    column_mappings: Optional[dict[str, dict[str, str]]] = None,
 ) -> UniformRunResult:
     """Drive any registered workflow through the shared ledger/audit/export
     pipeline and return a uniform result.
@@ -558,10 +683,79 @@ def run_workflow(
     if applied_formats and audit is not None:
         audit.file_parsed(run_id, actor, source_formats=applied_formats)
 
+    # 2. PREFLIGHT / capability check (runs BEFORE the workflow + any LLM call).
+    module = WORKFLOW_MODULES[workflow_type]
+    report = preflight_engine.run_preflight(
+        module.CAPABILITY,
+        wf_inputs,
+        approved_mappings=column_mappings,
+        config=wf_config if isinstance(wf_config, dict) else config,
+        detect_conditions=getattr(module, "detect_conditions", None),
+    )
+    ledger.store_preflight(run_id, preflight_engine.preflight_report_dict(report))
+    if audit is not None:
+        audit.file_parsed(
+            run_id, actor, stage="preflight",
+            preflight_status=report.status.value,
+            unsupported_conditions=report.unsupported_conditions)
+    # Override columns the engine resolved (human/auto); unmapped semantics fall
+    # back to each workflow's own auto-detection.
+    approved = _approved_mappings_from_report(report)
+
+    # --- FAIL: do NOT run the workflow and do NOT call the LLM. --- #
+    if report.status == PreflightStatus.FAIL:
+        summary: dict[str, Any] = {}
+        _record_preflight_metadata(
+            summary, report, approved_mappings=approved, llm_called=False)
+        summary["validation_status"] = "n/a"
+        summary["retention_category"] = retention.value
+        summary["blocked"] = True
+        if applied_formats:
+            summary["source_formats"] = applied_formats
+        ledger.update_run_status(
+            run_id, RunStatus.FAILED.value, summary=summary,
+            retention_category=retention.value)
+        # Failed-preflight export packet: the two preflight files only.
+        export_paths: dict[str, str] = {}
+        if run_export_dir is not None:
+            try:
+                packet = generate_failed_preflight_packet(
+                    ledger, audit, run_id, export_dir,
+                    preflight=preflight_engine.preflight_report_dict(report),
+                    actor=actor)
+                export_paths = {a.file_name: a.path for a in packet}
+            except Exception:
+                pass
+        if audit is not None:
+            audit.run_failed(
+                run_id, actor, reason="preflight_failed",
+                preflight_status="fail")
+        return UniformRunResult(
+            run_id=run_id,
+            workflow_type=workflow_type,
+            findings=[],
+            summary=summary,
+            result_tables={},
+            llm_response=None,
+            validation=None,
+            export_paths=export_paths,
+            refused=True,
+            refusal_reason=(
+                "Preflight failed; the workflow was not run. "
+                + (report.next_steps[0] if report.next_steps else "")
+            ).strip(),
+            preflight=report,
+            preflight_status="fail",
+            partial=False,
+            blocked=True,
+            llm_called=False,
+        )
+
     try:
         if workflow_type == "budget_variance":
             result = _run_budget_variance(
-                wf_inputs, provider, run_export_dir, run_id)
+                wf_inputs, provider, run_export_dir, run_id,
+                column_mappings=approved or None)
             # budget_variance does not self-persist; do it here.
             ledger.store_findings(run_id, result.findings)
             if audit is not None:
@@ -584,17 +778,17 @@ def run_workflow(
         elif workflow_type == "bank_reconciliation":
             result = _run_bank_reconciliation(
                 wf_inputs, provider, run_export_dir, run_id, ledger, wf_audit,
-                actor, wf_config)
+                actor, wf_config, column_mappings=approved or None)
         elif workflow_type == "report_review":
             # report_review self-persists findings/llm/validation when given
             # ledger+audit; it does not write a run row (we did that above).
             result = _run_report_review(
                 wf_inputs, provider, run_export_dir, run_id, ledger, wf_audit,
-                actor)
+                actor, column_mappings=approved or None)
         elif workflow_type == "freeform":
             result = _run_freeform(
                 wf_inputs, provider, run_export_dir, run_id, ledger, wf_audit,
-                actor)
+                actor, column_mappings=approved or None)
         else:  # pragma: no cover - guarded above
             raise ValueError(workflow_type)
     except freeform.SensitivityNotConfirmedError as exc:
@@ -619,6 +813,17 @@ def run_workflow(
             audit.run_failed(run_id, actor)
         raise
 
+    # 2b. PARTIAL: append the preflight unsupported-condition findings to the
+    #     results so they appear in the findings table / exports, and re-persist
+    #     the full finding set. The deterministic logic already ran; the LLM (if
+    #     called) may only EXPLAIN deterministic findings (enforced in validation).
+    llm_called = result.llm_response is not None
+    if report.status == PreflightStatus.PARTIAL:
+        extra = _preflight_findings_as_deterministic(report)
+        if extra:
+            result.findings = list(result.findings) + extra
+            ledger.store_findings(run_id, result.findings)
+
     # 4/5. Ensure every workflow's export artifacts are recorded in the ledger
     # (bank_reconciliation/freeform self-store; budget_variance/report_review
     # only returned paths), then emit one workflow-artifacts export event.
@@ -640,13 +845,21 @@ def run_workflow(
     summary["retention_category"] = retention.value
     if applied_formats:
         summary["source_formats"] = applied_formats
+    # Stamp preflight provenance on every (PASS/PARTIAL) run.
+    _record_preflight_metadata(
+        summary, report, approved_mappings=approved, llm_called=llm_called)
     ledger.update_run_status(
         run_id, RunStatus.COMPLETED.value, summary=summary,
         retention_category=retention.value)
     if audit is not None:
         audit.run_completed(run_id, actor,
-                            validation_status=validation_status)
+                            validation_status=validation_status,
+                            preflight_status=report.status.value)
     result.summary = summary
+    result.preflight = report
+    result.preflight_status = report.status.value
+    result.partial = report.status == PreflightStatus.PARTIAL
+    result.llm_called = llm_called
 
     # 7. Consolidated review packet (built from persisted ledger data).
     if review_packet and export_dir is not None:

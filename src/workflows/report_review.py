@@ -42,9 +42,14 @@ from typing import Any, Callable, Optional
 import pandas as pd
 
 from src.core.schemas import (
+    CapabilitySpec,
+    ColumnMapping,
     DeterministicFinding,
+    FileProfile,
     FindingType,
     LLMResponse,
+    PreflightConditionCode,
+    PreflightFinding,
     Severity,
     SourceRowRef,
     ValidationResult,
@@ -57,6 +62,279 @@ from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_cas
 
 WORKFLOW_TYPE = "report_review"
 PROMPT_TEMPLATE_VERSION = "report_review.v1"
+
+
+# --------------------------------------------------------------------------- #
+# PREFLIGHT / CAPABILITY layer
+# --------------------------------------------------------------------------- #
+# Recognized long-layout line-type values. The deterministic checks key off
+# these; anything else in the line_type column is "unknown structure".
+RECOGNIZED_LINE_TYPES = frozenset(
+    {"line_item", "subtotal", "grand_total", "section_header", "header", "total"}
+)
+
+CAPABILITY = CapabilitySpec(
+    workflow_type=WORKFLOW_TYPE,
+    required_inputs=["report_table"],
+    optional_inputs=["chart_of_accounts", "prior_version"],
+    accepted_file_types={"*": ["csv", "xlsx"]},
+    required_semantic_columns={
+        "report_table": ["section", "line_type", "amount"],
+    },
+    optional_semantic_columns={
+        "report_table": ["account_code", "account_name"],
+        "chart_of_accounts": ["account_code", "account_name"],
+        "prior_version": ["account_code", "amount"],
+    },
+    # No date column in this workflow; amounts must parse to run the math.
+    min_amount_confidence=0.8,
+    supported_patterns=[
+        "long_layout_section_line_type_amount",
+        "subtotal_vs_line_item",
+        "missing_required_section",
+        "duplicate_account_line",
+        "invalid_account_code",
+        "prior_version_change",
+        "inconsistent_account_naming",
+    ],
+    partially_supported_patterns=[
+        "unrecognized_line_type_values",
+        "single_level_rollup_with_extra_labels",
+    ],
+    unsupported_patterns=[
+        "wide_pivoted_report",
+        "multi_level_nested_rollup",
+    ],
+    notes=(
+        "Expects a long-layout report: one row per line item / subtotal / grand "
+        "total, with section, line_type, and amount columns. Wide/pivoted "
+        "period-column reports and multi-level nested rollups are not supported "
+        "(PARTIAL: deterministic checks that still apply will run, the rest are "
+        "flagged for human review)."
+    ),
+)
+
+
+def _report_frame_from_inputs(inputs: dict[str, Any]) -> Optional[pd.DataFrame]:
+    """Best-effort load of the report_table input as a normalized frame.
+
+    Returns None when the input is absent or unreadable so the detector stays
+    purely advisory (it must NEVER crash preflight). A ParsedTable (``.dataframe``)
+    or a path is both accepted.
+    """
+    src = inputs.get("report_table")
+    if src is None:
+        return None
+    df = getattr(src, "dataframe", None)
+    if df is not None:
+        try:
+            return normalize_columns(df).reset_index(drop=True)
+        except Exception:
+            return None
+    path = Path(str(src))
+    if not path.exists() or path.suffix.lstrip(".").lower() != "csv":
+        return None
+    try:
+        raw = pd.read_csv(path, dtype=str, keep_default_na=False)
+    except Exception:
+        return None
+    return normalize_columns(raw).reset_index(drop=True)
+
+
+def _mapped_col(
+    mappings: dict[str, dict[str, ColumnMapping]],
+    input_key: str,
+    semantic: str,
+    default: str,
+) -> Optional[str]:
+    """Column resolved for ``semantic`` on ``input_key`` (mapping wins, else default)."""
+    m = mappings.get(input_key, {}).get(semantic)
+    if m is not None and m.mapped_column:
+        return m.mapped_column
+    return default if default else None
+
+
+def detect_conditions(
+    profiles: dict[str, FileProfile],
+    mappings: dict[str, dict[str, ColumnMapping]],
+    inputs: dict[str, Any],
+    config: Optional[dict] = None,
+) -> list[PreflightFinding]:
+    """Domain-specific unsupported-condition detection for report review.
+
+    CONSERVATIVE: only emits a finding when there is real signal in the data, so
+    a clean long-layout report stays PASS. All findings here are advisory
+    (``blocks_run=False``) -> they downgrade the run to PARTIAL, never FAIL.
+
+    Conditions emitted:
+      * POSSIBLE_UNKNOWN_REPORT_STRUCTURE — the report lacks the expected
+        section/line_type structure, or line_type carries values that none of
+        the deterministic checks understand.
+      * POSSIBLE_ACCOUNT_ROLLUP — nested subtotals beyond a single level
+        (multi-level rollup the subtotal/grand-total math cannot reconcile).
+      * UNSUPPORTED_PATTERN_DETECTED — a wide / pivoted layout (period columns
+        across, no single long ``amount`` column) instead of long rows.
+    """
+    findings: list[PreflightFinding] = []
+    profile = profiles.get("report_table")
+    df = _report_frame_from_inputs(inputs)
+    if df is None or profile is None or not profile.present:
+        # Missing/unreadable required file is the engine's job (it blocks). The
+        # domain detector adds nothing in that case.
+        return findings
+
+    sec_col = _mapped_col(mappings, "report_table", "section", "section")
+    type_col = _mapped_col(mappings, "report_table", "line_type", "line_type")
+    amt_col = _mapped_col(mappings, "report_table", "amount", "amount")
+    cols = set(df.columns)
+
+    # --- UNSUPPORTED_PATTERN_DETECTED: wide / pivoted layout ----------------- #
+    # Signal: there is no single long amount column, but several columns are
+    # almost entirely numeric (period columns spread across). Be strict so a
+    # clean long report with one amount column never trips this.
+    has_long_amount = bool(amt_col) and amt_col in cols
+
+    def _numeric_fraction(col: str) -> float:
+        vals = [str(v).strip() for v in df[col].tolist()]
+        nonblank = [v for v in vals if v != ""]
+        if not nonblank:
+            return 0.0
+        good = sum(1 for v in nonblank if _amt(v) is not None)
+        return good / len(nonblank)
+
+    amount_like_cols = [c for c in df.columns if _numeric_fraction(c) >= 0.8]
+    if not has_long_amount and len(amount_like_cols) >= 3:
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.UNSUPPORTED_PATTERN_DETECTED,
+                severity=Severity.MEDIUM,
+                message=(
+                    "The report looks wide/pivoted: no single 'amount' column was "
+                    f"found, but {len(amount_like_cols)} numeric columns "
+                    f"({', '.join(amount_like_cols[:4])}...) span across. The "
+                    "consistency checks expect one row per line with a single "
+                    "amount column."
+                ),
+                affected_input="report_table",
+                suggested_action=(
+                    "Unpivot the report to a long layout (section, line_type, "
+                    "amount) with one row per line item / subtotal."
+                ),
+                blocks_run=False,
+            )
+        )
+
+    # --- POSSIBLE_UNKNOWN_REPORT_STRUCTURE ----------------------------------- #
+    # (a) Missing the structural columns entirely (when the engine did not
+    #     already block — e.g. a human mapped them but they aren't usable).
+    structure_missing = (sec_col not in cols) or (type_col not in cols)
+    if structure_missing and has_long_amount:
+        missing = [
+            name
+            for name, col in (("section", sec_col), ("line_type", type_col))
+            if col not in cols
+        ]
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.POSSIBLE_UNKNOWN_REPORT_STRUCTURE,
+                severity=Severity.MEDIUM,
+                message=(
+                    "The report does not have the expected section/line_type "
+                    f"structure (missing: {', '.join(missing)}). Subtotal/section "
+                    "checks may be skipped."
+                ),
+                affected_input="report_table",
+                affected_column=", ".join(missing),
+                suggested_action=(
+                    "Provide a long-layout report with 'section' and 'line_type' "
+                    "columns, or map them to existing columns."
+                ),
+                blocks_run=False,
+            )
+        )
+    # (b) line_type column present but its values are unrecognized.
+    elif type_col in cols:
+        values = {
+            str(v).strip().lower()
+            for v in df[type_col].tolist()
+            if str(v).strip() != ""
+        }
+        if values:
+            recognized = {v for v in values if v in RECOGNIZED_LINE_TYPES}
+            unrecognized = sorted(values - RECOGNIZED_LINE_TYPES)
+            # Only flag when NONE are recognized (structure unknown) — a clean
+            # report with line_item/subtotal/grand_total must never trip this.
+            if not recognized:
+                findings.append(
+                    PreflightFinding(
+                        code=PreflightConditionCode.POSSIBLE_UNKNOWN_REPORT_STRUCTURE,
+                        severity=Severity.MEDIUM,
+                        message=(
+                            f"The '{type_col}' column has no recognized line "
+                            f"types (saw: {', '.join(unrecognized[:5])}). Expected "
+                            "values like line_item / subtotal / grand_total."
+                        ),
+                        affected_input="report_table",
+                        affected_column=type_col,
+                        suggested_action=(
+                            "Label each row's line_type as line_item, subtotal, or "
+                            "grand_total so the consistency checks can run."
+                        ),
+                        blocks_run=False,
+                    )
+                )
+
+    # --- POSSIBLE_ACCOUNT_ROLLUP: multi-level nested rollup ------------------ #
+    # Signal: a level/indent-style column (or explicit nested subtotal labels)
+    # indicates more than one level of subtotaling, which the single-level
+    # subtotal-vs-line-item math cannot reconcile.
+    if type_col in cols:
+        type_values = [str(v).strip().lower() for v in df[type_col].tolist()]
+        # Explicit nested-subtotal markers beyond a single subtotal tier.
+        nested_markers = {
+            "sub_subtotal",
+            "subsubtotal",
+            "sub_total_2",
+            "subtotal_2",
+            "rollup",
+            "group_subtotal",
+        }
+        has_nested_label = any(v in nested_markers for v in type_values)
+        # A numeric "level"/"indent" column with more than 2 distinct depths
+        # (e.g. 0,1,2,3) implies multi-level nesting.
+        multi_level = False
+        for depth_col in ("level", "indent", "depth", "tier"):
+            if depth_col in cols:
+                depths = {
+                    str(v).strip()
+                    for v in df[depth_col].tolist()
+                    if str(v).strip() != ""
+                }
+                numeric_depths = {d for d in depths if d.lstrip("-").isdigit()}
+                if len(numeric_depths) >= 3:
+                    multi_level = True
+                    break
+        if has_nested_label or multi_level:
+            findings.append(
+                PreflightFinding(
+                    code=PreflightConditionCode.POSSIBLE_ACCOUNT_ROLLUP,
+                    severity=Severity.MEDIUM,
+                    message=(
+                        "The report appears to use multi-level nested subtotals / "
+                        "rollups. The subtotal checks reconcile a single subtotal "
+                        "tier and may not tie out nested totals."
+                    ),
+                    affected_input="report_table",
+                    affected_column=type_col if has_nested_label else None,
+                    suggested_action=(
+                        "Flatten the report to one subtotal level per section, or "
+                        "review nested rollup totals manually."
+                    ),
+                    blocks_run=False,
+                )
+            )
+
+    return findings
 
 
 # --------------------------------------------------------------------------- #
@@ -138,16 +416,32 @@ def run_deterministic(
     chart_of_accounts_path: str | Path | None = None,
     prior_version_path: str | Path | None = None,
     config: ReportReviewConfig | None = None,
+    column_mappings: dict[str, dict[str, str]] | None = None,
 ) -> ReportReviewOutput:
-    """Run every deterministic consistency check and return findings + summary."""
+    """Run every deterministic consistency check and return findings + summary.
+
+    ``column_mappings`` is an optional ``{input_key: {semantic: column}}`` map
+    (e.g. from an approved preflight mapping). When provided, the named columns
+    override config-derived auto-detection for that input; semantics not present
+    fall back to the config column. ``None`` keeps the current behavior exactly.
+    All source-row indices (the SourceRowRef anchor) are preserved unchanged
+    regardless of mapping.
+    """
     config = config or ReportReviewConfig()
     df, file_id = _load_report_frame(report_path, "report")
 
-    sec_col = to_snake_case(config.section_column)
-    code_col = to_snake_case(config.account_code_column)
-    name_col = to_snake_case(config.account_name_column)
-    type_col = to_snake_case(config.line_type_column)
-    amt_col = to_snake_case(config.amount_column)
+    report_map = (column_mappings or {}).get("report_table", {})
+
+    def _col(semantic: str, default_col: str) -> str:
+        """Resolve a column: human/approved mapping wins, else config default."""
+        override = report_map.get(semantic)
+        return to_snake_case(override) if override else to_snake_case(default_col)
+
+    sec_col = _col("section", config.section_column)
+    code_col = _col("account_code", config.account_code_column)
+    name_col = _col("account_name", config.account_name_column)
+    type_col = _col("line_type", config.line_type_column)
+    amt_col = _col("amount", config.amount_column)
 
     findings: list[DeterministicFinding] = []
 
@@ -685,6 +979,7 @@ def run(
     actor: str = "system",
     export_dir: str | Path | None = None,
     config: ReportReviewConfig | None = None,
+    column_mappings: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """End-to-end report-review run.
 
@@ -714,6 +1009,7 @@ def run(
         chart_of_accounts_path=inputs.get("chart_of_accounts"),
         prior_version_path=inputs.get("prior_version"),
         config=config,
+        column_mappings=column_mappings,
     )
     if ledger is not None and hasattr(ledger, "store_findings"):
         ledger.store_findings(run_id, det.findings)

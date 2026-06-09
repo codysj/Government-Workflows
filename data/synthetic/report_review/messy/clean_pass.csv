@@ -1,0 +1,7 @@
+section,account_code,account_name,line_type,amount
+Revenues,4010,Property Tax Revenue,line_item,500000
+Revenues,4020,Sales Tax Revenue,line_item,300000
+Revenues,,Total Revenues,subtotal,800000
+Expenditures,5010,Salaries and Wages,line_item,400000
+Expenditures,5020,Employee Benefits,line_item,120000
+Expenditures,,Total Expenditures,subtotal,520000

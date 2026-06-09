@@ -33,7 +33,12 @@ from src.core.schemas import ExportArtifact
 
 REVIEW_PACKET_MD = "review_packet.md"
 RUN_MANIFEST_JSON = "run_manifest.json"
+PREFLIGHT_REPORT_JSON = "preflight_report.json"
+PREFLIGHT_SUMMARY_MD = "preflight_summary.md"
 PACKET_FILE_NAMES = (REVIEW_PACKET_MD, RUN_MANIFEST_JSON)
+# A failed-preflight packet contains ONLY the two preflight artifacts (the
+# workflow never ran, so there are no findings / AI draft / validation).
+FAILED_PREFLIGHT_PACKET_FILE_NAMES = (PREFLIGHT_REPORT_JSON, PREFLIGHT_SUMMARY_MD)
 
 # A human "approve_draft" action promotes the AI draft to "final (human
 # approved)"; a "reject_ai_explanation" marks it rejected. Until then every AI
@@ -87,6 +92,43 @@ def _md_table(headers: list[str], rows: list[list[Any]]) -> str:
     return "\n".join(out)
 
 
+def _preflight_md_section(preflight: Optional[dict]) -> list[str]:
+    """Markdown for the preflight/capability block (empty list if none)."""
+    lines = ["## 1b. Preflight / capability check", ""]
+    if not preflight:
+        lines += ["_No preflight check recorded for this run._", ""]
+        return lines
+    status = str(preflight.get("status", "")).upper()
+    lines += [
+        f"- Status: **{status}**",
+        f"- LLM allowed: {preflight.get('llm_allowed')}",
+        f"- Partial: {preflight.get('partial')}",
+    ]
+    supported = preflight.get("supported_checks") or []
+    if supported:
+        lines.append(
+            "- Supported checks run: " + ", ".join(str(s) for s in supported))
+    unsupported = preflight.get("unsupported_conditions") or []
+    if unsupported:
+        lines.append(
+            "- Unsupported conditions detected: "
+            + ", ".join(str(u) for u in unsupported))
+    findings = preflight.get("findings") or []
+    if findings:
+        lines += ["", "Preflight findings:"]
+        for f in findings:
+            block = " (BLOCKS RUN)" if f.get("blocks_run") else ""
+            lines.append(
+                f"- **{f.get('code')}** ({f.get('severity')}){block}: "
+                f"{f.get('message', '')}")
+    next_steps = preflight.get("next_steps") or []
+    if next_steps:
+        lines += ["", "Next steps:"]
+        lines += [f"{i}. {s}" for i, s in enumerate(next_steps, 1)]
+    lines.append("")
+    return lines
+
+
 def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
     """Assemble the consolidated, human-readable review packet (markdown)."""
     summary = run.get("summary") or {}
@@ -122,6 +164,9 @@ def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
         f"- Retention category: {retention}",
         "",
     ]
+
+    # 1b. Preflight / capability check.
+    lines += _preflight_md_section(run.get("preflight"))
 
     # 2. Source files + hashes.
     lines += ["## 2. Source input files (SHA-256)", ""]
@@ -257,9 +302,18 @@ def build_run_manifest(run: dict, audit_events: list[dict]) -> dict:
     vrs = run.get("validation_results") or []
     last_llm = llms[-1] if llms else {}
     last_v = vrs[-1] if vrs else {}
+    preflight = run.get("preflight") or {}
     return {
         "run_id": run.get("run_id"),
         "workflow_type": run.get("workflow_type"),
+        "preflight": {
+            "status": preflight.get("status"),
+            "llm_allowed": preflight.get("llm_allowed"),
+            "partial": preflight.get("partial"),
+            "supported_checks": preflight.get("supported_checks", []),
+            "unsupported_conditions": preflight.get("unsupported_conditions", []),
+            "next_steps": preflight.get("next_steps", []),
+        } if preflight else None,
         "created_at": run.get("created_at"),
         "created_by": run.get("created_by"),
         "status": run.get("status"),
@@ -342,6 +396,9 @@ def generate_review_packet(
         build_run_manifest(run, audit_events),
         run_id=run_id,
     ))
+    # Every packet additionally carries the preflight report + summary when a
+    # preflight check was recorded for the run.
+    artifacts += _write_preflight_artifacts(run.get("preflight"), out, run_id)
 
     if ledger is not None and hasattr(ledger, "store_export_artifact"):
         for a in artifacts:
@@ -353,13 +410,95 @@ def generate_review_packet(
     return artifacts
 
 
+def _preflight_summary_md_from_dict(preflight: dict) -> str:
+    """Render the preflight summary markdown from a stored report dict.
+
+    Reconstructs a ``PreflightReport`` and delegates to the canonical renderer so
+    the packet's summary matches the CLI/UI exactly. Falls back to a minimal
+    summary if the dict cannot be validated (defensive; never fails a packet).
+    """
+    try:
+        from src.core.preflight import render_preflight_summary_md
+        from src.core.schemas import PreflightReport
+
+        return render_preflight_summary_md(
+            PreflightReport.model_validate(preflight))
+    except Exception:
+        status = str(preflight.get("status", "")).upper()
+        return (
+            f"# Preflight — {preflight.get('workflow_type', 'workflow')}\n\n"
+            f"**Status:** {status}\n"
+        )
+
+
+def _write_preflight_artifacts(
+    preflight: Optional[dict], out: Path, run_id: str
+) -> list[ExportArtifact]:
+    """Write ``preflight_report.json`` + ``preflight_summary.md`` (if any)."""
+    if not preflight:
+        return []
+    return [
+        write_json(out / PREFLIGHT_REPORT_JSON, preflight, run_id=run_id),
+        write_markdown(
+            out / PREFLIGHT_SUMMARY_MD,
+            _preflight_summary_md_from_dict(preflight),
+            run_id=run_id,
+        ),
+    ]
+
+
+def generate_failed_preflight_packet(
+    ledger: Any,
+    audit: Any,
+    run_id: str,
+    out_dir: str | Path,
+    *,
+    preflight: Optional[dict] = None,
+    actor: str = "system",
+) -> list[ExportArtifact]:
+    """Write the minimal packet for a FAILED-preflight run.
+
+    A failed preflight means the workflow + LLM never ran, so there are no
+    findings / AI draft / validation to package — ONLY ``preflight_report.json``
+    + ``preflight_summary.md`` (with the blocking conditions + next steps). The
+    preflight dict is taken from ``preflight`` if given, else from the ledger
+    (``get_preflight`` / ``get_run(...)['preflight']``). Records the artifacts in
+    the ledger and emits an audit event. Returns the artifact manifests.
+    """
+    if preflight is None and ledger is not None:
+        if hasattr(ledger, "get_preflight"):
+            preflight = ledger.get_preflight(run_id)
+        else:
+            run = ledger.get_run(run_id) if hasattr(ledger, "get_run") else None
+            preflight = (run or {}).get("preflight")
+    if not preflight:
+        return []
+
+    out = Path(out_dir) / str(run_id)
+    out.mkdir(parents=True, exist_ok=True)
+    artifacts = _write_preflight_artifacts(preflight, out, run_id)
+
+    if ledger is not None and hasattr(ledger, "store_export_artifact"):
+        for a in artifacts:
+            ledger.store_export_artifact(run_id, a)
+    if audit is not None and hasattr(audit, "export_generated"):
+        audit.export_generated(
+            run_id, actor, artifacts=[a.file_name for a in artifacts],
+            packet="failed_preflight")
+    return artifacts
+
+
 __all__ = [
     "REVIEW_PACKET_MD",
     "RUN_MANIFEST_JSON",
+    "PREFLIGHT_REPORT_JSON",
+    "PREFLIGHT_SUMMARY_MD",
     "PACKET_FILE_NAMES",
+    "FAILED_PREFLIGHT_PACKET_FILE_NAMES",
     "derive_draft_status",
     "validation_status_of",
     "build_review_packet_markdown",
     "build_run_manifest",
     "generate_review_packet",
+    "generate_failed_preflight_packet",
 ]

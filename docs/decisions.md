@@ -664,3 +664,93 @@ match, approve, or write final official language).
   only; no cron, no service, no autonomous runs.
 - **No new third-party dependencies.** Every Tier 1 feature uses the existing
   stack (stdlib + pandas/pydantic/openpyxl/streamlit).
+
+## Preflight / capability layer
+
+A reusable preflight / capability layer (`src/core/preflight.py`, preflight
+models in `src/core/schemas.py`, messy-data helpers in
+`src/normalize/cleaning.py`) lets each workflow decide whether an uploaded file
+set can be run before any deterministic logic or LLM call. Key decisions and
+tradeoffs:
+
+- **Fail-closed by default.** A FAIL is a refusal, not a fallback: the workflow
+  does not run and the **LLM is never called**. The deterministic core cannot
+  produce correct findings from missing/unparseable required inputs, so the model
+  must not be given a chance to guess at calculations, matches, or values. On
+  FAIL the user receives a structured report (`PreflightReport`) with file
+  profiles, blocking conditions, and de-duplicated next steps instead of any AI
+  text. The validation layer reinforces this: `validate_with_preflight` flags any
+  LLM output present on a FAIL run as an error.
+
+- **Three-state PASS / PARTIAL / FAIL rule derived purely from findings.** Status
+  is a function of the `PreflightFinding`s, not bespoke per-workflow logic. **FAIL**
+  iff any finding has `blocks_run=True` (missing required file, unsupported type
+  on a required input, missing/ambiguous required column, low date/amount parse
+  confidence on a required column, or an unresolved required mapping —
+  `NEEDS_HUMAN_CONFIGURATION`). **PARTIAL** iff no blocking finding but ≥1
+  non-blocking, non-`INFO` finding (a domain `possible_*` condition, optional-column
+  ambiguity/low-confidence, optional-input unsupported type, or
+  `UNSUPPORTED_PATTERN_DETECTED`). **PASS** iff only informational findings remain.
+  `llm_allowed = (status != FAIL)`, `partial = (status == PARTIAL)`.
+
+- **Conservative messy-data handling — flag, do not silently fix.** The cleaning
+  helpers normalize columns, detect semantic columns, score date/amount parse
+  confidence, clean currency/comma/parenthesis/negative amount formatting, and
+  detect repeated headers, footer/total rows, and duplicate rows — all while
+  preserving positional source-row indices. Structural ambiguities that would
+  change a calculation (sign conventions, batch deposits, embedded subtotals,
+  pivoted layouts) are **surfaced as PARTIAL conditions for human review, never
+  auto-resolved**. Detectors are conservative: they return no findings on clean
+  data, never block a passing demo, and a crashing detector is caught by the
+  engine so it can never break preflight.
+
+- **Human-approved column mapping only when ambiguous.** Confidently
+  auto-detected columns (confidence ≥ `0.85`, unambiguous) are mapped silently and
+  are never surfaced for manual mapping. A mapping UI / `--mappings` override is
+  requested only for a required semantic column that is missing or ambiguous. Only
+  `source == "human"` mappings are forced onto the workflow; the engine continues
+  to auto-detect the rest, which preserves the existing "ERP file without a
+  preset is rejected" behavior rather than masking it.
+
+- **The LLM never takes over failed logic; PARTIAL is constrained.** On PARTIAL
+  the LLM is allowed but may only explain the deterministic findings; it may not
+  claim to have resolved a flagged unsupported condition
+  (`validate_partial_resolution_claims` flags a resolution verb tied to an
+  unsupported-condition topic). On FAIL it is not invoked at all.
+
+- **Guided Freeform stays draft-only and is not an automatic fallback.** A FAIL
+  never silently routes to Guided Freeform. The UI may offer it behind a
+  deliberate, clearly-labeled user action stating it is a separate exploratory
+  draft-only mode, not a re-run of the failed workflow. Freeform itself fails
+  closed (blocking `NEEDS_HUMAN_CONFIGURATION` when sensitivity is unconfirmed or
+  task type is blank).
+
+- **Preflight findings represented as deterministic findings on PARTIAL.** When a
+  PARTIAL run proceeds, the non-blocking preflight findings are converted to
+  `DeterministicFinding`s (`finding_type=OTHER`, `rule_used="preflight:<code>"`,
+  `requires_human_review=True`) and appended to the workflow result, so they flow
+  through the same review/audit/export path as the workflow's own findings rather
+  than living in a parallel structure.
+
+- **One engine, per-workflow capability spec.** Each workflow exposes a
+  module-level `CAPABILITY: CapabilitySpec` and a
+  `detect_conditions(profiles, mappings, inputs, config)` that adds its domain
+  findings; the shared `run_preflight(...)` emits the generic findings and applies
+  the status rules. This keeps the three-state logic in one place and free of
+  Streamlit / provider code (the workflow modules contain neither). The runner
+  (`app/workflow_registry.run_workflow`) is the single owner of the
+  FAIL/PARTIAL/PASS branch; the CLI and UI inherit it rather than re-deriving it.
+
+### Intentionally NOT built (preflight)
+
+- **No new workflows, agents, vector DBs, ERP integrations, OCR, or auth.** The
+  preflight layer adds capability detection only; it does not add data sources or
+  parsing modes.
+- **No automatic data repair.** Messy-data handling detects and flags; it does not
+  silently rewrite values, infer missing columns, un-pivot reports, or resolve
+  rollups/batches/sign conventions on the user's behalf.
+- **No LLM-driven capability decisions.** PASS/PARTIAL/FAIL and all column
+  detection are deterministic; the model is not consulted to decide whether a run
+  can proceed.
+- **No Guided-Freeform auto-fallback.** Freeform remains a separate, deliberately
+  chosen, draft-only mode.

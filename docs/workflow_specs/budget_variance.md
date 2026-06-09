@@ -80,6 +80,44 @@ Under `data/synthetic/budget_variance/` (`budget.csv`, `actuals.csv`,
 Expected counts: joined lines = 4, flagged variances = 2, budget-only = 1,
 actual-only = 1, missing accounts = 1.
 
+## Preflight & unsupported conditions
+
+This workflow exposes a module-level `CAPABILITY: CapabilitySpec` and a
+`detect_conditions(profiles, mappings, inputs, config)` consumed by the shared
+preflight layer (`src/core/preflight.py`); see
+[`docs/workflow_capabilities.md`](../workflow_capabilities.md) for the engine and
+the PASS / PARTIAL / FAIL rules.
+
+`CAPABILITY`:
+
+- required inputs: `budget`, `actuals`; optional: `chart_of_accounts`
+- accepted file types: `csv`, `xlsx`
+- required semantic columns: `budget` → `fund`, `amount`; `actuals` → `fund`,
+  `amount`; optional: `budget`/`actuals` → `account_code`, `department`, `object`;
+  `chart_of_accounts` → `fund`, `account_code`, `department`, `object`
+- supported patterns: join by fund/account/department/object, dollar variance,
+  pct variance, threshold flags, budget-only / actual-only / missing
+- partially supported (flagged as PARTIAL): `possible_account_rollup`,
+  `possible_budget_basis_mismatch`
+- unsupported: `account_rollup_hierarchies`,
+  `budget_basis_conversion_annual_vs_ytd`
+
+`detect_conditions` emits only **non-blocking** (PARTIAL) findings; it returns
+`[]` on the clean demo and when a required file is absent:
+
+- `POSSIBLE_ACCOUNT_ROLLUP` — a budget/actuals row's amount equals (within ~0.5%)
+  the sum of ≥2 other rows (a subtotal/parent embedded in the detail rows, which
+  the flat join would double-count).
+- `POSSIBLE_BUDGET_BASIS_MISMATCH` — one side's row count is ≥3× the other
+  (different aggregation level) or total magnitudes differ ≥8× (an annual-vs-YTD
+  basis signal).
+
+A FAIL (e.g. no `fund`/`amount` columns) refuses the run before the LLM is called
+and returns the structured report with next steps. A human-approved
+`column_mappings` override lets a user map the `amount` and join-key columns
+(`fund` / `account_code` / `department` / `object`) when auto-detection is
+ambiguous.
+
 ## Registration
 
 The module exposes `WORKFLOW_REGISTRY` and a `register_workflow` decorator and

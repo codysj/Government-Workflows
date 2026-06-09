@@ -11,6 +11,35 @@ provider-specific code; all determinism lives in the workflow modules. The LLM
 defaults to the local mock provider (``--mock``, the default), so the CLI runs
 with no API key and no internet.
 
+PREFLIGHT / CAPABILITY layer
+----------------------------
+Every run is routed through the shared runner (``app.workflow_registry.
+run_workflow``), which runs the PREFLIGHT / capability check BEFORE any
+deterministic analysis or LLM call. The CLI surfaces, for each run:
+
+  * the preflight STATUS (PASS / PARTIAL / FAIL),
+  * the per-input file profile (present / type / rows / detected columns),
+  * the column-mapping status (semantic -> column, source, confidence),
+  * parse confidence for date / amount columns,
+  * the supported checks that were run,
+  * the unsupported conditions that were detected (code + message + next step),
+  * the deterministic findings summary,
+  * whether the LLM was called, and
+  * the export paths.
+
+On **FAIL** the workflow and the LLM are NOT run; the CLI prints the structured
+preflight report + concrete next steps, prints NO AI explanation, and exits 0
+with a clear ``STATUS: FAILED (preflight)`` banner (see the exit-code note
+below). On **PARTIAL** the whole output is clearly labelled PARTIAL.
+
+Exit codes
+----------
+A successfully-handled run ALWAYS exits 0 — including a preflight FAIL, which is
+a *successful* capability determination, not a crash. Scripts should branch on
+the printed ``PREFLIGHT: <STATUS>`` / ``STATUS: <...>`` lines, not the exit code.
+Reserved non-zero codes: ``2`` = bad usage / unknown workflow, ``1`` = an
+unexpected workflow crash.
+
 Usage
 -----
     python cli/run_workflow.py list
@@ -18,15 +47,16 @@ Usage
     python cli/run_workflow.py budget-variance --sample
     python cli/run_workflow.py report-review --sample
     python cli/run_workflow.py <workflow> --input k=v --input k2=v2 \
-        [--config tolerances.json] [--export out_dir] [--mock|--real]
+        [--config tolerances.json] [--export out_dir] [--mock|--real] \
+        [--mappings mappings.json] [--preflight-only]
 
-For each run the CLI prints: the run ID, the summary results, the validation
-status, and the export paths (when an export dir is given).
+For each run the CLI prints: the preflight report, the run ID, the summary
+results, the deterministic findings, the validation status, whether the LLM was
+called, and the export paths (when an export dir is given).
 """
 from __future__ import annotations
 
 import argparse
-import inspect
 import json
 import sys
 from pathlib import Path
@@ -38,6 +68,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from app.workflow_registry import UniformRunResult, run_workflow  # noqa: E402
+from src.core.schemas import PreflightStatus, Severity  # noqa: E402
 from src.workflows import registry  # noqa: E402
 
 
@@ -88,6 +120,34 @@ def _load_config(config_arg: Optional[str]) -> Any:
         )
 
 
+def _load_mappings(mappings_arg: Optional[str]) -> Optional[dict[str, dict[str, str]]]:
+    """Load ``--mappings`` (human-approved column mappings).
+
+    Accepts a path to a JSON file or an inline JSON object of the shape
+    ``{input_key: {semantic_name: column}}``. Returns ``None`` when unset. These
+    are passed to the runner as HUMAN-approved overrides; the engine still
+    auto-detects every semantic the human did not pin. This is deterministic
+    configuration (a human telling the tool which column is which) — never the
+    LLM choosing columns.
+    """
+    if not mappings_arg:
+        return None
+    p = Path(mappings_arg)
+    raw = p.read_text(encoding="utf-8") if p.exists() else mappings_arg
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"--mappings {mappings_arg!r} is neither an existing file nor valid "
+            f"JSON: {exc}"
+        )
+    if not isinstance(data, dict):
+        raise SystemExit(
+            "--mappings must be a JSON object {input_key: {semantic: column}}."
+        )
+    return data
+
+
 def _build_provider(use_real: bool) -> Any:
     """Return the LLM provider. Mock is the DEFAULT path (no key/network).
 
@@ -99,20 +159,6 @@ def _build_provider(use_real: bool) -> Any:
     """
     # Mock mode (default): let the workflow use its built-in MockLLMProvider.
     return None
-
-
-def _filter_kwargs(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Keep only kwargs accepted by ``func`` (workflows differ slightly: e.g.
-    freeform.run has no ``config`` parameter). If the callable accepts **kwargs,
-    pass everything through."""
-    try:
-        sig = inspect.signature(func)
-    except (TypeError, ValueError):
-        return kwargs
-    params = sig.parameters
-    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
-        return kwargs
-    return {k: v for k, v in kwargs.items() if k in params}
 
 
 # --------------------------------------------------------------------------- #
@@ -132,48 +178,199 @@ def _build_ledger_and_audit(db_path: Optional[str], audit_dir: Optional[str]):
 
 
 # --------------------------------------------------------------------------- #
-# Printing (the CLI's job: surface run id, summary, validation, exports)
+# Printing (the CLI's job: surface preflight, run id, summary, validation, exports)
 # --------------------------------------------------------------------------- #
-def _print_result(spec: registry.WorkflowSpec, result: dict[str, Any]) -> None:
-    run_id = result.get("run_id", "<none>")
-    print(f"Workflow:   {result.get('workflow_type', spec.workflow_type)}")
-    print(f"Run ID:     {run_id}")
+_RULE = "=" * 70
+_SUBRULE = "-" * 70
 
-    summary = result.get("summary") or {}
+# Summary keys that are preflight provenance (printed in their own sections, not
+# duplicated in the deterministic Summary block).
+_PREFLIGHT_SUMMARY_KEYS = {
+    "preflight_status", "partial", "llm_called", "detected_columns",
+    "column_mappings_resolved", "column_mappings_used", "parse_confidence",
+    "supported_checks", "unsupported_conditions", "blocked",
+}
+
+
+def _print_preflight(report: Any) -> None:
+    """Print the preflight / capability section (file profiles, mappings,
+    parse confidence, supported checks, unsupported conditions, next steps).
+
+    ``report`` is a ``PreflightReport`` (pydantic model). Safe to call for any
+    status; FAIL adds the structured blocking findings + next steps.
+    """
+    print(_RULE)
+    status = report.status.value.upper()
+    print(f"PREFLIGHT:  {status}    (LLM allowed: {report.llm_allowed})")
+    print(_RULE)
+
+    # File profiles: present / type / rows / detected columns.
+    print("File profiles:")
+    for p in report.file_profiles:
+        state = "present" if p.present else "MISSING"
+        print(f"  - {p.input_key} ({p.file_name or 'n/a'}): {state}, "
+              f"type={p.file_type or 'n/a'}, rows={p.row_count}")
+        if p.present and p.detected_columns:
+            print(f"      columns: {', '.join(p.detected_columns)}")
+        for note in p.notes:
+            print(f"      note: {note}")
+
+    # Column mapping status: semantic -> column, source, confidence.
+    if report.column_mappings:
+        print("Column mappings (semantic -> column):")
+        for m in report.column_mappings:
+            col = m.mapped_column if m.mapped_column else "(unmapped)"
+            print(f"  - [{m.input_key}] {m.semantic_name} -> {col}  "
+                  f"(source={m.source}, confidence={m.confidence:.2f})")
+
+    # Parse confidence for date / amount columns.
+    pc_lines: list[str] = []
+    for p in report.file_profiles:
+        for col, conf in p.parse_confidence.items():
+            pc_lines.append(f"  - [{p.input_key}] {col}: {conf:.0%}")
+    if pc_lines:
+        print("Parse confidence (date/amount columns):")
+        for line in pc_lines:
+            print(line)
+
+    # Supported checks run.
+    if report.supported_checks:
+        print("Supported checks:")
+        for c in report.supported_checks:
+            print(f"  - {c}")
+    else:
+        print("Supported checks: (none - workflow not run)")
+
+    # Unsupported conditions detected (code + message + suggested next step).
+    unsupported = [f for f in report.findings
+                   if f.severity != Severity.INFO and not f.blocks_run]
+    if unsupported:
+        print("Unsupported conditions detected:")
+        for f in unsupported:
+            where = ""
+            if f.affected_input:
+                where = f" [{f.affected_input}"
+                where += f".{f.affected_column}]" if f.affected_column else "]"
+            print(f"  - {f.code.value} ({f.severity.value}){where}: {f.message}")
+            if f.suggested_action:
+                print(f"      next step: {f.suggested_action}")
+
+    # Blocking findings (FAIL only) + next steps.
+    blocking = [f for f in report.findings if f.blocks_run]
+    if blocking:
+        print("Blocking conditions (workflow NOT run):")
+        for f in blocking:
+            where = ""
+            if f.affected_input:
+                where = f" [{f.affected_input}"
+                where += f".{f.affected_column}]" if f.affected_column else "]"
+            print(f"  - {f.code.value} ({f.severity.value}){where}: {f.message}")
+    if report.next_steps:
+        print("Next steps:")
+        for i, step in enumerate(report.next_steps, 1):
+            print(f"  {i}. {step}")
+
+
+def _print_findings(result: "UniformRunResult") -> None:
+    """Print the deterministic findings summary (type / severity / description)."""
+    findings = result.findings or []
+    print(f"Deterministic findings: {len(findings)}")
+    for f in findings:
+        ftype = getattr(getattr(f, "finding_type", None), "value", "")
+        sev = getattr(getattr(f, "severity", None), "value", "")
+        desc = getattr(f, "description", str(f))
+        hr = " [needs human review]" if getattr(f, "requires_human_review", False) else ""
+        print(f"  - ({ftype}/{sev}) {desc}{hr}")
+
+
+def _print_ai_explanation(result: "UniformRunResult") -> None:
+    """Print the AI (LLM) explanation — ONLY when the LLM was actually called.
+
+    NEVER called on a FAIL run (the runner leaves ``llm_response=None`` and
+    ``llm_called=False`` there). On PARTIAL the LLM may only explain the
+    deterministic findings; we print it under a PARTIAL-labelled section.
+    """
+    llm = result.llm_response
+    if llm is None or not result.llm_called:
+        print("AI explanation: (LLM not called)")
+        return
+    label = "AI explanation (PARTIAL - explains deterministic findings only):" \
+        if result.partial else "AI explanation (draft - cites source rows):"
+    print(label)
+    body = getattr(llm, "response_json", {}) or {}
+    summary = body.get("summary") if isinstance(body, dict) else None
+    if summary:
+        print(f"  {summary}")
+    else:  # fall back to a compact dump so something is always shown
+        print(f"  {json.dumps(body, ensure_ascii=False)[:500]}")
+
+
+def _print_result(result: "UniformRunResult") -> None:
+    """Print a completed (PASS / PARTIAL) run: id, summary, findings, AI, exports."""
+    print(_SUBRULE)
+    banner = "PARTIAL" if result.partial else "PASS"
+    print(f"STATUS:     {banner}")
+    if result.partial:
+        print("            (run completed on supported logic only; unsupported "
+              "conditions are flagged above and in the findings)")
+    print(f"Workflow:   {result.workflow_type}")
+    print(f"Run ID:     {result.run_id}")
+
+    summary = result.summary or {}
+    deterministic = {k: v for k, v in summary.items()
+                     if k not in _PREFLIGHT_SUMMARY_KEYS}
     print("Summary:")
-    if isinstance(summary, dict) and summary:
-        for k, v in summary.items():
+    if deterministic:
+        for k, v in deterministic.items():
             print(f"  - {k}: {v}")
     else:
-        print(f"  {summary or '(no summary)'}")
+        print("  (no summary)")
 
-    findings = result.get("findings") or []
-    print(f"Findings:   {len(findings)}")
+    _print_findings(result)
 
-    validation = result.get("validation")
+    validation = result.validation
     if validation is not None:
         passed = getattr(validation, "passed", None)
-        status = "PASSED" if passed else "FAILED" if passed is not None else "UNKNOWN"
-        print(f"Validation: {status}")
-        errors = list(getattr(validation, "errors", []) or [])
-        warnings = list(getattr(validation, "warnings", []) or [])
-        invented = getattr(validation, "invented_reference_detected", None)
-        if invented is not None:
-            print(f"  invented_reference_detected: {invented}")
-        for e in errors:
+        vstatus = "PASSED" if passed else "FAILED" if passed is not None else "UNKNOWN"
+        print(f"Validation: {vstatus}")
+        for e in list(getattr(validation, "errors", []) or []):
             print(f"  error:   {e}")
-        for w in warnings:
+        for w in list(getattr(validation, "warnings", []) or []):
             print(f"  warning: {w}")
+        invented = getattr(validation, "invented_reference_detected", None)
+        if invented:
+            print(f"  invented_reference_detected: {invented}")
     else:
         print("Validation: (none)")
 
-    export_paths = result.get("export_paths")
-    if export_paths:
+    print(f"LLM called: {result.llm_called}")
+    _print_ai_explanation(result)
+
+    if result.export_paths:
         print("Export paths:")
-        for name, path in export_paths.items():
+        for name, path in result.export_paths.items():
             print(f"  - {name}: {path}")
     else:
-        print("Export paths: (none — pass --export <dir> to write artifacts)")
+        print("Export paths: (none - pass --export <dir> to write artifacts)")
+
+
+def _print_failed(result: "UniformRunResult") -> None:
+    """Print a FAILED-preflight run: structured report + next steps, NO AI."""
+    print(_SUBRULE)
+    print("STATUS:     FAILED (preflight)")
+    print("            The workflow was NOT run and the LLM was NOT called.")
+    print(f"Workflow:   {result.workflow_type}")
+    print(f"Run ID:     {result.run_id}")
+    if result.refusal_reason:
+        print(f"Reason:     {result.refusal_reason}")
+    # Deliberately NO AI explanation on FAIL (none exists; do not synthesize one).
+    if result.export_paths:
+        print("Export paths (preflight report only):")
+        for name, path in result.export_paths.items():
+            print(f"  - {name}: {path}")
+    else:
+        print("Export paths: (none - pass --export <dir> to write the preflight "
+              "report)")
 
 
 # --------------------------------------------------------------------------- #
@@ -214,79 +411,93 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 2
 
     config = _load_config(getattr(args, "config", None))
+    mappings = _load_mappings(getattr(args, "mappings", None))
     provider = _build_provider(getattr(args, "real", False))
     export_dir = getattr(args, "export", None)
+    preflight_only = getattr(args, "preflight_only", False)
     actor = getattr(args, "actor", "cli")
     ledger, audit = _build_ledger_and_audit(
         getattr(args, "db", None), getattr(args, "audit_dir", None)
     )
+    if ledger is None:  # pragma: no cover - persistence layer always importable
+        print("Could not initialize the run ledger.", file=sys.stderr)
+        return 1
 
-    # Create the parent run-ledger row up front so the run is discoverable via
-    # ledger.list_runs()/get_run() (DoD item 8). The workflow modules persist
-    # their own child records (findings/llm/validation/exports) against this
-    # same run_id. Generating the id here keeps the row and its children
-    # consistent. This is deterministic bookkeeping, not calculation.
-    run_id = _create_run_row(ledger, spec.workflow_type, actor)
+    # --preflight-only: run the capability check WITHOUT executing the workflow
+    # or the LLM, print the report, and stop. (Never runs the LLM.)
+    if preflight_only:
+        try:
+            report = _run_preflight_only(spec.workflow_type, inputs, config, mappings)
+        except Exception as exc:
+            print(f"Preflight for '{spec.cli_name}' failed: {exc}", file=sys.stderr)
+            if getattr(args, "traceback", False):
+                raise
+            return 1
+        _print_preflight(report)
+        print(_SUBRULE)
+        print(f"STATUS:     {report.status.value.upper()} (preflight-only; "
+              "workflow NOT run)")
+        return 0
 
-    kwargs: dict[str, Any] = {
-        "provider": provider,
-        "ledger": ledger,
-        "audit": audit,
-        "export_dir": export_dir,
-        "config": config,
-        "actor": actor,
-        "run_id": run_id,
-    }
-    kwargs = _filter_kwargs(spec.run, kwargs)
-
+    # Route every run through the shared runner, which owns the PREFLIGHT branch:
+    # FAIL -> workflow + LLM NOT run; PARTIAL -> run supported logic + flag the
+    # rest; PASS -> run normally. The runner returns a UniformRunResult carrying
+    # the PreflightReport and all provenance.
     try:
-        result = spec.run(inputs, **kwargs)
+        result: UniformRunResult = run_workflow(
+            spec.workflow_type,
+            inputs,
+            ledger=ledger,
+            audit=audit,
+            provider=provider,
+            actor=actor,
+            export_dir=export_dir,
+            config=config if isinstance(config, dict) else None,
+            column_mappings=mappings,
+        )
     except Exception as exc:  # surface a clean CLI error, not a traceback
-        if ledger is not None and run_id is not None and hasattr(ledger, "update_run_status"):
-            try:
-                ledger.update_run_status(run_id, "failed")
-            except Exception:  # pragma: no cover - best-effort bookkeeping
-                pass
         print(f"Workflow '{spec.cli_name}' failed: {exc}", file=sys.stderr)
         if getattr(args, "traceback", False):
             raise
         return 1
 
-    # Mark the run completed and store its summary for later discovery.
-    if ledger is not None and run_id is not None and hasattr(ledger, "update_run_status"):
-        try:
-            ledger.update_run_status(
-                run_id, "completed", summary=result.get("summary")
-            )
-        except Exception:  # pragma: no cover - best-effort bookkeeping
-            pass
+    # Always surface the preflight report first.
+    if result.preflight is not None:
+        _print_preflight(result.preflight)
 
-    _print_result(spec, result)
+    # FAIL: structured report + next steps, NO AI explanation. Exit 0 with a
+    # clear banner (a preflight FAIL is a successful determination, not a crash;
+    # scripts branch on the printed STATUS line).
+    if result.blocked or result.preflight_status == PreflightStatus.FAIL.value:
+        _print_failed(result)
+        return 0
+
+    _print_result(result)
     return 0
 
 
-def _create_run_row(ledger: Any, workflow_type: str, actor: str) -> Optional[str]:
-    """Insert a parent ``runs`` row and return its run_id (or None if no ledger).
+def _run_preflight_only(
+    workflow_type: str,
+    inputs: dict[str, Any],
+    config: Any,
+    mappings: Optional[dict[str, dict[str, str]]],
+):
+    """Run ONLY the capability check (no workflow, no LLM) and return the report.
 
-    Bookkeeping only — no calculation. The workflow then persists findings,
-    LLM responses, validation, and export artifacts against this run_id.
+    Uses the same engine + per-workflow CAPABILITY/detect_conditions the runner
+    uses, so the printed report matches a real run's preflight section exactly.
     """
-    if ledger is None or not hasattr(ledger, "create_run"):
-        from src.core.schemas import make_id
-        return make_id()
-    try:
-        from src.core.schemas import RunStatus, WorkflowRun
+    from app.workflow_registry import WORKFLOW_MODULES
+    from src.core import preflight as preflight_engine
 
-        run = WorkflowRun(
-            workflow_type=workflow_type,
-            created_by=actor,
-            status=RunStatus.RUNNING,
-        )
-        ledger.create_run(run)
-        return run.run_id
-    except Exception:  # pragma: no cover - fall back to a bare id
-        from src.core.schemas import make_id
-        return make_id()
+    module = WORKFLOW_MODULES[workflow_type]
+    return preflight_engine.run_preflight(
+        module.CAPABILITY,
+        inputs,
+        approved_mappings=mappings,
+        config=config if isinstance(config, dict) else None,
+        detect_conditions=getattr(module, "detect_conditions", None),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -326,6 +537,20 @@ def build_parser() -> argparse.ArgumentParser:
             "--export",
             metavar="DIR",
             help="Directory to write export artifacts into.",
+        )
+        p.add_argument(
+            "--mappings",
+            metavar="JSON",
+            help="Human-approved column mappings: a JSON file path or inline "
+            "JSON object {input_key: {semantic: column}}. Pins which column is "
+            "which; the engine auto-detects the rest.",
+        )
+        p.add_argument(
+            "--preflight-only",
+            dest="preflight_only",
+            action="store_true",
+            help="Run the preflight/capability check only; do NOT run the "
+            "workflow or the LLM.",
         )
         mode = p.add_mutually_exclusive_group()
         mode.add_argument(

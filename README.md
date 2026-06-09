@@ -76,6 +76,33 @@ All four are exposed through the CLI, the registry
 bank reconciliation, is runnable end-to-end from the app on the bundled
 synthetic sample data.
 
+### Preflight & capability checks
+
+Before any workflow runs, a deterministic **preflight / capability layer**
+(`src/core/preflight.py`) profiles the uploaded files against the workflow's
+declared capability and returns one of three statuses:
+
+- **PASS** — inputs satisfy the workflow; it runs normally.
+- **PARTIAL** — the workflow runs its supported deterministic checks, but
+  conditions it does not fully handle (e.g. a likely sign-convention mismatch, a
+  batch deposit, an embedded subtotal) are flagged for human review; the AI may
+  only explain the deterministic findings, never resolve the flagged condition.
+- **FAIL** — a required file or column is missing, ambiguous, or unparseable; the
+  workflow does **not** run, **the LLM is never called**, and a structured report
+  with concrete next steps is returned.
+
+This is a fail-closed safety property: the model never "takes over" failed
+workflow logic. Preflight also does conservative messy-data handling (column
+normalization, semantic-column detection, date/amount parse-confidence,
+currency/comma/parenthesis/negative cleanup, repeated-header / footer-total /
+duplicate detection, description normalization) while preserving every source-row
+reference. Guided Freeform is **not** an automatic fallback for a FAIL — it stays
+a separately-labeled, draft-only mode reachable only by a deliberate user action.
+The preflight report is recorded in the run ledger, shown in the CLI and
+Streamlit UI, and written into the review packet (`preflight_report.json` +
+`preflight_summary.md`). See [`docs/workflow_capabilities.md`](docs/workflow_capabilities.md)
+for the exact rules and the per-workflow capability table.
+
 Every completed run also produces a **consolidated review packet**
 (`review_packet.md` + `run_manifest.json`) on top of the workflow-specific
 artifacts. The packet cleanly separates run metadata, source-file SHA-256
@@ -220,9 +247,21 @@ A 2–3 minute end-to-end walkthrough on synthetic data only:
 2. **Home / About → Safety:** read what the tool does and does not do (no
    chatbot, deterministic calculations, AI is advisory and source-linked).
 3. **Run Workflow → Bank reconciliation:** check *Use example files (load
-   synthetic data)* and click **Run workflow**. The result shows findings count,
-   validation status, and artifact count, with a note that the AI draft was
-   validated against the source data.
+   synthetic data)* and click **Run workflow**. The result shows a **Preflight:
+   PASS** badge, then findings count, validation status, and artifact count, with
+   a note that the AI draft was validated against the source data.
+   - *Preflight demo (optional):* on Run Workflow, click **Check files
+     (preflight)** before running to see the capability report (file profiles,
+     detected columns, parse confidence). For a **FAIL** example, provide only the
+     `bank` file and omit `ledger` (or run
+     `python cli/run_workflow.py bank-reconciliation --input bank=data/synthetic/bank_reconciliation/bank.csv`):
+     the result is `PREFLIGHT: FAIL` / `STATUS: FAILED (preflight)`, showing the
+     blocking condition and next steps with **no AI explanation** (the LLM is not
+     called). For a **PARTIAL** example, run the sign-convention fixture
+     (`data/synthetic/bank_reconciliation/messy/partial_sign_bank.csv` +
+     `partial_sign_ledger.csv`): the run proceeds, is labelled **PARTIAL**, lists
+     the `possible_sign_convention_mismatch` condition with a next step, and the
+     AI section is constrained to explaining the deterministic findings only.
    - *Import-preset demo (optional):* instead of the example files, upload
      `data/synthetic/bank_reconciliation/erp_style_bank.csv` for the bank
      statement and `ledger.csv` for the ledger, set the bank statement's
@@ -287,6 +326,9 @@ is logged, validated, and exported for a human to approve.*
 
 To run a single test file, name its path, e.g.
 `.venv\Scripts\python.exe -m pytest tests/unit/test_app_imports.py -q`.
+
+The full suite is **317 tests** (all passing), including the preflight /
+capability layer and the per-workflow messy-data fixtures.
 
 The evaluation harness produces measured per-workflow metrics:
 

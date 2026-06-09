@@ -49,10 +49,15 @@ from typing import Any, Optional
 
 from src.core.schemas import (
     ArtifactType,
+    CapabilitySpec,
+    ColumnMapping,
     DeterministicFinding,
     ExportArtifact,
+    FileProfile,
     FindingType,
     LLMResponse,
+    PreflightConditionCode,
+    PreflightFinding,
     Severity,
     SourceRowRef,
     ValidationResult,
@@ -92,6 +97,166 @@ REQUIRED_INPUT_FIELDS = (
     "sensitivity_confirmation",
     "human_review_confirmation",
 )
+
+
+# --------------------------------------------------------------------------- #
+# PREFLIGHT / CAPABILITY layer (shared contract; see src.core.preflight)
+# --------------------------------------------------------------------------- #
+# Guided Freeform is the structured, DRAFT-ONLY exploratory mode, NOT a fallback
+# for a failed formal workflow. Its preflight is intentionally LIGHT: there are
+# NO required tabular files and NO required tabular semantic columns. The only
+# hard requirements are the two STRUCTURED control fields that fail closed:
+#   * ``sensitivity_confirmation`` (certifies no real sensitive data), and
+#   * ``task_type`` (a short label for the requested task).
+# Uploaded files are OPTIONAL metadata; freeform records them deterministically
+# but does not parse their contents at preflight time.
+CAPABILITY = CapabilitySpec(
+    workflow_type=WORKFLOW_TYPE,
+    required_inputs=[],
+    optional_inputs=[],
+    # Optional uploads may be any of these lightweight document types; freeform
+    # records metadata only (no content parsing / no tabular column mapping).
+    accepted_file_types={"*": ["csv", "xlsx", "txt", "md", "pdf", "json"]},
+    required_semantic_columns={},
+    optional_semantic_columns={},
+    supported_patterns=[
+        "structured_request_logging",
+        "attached_file_metadata_capture",
+        "draft_only_plain_language_output",
+        "clarifying_questions_and_review_steps",
+        "task_type_discovery_logging",
+    ],
+    partially_supported_patterns=[
+        "possible_unknown_report_structure",
+    ],
+    unsupported_patterns=[
+        "authoritative_financial_answers",
+        "taking_over_a_failed_formal_workflow",
+        "calculation_or_matching",
+    ],
+    notes=(
+        "Guided Freeform is a controlled, DRAFT-ONLY exploratory mode and is NOT "
+        "an automatic fallback for a failed formal workflow. Deterministic code "
+        "records the structured request + attached-file metadata; the LLM may "
+        "ONLY explain/summarize/draft from those findings and never produces "
+        "authoritative answers. Fails closed unless 'sensitivity_confirmation' "
+        "and 'task_type' are supplied."
+    ),
+)
+
+# The STRUCTURED control fields preflight enforces (fail closed when missing).
+_REQUIRED_STRUCTURED_FIELDS = ("sensitivity_confirmation", "task_type")
+
+
+def detect_conditions(
+    profiles: dict[str, FileProfile],
+    mappings: dict[str, dict[str, ColumnMapping]],
+    inputs: dict[str, Any],
+    config: Optional[dict],
+) -> list[PreflightFinding]:
+    """Domain-specific preflight detection for Guided Freeform.
+
+    Freeform has no tabular required columns, so ``profiles`` / ``mappings`` are
+    unused here; the signal lives entirely in the STRUCTURED ``inputs`` fields.
+
+    Conditions emitted:
+      * ``NEEDS_HUMAN_CONFIGURATION`` (blocking, FAIL) when a required structured
+        field is missing:
+          - ``sensitivity_confirmation`` not given (certifies no real sensitive
+            data) — this is the existing fail-closed rule, restated as a
+            preflight finding so the runner refuses BEFORE the LLM is called.
+          - ``task_type`` blank — without it there is nothing to record/draft.
+      * ``POSSIBLE_UNKNOWN_REPORT_STRUCTURE`` (non-blocking, PARTIAL) when the
+        request reads like an attempt to obtain an authoritative answer or to
+        take over a formal workflow (e.g. wording asks to "reconcile",
+        "calculate", or produce a "final"/"official" result). Freeform stays
+        draft-only, so this is surfaced for human review, never run as logic.
+
+    CONSERVATIVE: a clean structured request (sensitivity confirmed + a task
+    type that asks for a draft/summary) returns ``[]`` and PASSes.
+    """
+    findings: list[PreflightFinding] = []
+
+    # --- Required structured fields (fail closed) ------------------------- #
+    if not bool(inputs.get("sensitivity_confirmation", False)):
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.NEEDS_HUMAN_CONFIGURATION,
+                severity=Severity.CRITICAL,
+                message=(
+                    "Guided Freeform refuses to run without "
+                    "'sensitivity_confirmation': you must certify that no real "
+                    "sensitive data is being used."
+                ),
+                affected_input="sensitivity_confirmation",
+                suggested_action=(
+                    "Confirm that no real sensitive data is included "
+                    "(set sensitivity_confirmation=True) before running."
+                ),
+                blocks_run=True,
+            )
+        )
+
+    task_type = str(inputs.get("task_type", "") or "").strip()
+    if not task_type:
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.NEEDS_HUMAN_CONFIGURATION,
+                severity=Severity.HIGH,
+                message=(
+                    "Guided Freeform requires a 'task_type' label describing the "
+                    "requested task; none was provided."
+                ),
+                affected_input="task_type",
+                suggested_action=(
+                    "Provide a short task_type label (e.g. "
+                    "'grant_reimbursement_summary')."
+                ),
+                blocks_run=True,
+            )
+        )
+
+    # --- Draft-only guardrail signal (advisory; PARTIAL, never FAIL) ------ #
+    # If the request wording suggests the user wants an authoritative answer or
+    # is trying to substitute freeform for a failed formal workflow, surface it
+    # as a possible-unsupported condition. Freeform output stays a DRAFT.
+    text = " ".join(
+        str(inputs.get(k, "") or "")
+        for k in ("task_type", "desired_output", "relevant_context")
+    ).lower()
+    _AUTHORITATIVE_SIGNALS = (
+        "authoritative",
+        "official",
+        "final answer",
+        "calculate",
+        "reconcile",
+        "compute",
+        "approve",
+        "sign off",
+    )
+    hit = next((s for s in _AUTHORITATIVE_SIGNALS if s in text), None)
+    if hit is not None and task_type:
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.POSSIBLE_UNKNOWN_REPORT_STRUCTURE,
+                severity=Severity.LOW,
+                message=(
+                    f"The request wording ('{hit}') suggests an authoritative or "
+                    "calculation/matching result. Guided Freeform is DRAFT-ONLY "
+                    "and is not a fallback for a formal workflow; it will not "
+                    "calculate, match, or produce a final/official answer."
+                ),
+                affected_input="task_type",
+                suggested_action=(
+                    "Use the dedicated deterministic workflow for any "
+                    "calculation/matching/authoritative output. Treat freeform "
+                    "output as a draft requiring human review."
+                ),
+                blocks_run=False,
+            )
+        )
+
+    return findings
 
 
 # --------------------------------------------------------------------------- #
@@ -222,13 +387,26 @@ def _load_context_refs(context_loader: Any = None) -> dict[str, Any]:
 # Deterministic stage
 # --------------------------------------------------------------------------- #
 def run_deterministic(
-    request: FreeformRequest, *, context_loader: Any = None
+    request: FreeformRequest,
+    *,
+    context_loader: Any = None,
+    column_mappings: Optional[dict[str, dict[str, str]]] = None,
 ) -> FreeformDeterministicOutput:
     """Record the structured request + file metadata as a minimal finding set.
 
     No calculation is performed. Each finding carries a SourceRowRef so the LLM
     output can be validated against real references, exactly like the other
     workflows. Refuses to run without sensitivity confirmation.
+
+    ``column_mappings`` is an optional ``{input_key: {semantic: column}}`` map
+    (the shared preflight override convention; e.g. derived from an approved
+    preflight report's ``column_mappings`` where ``source != 'unmapped'``). For
+    freeform there are no tabular required columns, so the only honored input
+    key is ``"freeform_files"``: a ``{semantic: metadata_key}`` mapping relabels
+    the recorded uploaded-file metadata key to a human-approved semantic name in
+    that file finding's ``source_values`` (e.g. ``{"date": "as_of"}``). The
+    file's positional ``row_index`` (its SourceRowRef) is preserved unchanged.
+    ``None`` keeps the current behavior exactly (no relabeling).
     """
     if not request.sensitivity_confirmation:
         raise SensitivityNotConfirmedError(
@@ -237,6 +415,8 @@ def run_deterministic(
         )
     if not request.task_type:
         raise ValueError("Freeform run refused: 'task_type' is required.")
+
+    overrides = (column_mappings or {}).get("freeform_files") or {}
 
     context_refs = _load_context_refs(context_loader)
     findings: list[DeterministicFinding] = []
@@ -278,12 +458,19 @@ def run_deterministic(
 
     # Finding(s): one per attached file's METADATA (no content parsing here).
     for i, meta in enumerate(request.uploaded_files):
+        # Apply any human-approved semantic relabeling of metadata keys. The
+        # original key's value is copied under the semantic name; the row's
+        # positional index (its SourceRowRef anchor) is never changed.
+        recorded = dict(meta)
+        for semantic, source_key in overrides.items():
+            if source_key in recorded:
+                recorded[semantic] = recorded[source_key]
         file_ref = SourceRowRef(
             file_id=str(meta.get("sha256") or meta.get("file_name") or f"file_{i}"),
             table_name="freeform_files",
             row_index=i,
-            column_names=sorted(meta.keys()),
-            source_values=dict(meta),
+            column_names=sorted(recorded.keys()),
+            source_values=recorded,
         )
         findings.append(
             DeterministicFinding(
@@ -624,6 +811,7 @@ def run(
     actor: str = "system",
     export_dir: str | Path | None = None,
     discovery_log_path: str | Path | None = None,
+    column_mappings: Optional[dict[str, dict[str, str]]] = None,
 ) -> dict[str, Any]:
     """End-to-end guided freeform run, routed through the SAME ledger/audit/
     validation pipeline as the other workflows.
@@ -651,7 +839,11 @@ def run(
 
     # Deterministic stage (refuses without sensitivity confirmation).
     try:
-        det = run_deterministic(request, context_loader=context_loader)
+        det = run_deterministic(
+            request,
+            context_loader=context_loader,
+            column_mappings=column_mappings,
+        )
     except SensitivityNotConfirmedError:
         if audit is not None and hasattr(audit, "run_failed"):
             audit.run_failed(

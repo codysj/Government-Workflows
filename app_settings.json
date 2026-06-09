@@ -1,0 +1,13 @@
+{
+  "city_name": "City of Example",
+  "default_actor": "finance_staff",
+  "llm_provider": "mock",
+  "mock_mode": true,
+  "date_tolerance_days": 3,
+  "amount_tolerance": 0.01,
+  "variance_threshold_pct": 10.0,
+  "variance_dollar_threshold": 10000.0,
+  "export_dir": "C:\\Users\\Cody\\Desktop\\Projs\\GovWorkflows\\runs\\exports",
+  "role": "Accountant",
+  "default_retention_category": "draft_working"
+}

@@ -1,0 +1,8 @@
+{
+  "task_type": "grant_reimbursement_summary",
+  "desired_output": "one-page reimbursement memo summarizing the draw-down",
+  "relevant_context": "Quarterly federal grant draw-down; draft for staff review.",
+  "uploaded_files": [],
+  "sensitivity_confirmation": true,
+  "human_review_confirmation": true
+}

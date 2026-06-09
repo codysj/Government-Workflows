@@ -1,0 +1,8 @@
+{
+  "task_type": "vendor_w9_followup",
+  "desired_output": "draft follow-up note",
+  "relevant_context": "Routine vendor onboarding.",
+  "uploaded_files": [],
+  "sensitivity_confirmation": false,
+  "human_review_confirmation": true
+}

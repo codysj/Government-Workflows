@@ -1,0 +1,5 @@
+fund,account,department,object,budget_amount
+General,5001,Police,Salaries,50000
+General,5002,Police,Overtime,30000
+General,5000,Police,Subtotal,80000
+Water,6001,Utilities,Maintenance,20000

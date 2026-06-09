@@ -1,0 +1,7 @@
+section,account_code,account_name,line_type,amount
+Revenues,4010,Property Tax Revenue,detail,500000
+Revenues,4020,Sales Tax Revenue,detail,300000
+Revenues,,Total Revenues,rollup_row,800000
+Expenditures,5010,Salaries and Wages,detail,400000
+Expenditures,5020,Employee Benefits,detail,120000
+Expenditures,,Total Expenditures,rollup_row,520000

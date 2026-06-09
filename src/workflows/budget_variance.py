@@ -36,11 +36,16 @@ import pandas as pd
 
 from src.core.schemas import (
     ArtifactType,
+    CapabilitySpec,
+    ColumnMapping,
     DeterministicFinding,
     ExportArtifact,
+    FileProfile,
     FindingType,
     LLMResponse,
     ParsedTable,
+    PreflightConditionCode,
+    PreflightFinding,
     Severity,
     SourceRowRef,
     ValidationResult,
@@ -80,6 +85,261 @@ DEFAULT_PCT_THRESHOLD = Decimal("10")  # percent
 KEY_COLUMNS = ("fund", "account", "department", "object")
 
 PROMPT_TEMPLATE_VERSION = "budget_variance.v1"
+
+
+# --------------------------------------------------------------------------- #
+# PREFLIGHT / CAPABILITY layer
+# --------------------------------------------------------------------------- #
+# Semantic field <-> deterministic column convention for this workflow:
+#   join keys   : fund, account_code (=> "account"), department, object
+#   amount       : budget_amount (budget) / actual_amount (actuals)
+# At minimum we require ONE shared join key (``fund``) plus the amount column in
+# BOTH files; the remaining join keys are optional refinements of the join.
+CAPABILITY = CapabilitySpec(
+    workflow_type="budget_variance",
+    required_inputs=["budget", "actuals"],
+    optional_inputs=["chart_of_accounts"],
+    accepted_file_types={"*": ["csv", "xlsx"]},
+    required_semantic_columns={
+        "budget": ["fund", "amount"],
+        "actuals": ["fund", "amount"],
+    },
+    optional_semantic_columns={
+        "budget": ["account_code", "department", "object"],
+        "actuals": ["account_code", "department", "object"],
+        "chart_of_accounts": ["fund", "account_code", "department", "object"],
+    },
+    # No date columns in this workflow; amount confidence still gates parseable $.
+    min_amount_confidence=0.8,
+    supported_patterns=[
+        "join_by_fund_account_department_object",
+        "dollar_variance",
+        "pct_variance",
+        "threshold_flags",
+        "budget_only_actual_only_missing",
+    ],
+    partially_supported_patterns=[
+        "possible_account_rollup",
+        "possible_budget_basis_mismatch",
+    ],
+    unsupported_patterns=[
+        "account_rollup_hierarchies",
+        "budget_basis_conversion_annual_vs_ytd",
+    ],
+    notes=(
+        "Joins budget vs actuals on the shared key columns and computes "
+        "dollar/percentage variance with threshold flags. Rollup hierarchies "
+        "and budget-basis conversion are NOT performed; when detected the run "
+        "is PARTIAL and flags the condition for human review."
+    ),
+)
+
+# Tolerances for the conservative domain detectors.
+_ROLLUP_REL_TOL = Decimal("0.005")      # 0.5% match between a row and a subtotal
+_ROLLUP_MIN_CHILDREN = 2                # a subtotal must cover >= 2 detail rows
+_BASIS_ROWCOUNT_RATIO = 3.0            # one side >= 3x the other's row count
+_BASIS_MAGNITUDE_RATIO = Decimal("8")  # totals differ by >= 8x (order-of-mag)
+
+
+def _semantic_column(
+    mappings: dict[str, dict[str, ColumnMapping]],
+    input_key: str,
+    semantic: str,
+) -> Optional[str]:
+    """Return the mapped column for ``semantic`` on ``input_key`` (or None)."""
+    m = mappings.get(input_key, {}).get(semantic)
+    if m is None or m.mapped_column is None:
+        return None
+    return m.mapped_column
+
+
+def _amounts_from_input(
+    inputs: dict, input_key: str, amount_col: Optional[str]
+) -> list[Decimal]:
+    """Load the parseable amount values for ``input_key`` (positional order).
+
+    Re-reads the raw input (path or ParsedTable) deterministically; returns only
+    the non-blank, parseable amounts. Returns ``[]`` when the column is unknown
+    or the input cannot be read.
+    """
+    raw = inputs.get(input_key)
+    if raw is None or amount_col is None:
+        return []
+    try:
+        parsed = _as_parsed(raw, input_key)
+        df = normalize_columns(parsed.dataframe)
+    except Exception:
+        return []
+    if amount_col not in df.columns:
+        return []
+    out: list[Decimal] = []
+    for v in df[amount_col].tolist():
+        d = parse_amount(v)
+        if d is not None:
+            out.append(d)
+    return out
+
+
+def _has_subtotal_rollup(amounts: list[Decimal]) -> bool:
+    """Conservative rollup signal.
+
+    True when some row's amount equals (within a small relative tolerance) the
+    sum of >= ``_ROLLUP_MIN_CHILDREN`` of the OTHER rows. That strongly suggests
+    a parent/subtotal line was concatenated into the detail rows (a rollup the
+    deterministic join cannot net out). Only large, non-zero candidates are
+    considered to avoid coincidental small-number matches.
+    """
+    vals = [a for a in amounts if a != 0]
+    n = len(vals)
+    if n < _ROLLUP_MIN_CHILDREN + 1:
+        return False
+    total = sum(vals)
+    for i, candidate in enumerate(vals):
+        if candidate == 0:
+            continue
+        others = total - candidate
+        # candidate could be the subtotal of all the others...
+        if n - 1 >= _ROLLUP_MIN_CHILDREN and others != 0:
+            rel = abs(candidate - others) / abs(candidate)
+            if rel <= _ROLLUP_REL_TOL:
+                return True
+        # ...or of a contiguous block immediately following it (typical layout:
+        # a subtotal row preceding/following its detail children).
+        run = Decimal("0")
+        children = 0
+        for j in range(n):
+            if j == i:
+                continue
+            run += vals[j]
+            children += 1
+            if children >= _ROLLUP_MIN_CHILDREN and candidate != 0:
+                if abs(candidate - run) / abs(candidate) <= _ROLLUP_REL_TOL:
+                    return True
+    return False
+
+
+def detect_conditions(
+    profiles: dict[str, FileProfile],
+    mappings: dict[str, dict[str, ColumnMapping]],
+    inputs: dict,
+    config: Optional[dict],
+) -> list[PreflightFinding]:
+    """Domain-specific unsupported-condition detection for budget variance.
+
+    Emits (all NON-blocking -> PARTIAL, never FAIL):
+
+    * ``POSSIBLE_ACCOUNT_ROLLUP`` — a side appears to embed subtotal/parent rows
+      whose amount equals the sum of finer detail rows (rollup hierarchy the
+      deterministic join does not net out).
+    * ``POSSIBLE_BUDGET_BASIS_MISMATCH`` — budget and actuals appear to be on
+      different bases: one side has far fewer (aggregated) rows, or the total
+      magnitudes differ by an order suggesting annual-vs-YTD.
+
+    Conservative by design: only flags on real signal so a clean demo PASSes.
+    Returns ``[]`` when nothing applies.
+    """
+    findings: list[PreflightFinding] = []
+
+    b_prof = profiles.get("budget")
+    a_prof = profiles.get("actuals")
+    if b_prof is None or a_prof is None or not b_prof.present or not a_prof.present:
+        return findings  # generic engine already handles missing files.
+
+    b_amount_col = _semantic_column(mappings, "budget", "amount")
+    a_amount_col = _semantic_column(mappings, "actuals", "amount")
+    b_amounts = _amounts_from_input(inputs, "budget", b_amount_col)
+    a_amounts = _amounts_from_input(inputs, "actuals", a_amount_col)
+
+    # --- POSSIBLE_ACCOUNT_ROLLUP ---------------------------------------- #
+    if b_amount_col and _has_subtotal_rollup(b_amounts):
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.POSSIBLE_ACCOUNT_ROLLUP,
+                severity=Severity.MEDIUM,
+                message=(
+                    "Budget rows appear to include a rollup/subtotal line whose "
+                    "amount equals the sum of finer detail accounts. The "
+                    "deterministic join treats every row as a leaf account, so a "
+                    "subtotal would be double-counted."
+                ),
+                affected_input="budget",
+                affected_column=b_amount_col,
+                suggested_action=(
+                    "Remove subtotal/parent rows from the budget file (keep only "
+                    "leaf accounts), or split the rollup hierarchy out for human "
+                    "review before running variance."
+                ),
+                blocks_run=False,
+            )
+        )
+    if a_amount_col and _has_subtotal_rollup(a_amounts):
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.POSSIBLE_ACCOUNT_ROLLUP,
+                severity=Severity.MEDIUM,
+                message=(
+                    "Actuals rows appear to include a rollup/subtotal line whose "
+                    "amount equals the sum of finer detail accounts. The "
+                    "deterministic join treats every row as a leaf account, so a "
+                    "subtotal would be double-counted."
+                ),
+                affected_input="actuals",
+                affected_column=a_amount_col,
+                suggested_action=(
+                    "Remove subtotal/parent rows from the actuals file (keep only "
+                    "leaf accounts), or split the rollup hierarchy out for human "
+                    "review before running variance."
+                ),
+                blocks_run=False,
+            )
+        )
+
+    # --- POSSIBLE_BUDGET_BASIS_MISMATCH --------------------------------- #
+    b_rows = len(b_amounts)
+    a_rows = len(a_amounts)
+    basis_reason: Optional[str] = None
+    if b_rows and a_rows:
+        hi, lo = max(b_rows, a_rows), min(b_rows, a_rows)
+        if lo > 0 and hi / lo >= _BASIS_ROWCOUNT_RATIO:
+            fewer = "budget" if b_rows < a_rows else "actuals"
+            basis_reason = (
+                f"{fewer} has {lo} account rows vs {hi} on the other side "
+                f"(>= {_BASIS_ROWCOUNT_RATIO:g}x), suggesting one side is "
+                "aggregated to a coarser level."
+            )
+
+    if basis_reason is None and b_amounts and a_amounts:
+        b_total = abs(sum(b_amounts))
+        a_total = abs(sum(a_amounts))
+        if b_total > 0 and a_total > 0:
+            hi_t, lo_t = max(b_total, a_total), min(b_total, a_total)
+            if lo_t > 0 and hi_t / lo_t >= _BASIS_MAGNITUDE_RATIO:
+                basis_reason = (
+                    f"total magnitudes differ by ~{(hi_t / lo_t):.0f}x "
+                    f"(budget {b_total}, actuals {a_total}), suggesting "
+                    "different bases (e.g. annual budget vs year-to-date actuals)."
+                )
+
+    if basis_reason is not None:
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.POSSIBLE_BUDGET_BASIS_MISMATCH,
+                severity=Severity.MEDIUM,
+                message=(
+                    "Budget and actuals may be on different bases: " + basis_reason
+                ),
+                affected_input="actuals",
+                suggested_action=(
+                    "Confirm budget and actuals cover the same period and level "
+                    "of detail (e.g. both annual and both at account level) "
+                    "before relying on the variance; basis conversion is not "
+                    "performed automatically."
+                ),
+                blocks_run=False,
+            )
+        )
+
+    return findings
 
 
 @dataclass
@@ -220,6 +480,66 @@ def _amount_column(df: pd.DataFrame, preferred: list[str]) -> Optional[str]:
     return None
 
 
+# Semantic join-key field <-> local key-column name. The preflight layer names
+# the account key 'account_code' (a SEMANTIC_SYNONYMS key); locally it is the
+# 'account' column. Fund/department/object share their names.
+_KEY_SEMANTIC_TO_COLUMN = {
+    "fund": "fund",
+    "account_code": "account",
+    "department": "department",
+    "object": "object",
+}
+
+
+def _override_key_columns(
+    column_mappings: Optional[dict[str, dict[str, str]]],
+    input_key: str,
+    df: pd.DataFrame,
+) -> dict[str, str]:
+    """Map local key-column name -> overridden source column for one input."""
+    out: dict[str, str] = {}
+    if not column_mappings:
+        return out
+    sem_map = column_mappings.get(input_key, {})
+    for semantic, local_col in _KEY_SEMANTIC_TO_COLUMN.items():
+        override = sem_map.get(semantic)
+        if override:
+            snake = to_snake_case(override)
+            if snake in df.columns:
+                out[local_col] = snake
+    return out
+
+
+def _resolve_join_keys(
+    column_mappings: Optional[dict[str, dict[str, str]]],
+    b_df: pd.DataFrame,
+    b_keys: list[str],
+    a_df: pd.DataFrame,
+    a_keys: list[str],
+) -> list[str]:
+    """Determine the join-key columns, honoring approved overrides.
+
+    With no override this is the intersection of available KEY_COLUMNS (current
+    behavior). When an override renames a key column on BOTH sides, the frame is
+    aliased so the canonical local key name (e.g. 'account') points at the
+    overridden source column, keeping the join logic unchanged downstream.
+    """
+    b_over = _override_key_columns(column_mappings, "budget", b_df)
+    a_over = _override_key_columns(column_mappings, "actuals", a_df)
+    # Apply renames in-place so the canonical local key name resolves the data.
+    for local_col, src in b_over.items():
+        if src != local_col:
+            b_df[local_col] = b_df[src]
+            if local_col not in b_keys:
+                b_keys.append(local_col)
+    for local_col, src in a_over.items():
+        if src != local_col:
+            a_df[local_col] = a_df[src]
+            if local_col not in a_keys:
+                a_keys.append(local_col)
+    return [k for k in KEY_COLUMNS if k in b_keys and k in a_keys]
+
+
 def _source_ref(
     parsed_file_id: str, table_name: str, row_index: int, row: pd.Series
 ) -> SourceRowRef:
@@ -240,16 +560,36 @@ def _dec(v: Any) -> Optional[Decimal]:
 # --------------------------------------------------------------------------- #
 # Core deterministic analysis
 # --------------------------------------------------------------------------- #
+def _mapped(
+    column_mappings: Optional[dict[str, dict[str, str]]],
+    input_key: str,
+    semantic: str,
+) -> Optional[str]:
+    """Look up a human/approved column override (snake_cased) or None."""
+    if not column_mappings:
+        return None
+    col = column_mappings.get(input_key, {}).get(semantic)
+    return to_snake_case(col) if col else None
+
+
 def analyze(
     budget: Any,
     actuals: Any,
     *,
     chart_of_accounts: Any = None,
     thresholds: Any = None,
+    column_mappings: Optional[dict[str, dict[str, str]]] = None,
 ) -> DeterministicOutput:
     """Run the full deterministic variance analysis.
 
     Parameters accept either a ``ParsedTable`` or a path to a CSV.
+
+    ``column_mappings`` is an optional preflight override mapping
+    ``input_key -> {semantic_name: column}`` (e.g.
+    ``{"budget": {"amount": "approved_budget", "account_code": "gl"}}``). When
+    provided, the mapped columns are used instead of auto-detection; ``None``
+    keeps the current auto-detect behavior unchanged. Source-row indices are
+    preserved regardless of the mapping used.
     """
     thr = (
         thresholds
@@ -262,21 +602,28 @@ def analyze(
     b_df, b_keys, b_name = _prepared(b_parsed)
     a_df, a_keys, a_name = _prepared(a_parsed)
 
-    # Use the intersection of available key columns for a stable join.
-    keys = [k for k in KEY_COLUMNS if k in b_keys and k in a_keys]
+    # Join keys: honor an explicit override (the semantic 'account_code' maps to
+    # the local 'account' key column) else use the intersection of available
+    # key columns for a stable join.
+    keys = _resolve_join_keys(column_mappings, b_df, b_keys, a_df, a_keys)
     if not keys:
         raise ValueError(
             "No common join key columns among "
             f"{KEY_COLUMNS}; budget has {b_keys}, actuals has {a_keys}."
         )
 
-    b_amount_col = _amount_column(
+    b_amount_col = _mapped(column_mappings, "budget", "amount") or _amount_column(
         b_df, ["budget_amount", "budget", "amount", "budgeted"]
     )
-    a_amount_col = _amount_column(
+    a_amount_col = _mapped(column_mappings, "actuals", "amount") or _amount_column(
         a_df, ["actual_amount", "actual", "amount", "actuals"]
     )
-    if b_amount_col is None or a_amount_col is None:
+    if (
+        b_amount_col is None
+        or a_amount_col is None
+        or b_amount_col not in b_df.columns
+        or a_amount_col not in a_df.columns
+    ):
         raise ValueError("Could not locate budget/actual amount columns.")
 
     # Index rows by key.
@@ -705,6 +1052,7 @@ class BudgetVarianceWorkflow:
             inputs["actuals"],
             chart_of_accounts=inputs.get("chart_of_accounts"),
             thresholds=inputs.get("thresholds"),
+            column_mappings=inputs.get("column_mappings"),
         )
 
     def build_llm_output(

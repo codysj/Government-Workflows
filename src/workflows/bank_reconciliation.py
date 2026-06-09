@@ -37,11 +37,16 @@ from typing import Any, Optional
 import pandas as pd
 
 from src.core.schemas import (
+    CapabilitySpec,
+    ColumnMapping,
     DeterministicFinding,
     ExportArtifact,
+    FileProfile,
     FindingType,
     LLMResponse,
     ParsedTable,
+    PreflightConditionCode,
+    PreflightFinding,
     Severity,
     SourceRowRef,
     ValidationResult,
@@ -52,7 +57,12 @@ from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
 from src.ingest.csv_loader import load_csv
-from src.normalize.cleaning import normalize_columns, parse_amount, parse_date
+from src.normalize.cleaning import (
+    normalize_columns,
+    parse_amount,
+    parse_date,
+    to_snake_case,
+)
 from src.normalize.matching import (
     MatchCandidate,
     detect_duplicates,
@@ -80,6 +90,320 @@ DEFAULT_DATE_TOLERANCE_DAYS = 0
 _DATE_COLUMNS = ("date", "txn_date", "transaction_date", "posted_date", "post_date")
 _AMOUNT_COLUMNS = ("amount", "value", "txn_amount", "transaction_amount")
 _DESC_COLUMNS = ("description", "memo", "payee", "vendor", "details", "narrative")
+
+
+# --------------------------------------------------------------------------- #
+# PREFLIGHT / CAPABILITY layer (shared contract; see src.core.preflight)
+# --------------------------------------------------------------------------- #
+# What this workflow can deterministically handle. The runner runs the uploaded
+# input set through ``run_preflight(CAPABILITY, inputs, detect_conditions=...)``
+# BEFORE any reconciliation or LLM call. PASS -> run; PARTIAL -> run supported
+# logic and surface the flagged conditions (LLM may only explain deterministic
+# findings); FAIL -> do not run and do not call the LLM.
+CAPABILITY = CapabilitySpec(
+    workflow_type=WORKFLOW_TYPE,
+    required_inputs=["bank", "ledger"],
+    optional_inputs=["chart_of_accounts"],
+    accepted_file_types={"*": ["csv", "xlsx"]},
+    required_semantic_columns={
+        "bank": ["date", "amount"],
+        "ledger": ["date", "amount"],
+    },
+    optional_semantic_columns={
+        "bank": ["description"],
+        "ledger": ["description"],
+    },
+    supported_patterns=[
+        "exact_amount_and_date_match_within_tolerance",
+        "potential_timing_difference",
+        "within_table_duplicate_detection",
+        "unmatched_bank_items",
+        "unmatched_ledger_items",
+    ],
+    partially_supported_patterns=[
+        "possible_sign_convention_mismatch",
+        "possible_batch_matching",
+        "possible_prior_period_items",
+    ],
+    unsupported_patterns=[
+        "many_to_one_batch_matching",
+        "multi_currency_reconciliation",
+    ],
+    notes=(
+        "Deterministic 1:1 reconciliation by amount and date (within tolerance), "
+        "plus within-table duplicate detection and unmatched-item reporting. "
+        "Many-to-one batch matching and multi-currency are NOT supported; the "
+        "detector flags likely instances as PARTIAL conditions for human review."
+    ),
+)
+
+# Thresholds for the conservative domain detectors below. Tuned so a clean
+# demo never trips them.
+_SIGN_MISMATCH_MIN_OVERLAP = 4  # need this many shared |amounts| to claim a pattern
+_SIGN_MISMATCH_MIN_FRACTION = 0.6  # ...and this fraction opposite-signed
+_BATCH_MIN_COMPONENTS = 3  # one side total == sum of >= this many of the other
+_PRIOR_PERIOD_GAP_DAYS = 45  # date this far outside the bulk window = prior-period
+
+
+def _mapped_or_auto(
+    profile: Optional[FileProfile],
+    mapping: dict[str, ColumnMapping],
+    semantic: str,
+    candidates: tuple[str, ...],
+) -> Optional[str]:
+    """Resolve a semantic column for a detector.
+
+    Prefer an approved/auto mapping (``source != 'unmapped'``); else fall back
+    to the first matching candidate column actually present in the profile.
+    """
+    m = mapping.get(semantic)
+    if m is not None and m.mapped_column and m.source != "unmapped":
+        return m.mapped_column
+    if profile is not None:
+        for c in candidates:
+            if c in profile.detected_columns:
+                return c
+    return None
+
+
+def _amounts(parsed: Any, df: pd.DataFrame, amount_col: str) -> list[Decimal]:
+    vals: list[Decimal] = []
+    for v in df[amount_col].tolist():
+        a = parse_amount(v)
+        if a is not None:
+            vals.append(a)
+    return vals
+
+
+def detect_conditions(
+    profiles: dict[str, FileProfile],
+    mappings: dict[str, dict[str, ColumnMapping]],
+    inputs: dict[str, Any],
+    config: Optional[dict],
+) -> list[PreflightFinding]:
+    """Domain-specific unsupported-condition detection for bank reconciliation.
+
+    Emits only NON-blocking ``possible_*`` findings (PARTIAL, never FAIL). Each
+    is CONSERVATIVE: it fires only on real signal so a clean demo always PASSes.
+
+    Conditions:
+      * POSSIBLE_SIGN_CONVENTION_MISMATCH — bank vs ledger amounts that share
+        the same magnitude are systematically opposite-signed (e.g. bank shows
+        debits negative, ledger positive).
+      * POSSIBLE_BATCH_MATCHING — one row on one side plausibly equals the sum
+        of several rows on the other (many small bank items -> one ledger
+        total, or vice versa); this is the unsupported many-to-one case.
+      * POSSIBLE_PRIOR_PERIOD_ITEM — dates far outside the bulk transaction
+        window (likely a prior-period item carried in).
+    """
+    findings: list[PreflightFinding] = []
+
+    bank_prof = profiles.get("bank")
+    ledger_prof = profiles.get("ledger")
+    if (
+        bank_prof is None
+        or ledger_prof is None
+        or not bank_prof.present
+        or not ledger_prof.present
+    ):
+        return findings  # generic engine already flags the missing required file
+
+    b_map = mappings.get("bank", {})
+    l_map = mappings.get("ledger", {})
+
+    b_amt_col = _mapped_or_auto(bank_prof, b_map, "amount", _AMOUNT_COLUMNS)
+    l_amt_col = _mapped_or_auto(ledger_prof, l_map, "amount", _AMOUNT_COLUMNS)
+    b_date_col = _mapped_or_auto(bank_prof, b_map, "date", _DATE_COLUMNS)
+    l_date_col = _mapped_or_auto(ledger_prof, l_map, "date", _DATE_COLUMNS)
+    if not (b_amt_col and l_amt_col):
+        return findings  # without amounts there's no reliable domain signal
+
+    # Re-read the parsed frames the same way the engine profiled them.
+    try:
+        b_parsed = _as_parsed(inputs.get("bank"), "bank")
+        l_parsed = _as_parsed(inputs.get("ledger"), "ledger")
+        b_df = normalize_columns(b_parsed.dataframe).reset_index(drop=True)
+        l_df = normalize_columns(l_parsed.dataframe).reset_index(drop=True)
+    except Exception:
+        return findings  # the generic engine owns unreadable inputs
+
+    if b_amt_col not in b_df.columns or l_amt_col not in l_df.columns:
+        return findings
+
+    bank_amts = _amounts(b_parsed, b_df, b_amt_col)
+    ledger_amts = _amounts(l_parsed, l_df, l_amt_col)
+
+    # --- POSSIBLE_SIGN_CONVENTION_MISMATCH ------------------------------- #
+    # Look at shared magnitudes. If the items that share a magnitude are
+    # systematically opposite-signed across the two tables, the sign convention
+    # likely differs (the matcher matches on signed amount and would miss them).
+    bank_by_mag: dict[Decimal, list[Decimal]] = {}
+    for a in bank_amts:
+        bank_by_mag.setdefault(abs(a), []).append(a)
+    ledger_by_mag: dict[Decimal, list[Decimal]] = {}
+    for a in ledger_amts:
+        ledger_by_mag.setdefault(abs(a), []).append(a)
+
+    shared_mags = [m for m in bank_by_mag if m in ledger_by_mag and m != 0]
+    opposite = 0
+    same = 0
+    for m in shared_mags:
+        b_sign = bank_by_mag[m][0] < 0
+        l_sign = ledger_by_mag[m][0] < 0
+        if b_sign != l_sign:
+            opposite += 1
+        else:
+            same += 1
+    overlap = opposite + same
+    if overlap >= _SIGN_MISMATCH_MIN_OVERLAP and opposite >= round(
+        _SIGN_MISMATCH_MIN_FRACTION * overlap
+    ):
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.POSSIBLE_SIGN_CONVENTION_MISMATCH,
+                severity=Severity.MEDIUM,
+                message=(
+                    f"{opposite} of {overlap} shared amounts are opposite-signed "
+                    "between bank and ledger; the two files may use different "
+                    "debit/credit sign conventions."
+                ),
+                affected_input="bank",
+                affected_column=b_amt_col,
+                suggested_action=(
+                    "Confirm the sign convention for both files (e.g. whether "
+                    "withdrawals are negative). Normalize signs to match before "
+                    "reconciling; exact matching is on signed amounts."
+                ),
+                blocks_run=False,
+            )
+        )
+
+    # --- POSSIBLE_BATCH_MATCHING (many-to-one; UNSUPPORTED) -------------- #
+    # If a single row on one side equals the sum of several distinct rows on
+    # the other (and isn't simply a 1:1 match), flag many-to-one batch matching.
+    def _batch_signal(
+        one_side: list[Decimal], many_side: list[Decimal]
+    ) -> Optional[Decimal]:
+        many_set = [a for a in many_side if a != 0]
+        one_singletons = set(many_set)
+        for total in one_side:
+            if total == 0:
+                continue
+            # Skip totals that already have a 1:1 partner (that's supported).
+            if total in one_singletons:
+                continue
+            components = [a for a in many_set if abs(a) < abs(total)]
+            if len(components) < _BATCH_MIN_COMPONENTS:
+                continue
+            if _subset_sums_to(components, total, _BATCH_MIN_COMPONENTS):
+                return total
+        return None
+
+    batch_total = _batch_signal(ledger_amts, bank_amts)
+    side = "bank"
+    affected_col = b_amt_col
+    if batch_total is None:
+        batch_total = _batch_signal(bank_amts, ledger_amts)
+        side = "ledger"
+        affected_col = l_amt_col
+    if batch_total is not None:
+        findings.append(
+            PreflightFinding(
+                code=PreflightConditionCode.POSSIBLE_BATCH_MATCHING,
+                severity=Severity.MEDIUM,
+                message=(
+                    f"A total of {batch_total} on one side appears to equal the "
+                    f"sum of several individual {side} items (many-to-one batch "
+                    "deposit/payment). Many-to-one batch matching is not "
+                    "supported; only 1:1 matching runs."
+                ),
+                affected_input=side,
+                affected_column=affected_col,
+                suggested_action=(
+                    "Split the batched total into its component transactions, or "
+                    "review the batch manually. The tool matches 1:1 only."
+                ),
+                blocks_run=False,
+            )
+        )
+
+    # --- POSSIBLE_PRIOR_PERIOD_ITEM ------------------------------------- #
+    if b_date_col or l_date_col:
+        dates: list[Any] = []
+        cols = [(b_df, b_date_col), (l_df, l_date_col)]
+        for frame, col in cols:
+            if col and col in frame.columns:
+                for v in frame[col].tolist():
+                    d = parse_date(v)
+                    if d is not None:
+                        dates.append(d)
+        if len(dates) >= 4:
+            ordered = sorted(dates)
+            # Bulk window = the inter-quartile span; anything far outside it is
+            # a likely prior-period (or future) item.
+            lo = ordered[len(ordered) // 4]
+            hi = ordered[(3 * len(ordered)) // 4]
+            outliers = [
+                d
+                for d in ordered
+                if (lo - d).days > _PRIOR_PERIOD_GAP_DAYS
+                or (d - hi).days > _PRIOR_PERIOD_GAP_DAYS
+            ]
+            if outliers:
+                findings.append(
+                    PreflightFinding(
+                        code=PreflightConditionCode.POSSIBLE_PRIOR_PERIOD_ITEM,
+                        severity=Severity.MEDIUM,
+                        message=(
+                            f"{len(outliers)} transaction date(s) fall well "
+                            "outside the bulk period (e.g. "
+                            f"{outliers[0]}); these may be prior-period items "
+                            "carried into this reconciliation."
+                        ),
+                        affected_input="bank",
+                        affected_column=b_date_col or l_date_col,
+                        suggested_action=(
+                            "Confirm whether the outlier-dated items belong to "
+                            "this reconciliation period or a prior period before "
+                            "treating them as unmatched."
+                        ),
+                        blocks_run=False,
+                    )
+                )
+
+    return findings
+
+
+def _subset_sums_to(
+    values: list[Decimal], target: Decimal, min_terms: int
+) -> bool:
+    """True if some subset of ``values`` (size >= ``min_terms``) sums to target.
+
+    Bounded, conservative subset-sum over a small fixture-sized list. Caps the
+    search so it never runs long on real inputs (returns False if too large).
+    """
+    pool = [v for v in values if v != 0]
+    if len(pool) > 18:  # keep it cheap; large inputs won't be flagged here
+        return False
+    # DP over reachable sums tracking the minimum number of terms is overkill;
+    # a bounded DFS is clearer for these tiny lists.
+    n = len(pool)
+
+    def dfs(start: int, remaining: Decimal, count: int) -> bool:
+        if remaining == 0 and count >= min_terms:
+            return True
+        if start >= n or count > 12:
+            return False
+        for i in range(start, n):
+            v = pool[i]
+            if abs(v) > abs(remaining) and (remaining - v) * remaining < 0:
+                # overshoot in the wrong direction; skip
+                continue
+            if dfs(i + 1, remaining - v, count + 1):
+                return True
+        return False
+
+    return dfs(0, target, 0)
 
 
 # --------------------------------------------------------------------------- #
@@ -166,27 +490,58 @@ def _candidates(
 # --------------------------------------------------------------------------- #
 # Core deterministic reconciliation
 # --------------------------------------------------------------------------- #
+def _resolve_col(
+    df: pd.DataFrame,
+    mapping: Optional[dict[str, str]],
+    semantic: str,
+    candidates: tuple[str, ...],
+) -> Optional[str]:
+    """Resolve a semantic column, preferring a human-approved mapping override.
+
+    When ``mapping`` supplies ``semantic`` and that (snake-cased) column exists
+    in ``df``, it wins; otherwise fall back to the current auto-detection by
+    candidate name. ``None``/absent mapping = unchanged current behavior.
+    """
+    if mapping:
+        col = mapping.get(semantic)
+        if col:
+            snake = to_snake_case(col)
+            if snake in df.columns:
+                return snake
+    return _first_col(df, candidates)
+
+
 def reconcile(
     bank: Any,
     ledger: Any,
     *,
     config: ReconciliationConfig | None = None,
+    column_mappings: Optional[dict[str, dict[str, str]]] = None,
 ) -> ReconciliationOutput:
     """Run the full deterministic reconciliation.
 
     ``bank`` / ``ledger`` accept a ``ParsedTable`` or a path to a CSV.
+
+    ``column_mappings`` is an optional ``{input_key: {semantic: column}}`` map
+    (e.g. derived from an approved preflight report's ``column_mappings`` where
+    ``source != 'unmapped'``). When provided, the mapped columns override
+    auto-detection for that input/semantic; ``None`` keeps current auto-detect
+    behavior unchanged. Source-row indices are preserved regardless.
     """
     config = config or ReconciliationConfig()
+    column_mappings = column_mappings or {}
+    b_overrides = column_mappings.get("bank")
+    l_overrides = column_mappings.get("ledger")
 
     b_parsed = _as_parsed(bank, "bank")
     l_parsed = _as_parsed(ledger, "ledger")
     b_df = normalize_columns(b_parsed.dataframe).reset_index(drop=True)
     l_df = normalize_columns(l_parsed.dataframe).reset_index(drop=True)
 
-    b_amt = _first_col(b_df, _AMOUNT_COLUMNS)
-    b_date = _first_col(b_df, _DATE_COLUMNS)
-    l_amt = _first_col(l_df, _AMOUNT_COLUMNS)
-    l_date = _first_col(l_df, _DATE_COLUMNS)
+    b_amt = _resolve_col(b_df, b_overrides, "amount", _AMOUNT_COLUMNS)
+    b_date = _resolve_col(b_df, b_overrides, "date", _DATE_COLUMNS)
+    l_amt = _resolve_col(l_df, l_overrides, "amount", _AMOUNT_COLUMNS)
+    l_date = _resolve_col(l_df, l_overrides, "date", _DATE_COLUMNS)
     if not (b_amt and b_date and l_amt and l_date):
         raise ValueError(
             "Could not locate amount/date columns. "
@@ -615,6 +970,7 @@ def run(
     actor: str = "system",
     export_dir: str | Path | None = None,
     config: Any = None,
+    column_mappings: Optional[dict[str, dict[str, str]]] = None,
 ) -> dict[str, Any]:
     """End-to-end bank reconciliation run.
 
@@ -644,7 +1000,9 @@ def run(
         audit.run_created(run_id, actor, workflow_type=WORKFLOW_TYPE)
 
     # Deterministic reconciliation.
-    det = reconcile(inputs["bank"], inputs["ledger"], config=cfg)
+    det = reconcile(
+        inputs["bank"], inputs["ledger"], config=cfg, column_mappings=column_mappings
+    )
     if ledger is not None and hasattr(ledger, "store_findings"):
         ledger.store_findings(run_id, det.findings)
     if audit is not None and hasattr(audit, "deterministic_analysis_completed"):

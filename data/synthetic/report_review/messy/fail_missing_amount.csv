@@ -1,0 +1,6 @@
+section,account_code,account_name,line_type,notes
+Revenues,4010,Property Tax Revenue,line_item,collected quarterly
+Revenues,4020,Sales Tax Revenue,line_item,remitted monthly
+Revenues,,Total Revenues,subtotal,ties out
+Expenditures,5010,Salaries and Wages,line_item,payroll
+Expenditures,,Total Expenditures,subtotal,review

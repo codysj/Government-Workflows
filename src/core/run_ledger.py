@@ -153,6 +153,10 @@ class RunLedger:
                     actor TEXT,
                     details TEXT
                 );
+                CREATE TABLE IF NOT EXISTS preflight_results (
+                    run_id TEXT PRIMARY KEY,
+                    payload TEXT
+                );
                 """
             )
             # Backward-compatible migration for ledgers created before the
@@ -288,6 +292,13 @@ class RunLedger:
                     (run_id,),
                 ).fetchall()
             ]
+            pf_row = conn.execute(
+                "SELECT payload FROM preflight_results WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            run["preflight"] = (
+                json.loads(pf_row["payload"]) if pf_row else None
+            )
         return run
 
     def _list_payloads(self, table: str, run_id: str) -> list[dict]:
@@ -383,6 +394,30 @@ class RunLedger:
                 (artifact.artifact_id, run_id, _model_json(artifact)),
             )
             conn.commit()
+
+    def store_preflight(self, run_id: str, report: dict[str, Any]) -> None:
+        """Persist the preflight report (JSON-safe dict) for a run.
+
+        ``report`` is the full report dict (e.g. from
+        ``preflight.preflight_report_dict(report)``). One row per run; re-storing
+        replaces it. Surfaced under ``get_run(run_id)["preflight"]``.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO preflight_results (run_id, payload) "
+                "VALUES (?,?)",
+                (run_id, json.dumps(report, default=str)),
+            )
+            conn.commit()
+
+    def get_preflight(self, run_id: str) -> Optional[dict]:
+        """Return the stored preflight report dict for a run, or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload FROM preflight_results WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return json.loads(row["payload"]) if row else None
 
     # ------------------------------------------------------------------ #
     # Audit events (append-only). Owned here so callers never reach into the

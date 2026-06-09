@@ -143,6 +143,44 @@ tolerances, surfaces as an unmatched bank item rather than a cleared duplicate.
 These expectations are encoded in the evaluation harness
 (`src/eval/metrics.py`, `KNOWN_ANSWERS["bank_reconciliation"]`).
 
+## Preflight & unsupported conditions
+
+This workflow exposes a module-level `CAPABILITY: CapabilitySpec` and a
+`detect_conditions(profiles, mappings, inputs, config)` consumed by the shared
+preflight layer (`src/core/preflight.py`); see
+[`docs/workflow_capabilities.md`](../workflow_capabilities.md) for the engine and
+the PASS / PARTIAL / FAIL rules.
+
+`CAPABILITY`:
+
+- required inputs: `bank`, `ledger`; optional: `chart_of_accounts`
+- accepted file types: `csv`, `xlsx`
+- required semantic columns: `bank` → `date`, `amount`; `ledger` → `date`,
+  `amount`; optional: `bank`/`ledger` → `description`
+- supported patterns: exact 1:1 amount+date match within tolerance, potential
+  timing difference, within-table duplicate detection, unmatched bank items,
+  unmatched ledger items
+- partially supported (flagged as PARTIAL): `possible_sign_convention_mismatch`,
+  `possible_batch_matching`, `possible_prior_period_items`
+- unsupported: `many_to_one_batch_matching`, `multi_currency_reconciliation`
+
+`detect_conditions` emits only **non-blocking** (PARTIAL) findings; it returns
+`[]` on clean data and never blocks a passing run:
+
+- `POSSIBLE_SIGN_CONVENTION_MISMATCH` — ≥4 shared magnitudes with ≥60%
+  opposite-signed between bank and ledger.
+- `POSSIBLE_BATCH_MATCHING` — one side's total equals a subset-sum of ≥3 items on
+  the other (a many-to-one batch deposit, which the deterministic 1:1 matcher does
+  not handle).
+- `POSSIBLE_PRIOR_PERIOD_ITEM` — dates more than ~45 days outside the bulk
+  inter-quartile date window.
+
+A FAIL (e.g. the `amount` column missing on `bank` or `ledger`) refuses the run
+before the LLM is called and returns the structured report with next steps. A
+human-approved `column_mappings` override (`{input_key: {semantic: column}}`,
+e.g. via `--mappings`) lets a user point the workflow at the right `date` /
+`amount` / `description` column when auto-detection is ambiguous.
+
 ## Verified run
 
 `.venv\Scripts\python.exe cli\run_workflow.py bank-reconciliation --sample`

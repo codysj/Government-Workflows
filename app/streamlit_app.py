@@ -32,12 +32,14 @@ if str(REPO_ROOT) not in sys.path:
 import streamlit as st  # noqa: E402
 
 from app.app_settings import AppSettings  # noqa: E402
+from app import preflight_views  # noqa: E402
 from app import role_views  # noqa: E402
 from app import workflow_registry as wfr  # noqa: E402
 from src.core.audit_log import AuditLog  # noqa: E402
 from src.core import ai_usage_log as ai_log  # noqa: E402
 from src.core import diffing  # noqa: E402
 from src.core import pdf_export  # noqa: E402
+from src.core import preflight as preflight_engine  # noqa: E402
 from src.core import redaction  # noqa: E402
 from src.core import review_packet as rp  # noqa: E402
 from src.core import scheduler  # noqa: E402
@@ -310,6 +312,15 @@ def render_run_workflow() -> None:
               "your Settings value."),
     )
 
+    # --- Preflight / capability check (data workflows only) --------------- #
+    # Lets staff confirm the uploaded set is runnable and, when a required
+    # column is ambiguous/unmapped, approve a lightweight column mapping BEFORE
+    # the real run. Freeform has no CAPABILITY and skips this.
+    approved_mappings: dict | None = None
+    if descriptor.workflow_type != "freeform":
+        approved_mappings = _render_preflight_check(
+            descriptor, settings, use_example)
+
     if st.button("Run workflow", type="primary"):
         run_tmp = REPO_ROOT / "runs" / "uploads" / wfr.make_id_safe()
         if descriptor.workflow_type == "freeform":
@@ -355,12 +366,30 @@ def render_run_workflow() -> None:
                     config=_settings_to_config(settings),
                     source_formats=source_formats,
                     retention_category=retention_category,
+                    column_mappings=approved_mappings or None,
                 )
             except Exception as exc:  # surface errors plainly to staff
                 st.error(f"Run failed: {exc}")
                 st.caption("Check that the uploaded files have date/amount (or "
                            "account) columns and try the example files first.")
                 return
+
+        # --- FAIL-CLOSED: preflight blocked the run. Show ONLY the structured
+        # report + next steps. No AI explanation is shown (none was produced).
+        if getattr(result, "blocked", False):
+            st.session_state["last_run_id"] = result.run_id
+            st.session_state["selected_run_id"] = result.run_id
+            st.error("Preflight FAILED — the workflow did NOT run and no AI "
+                     "explanation was produced.")
+            report = result.preflight
+            if report is not None:
+                preflight_views.render_preflight_report(
+                    preflight_engine.preflight_report_dict(report),
+                    key_prefix=f"runfail__{result.run_id}")
+            _render_freeform_offer(descriptor)
+            st.caption(f"Run recorded (FAILED). Run ID: {result.run_id}. "
+                       "Open Review Run for the full preflight report.")
+            return
 
         if result.refused:
             st.error("Run refused: " + result.refusal_reason)
@@ -371,11 +400,30 @@ def render_run_workflow() -> None:
         st.success(f"Run complete. Run ID: {result.run_id}")
         st.session_state["last_run_id"] = result.run_id
         st.session_state["selected_run_id"] = result.run_id
-        c1, c2, c3 = st.columns(3)
+
+        # --- PARTIAL: clearly mark the output as partial. ----------------- #
+        pf_status = getattr(result, "preflight_status", "pass")
+        if preflight_views.is_partial(pf_status):
+            st.warning(
+                "PARTIAL run: the workflow ran its supported checks only. "
+                "Unsupported conditions were flagged below and added to the "
+                "findings. The AI explanation is constrained to deterministic "
+                "findings and may NOT claim to resolve the flagged conditions.",
+                icon="⚠️")
+        if result.preflight is not None:
+            with st.expander(
+                    f"Preflight report — {preflight_views.status_label(pf_status)}",
+                    expanded=preflight_views.is_partial(pf_status)):
+                preflight_views.render_preflight_report(
+                    preflight_engine.preflight_report_dict(result.preflight),
+                    key_prefix=f"runok__{result.run_id}")
+
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Findings", len(result.findings))
         c2.metric("Validation",
                   (result.summary or {}).get("validation_status", "n/a"))
         c3.metric("Artifacts", len(result.export_paths))
+        c4.metric("Preflight", preflight_views.status_label(pf_status))
         val = result.validation
         if val is not None and val.invented_reference_detected:
             st.error("Validator flagged an invented source reference in the AI "
@@ -391,6 +439,88 @@ def render_run_workflow() -> None:
         st.info("Open the **Review Run** page to inspect findings, the AI "
                 "draft, validation warnings, human-review controls, and the "
                 "exported review packet.")
+
+
+def _render_preflight_check(descriptor, settings, use_example) -> dict | None:
+    """Render the pre-run preflight check + column-mapping UI for a data workflow.
+
+    Returns ``{input_key: {semantic: column}}`` human-approved mappings to pass
+    into ``run_workflow`` (or ``None``). The preview never records a run — it is
+    a read-only call to the public preflight API so staff can resolve ambiguous
+    required columns and see the PASS/PARTIAL/FAIL status before committing.
+    """
+    wf_type = descriptor.workflow_type
+    map_key = f"approved_mappings__{wf_type}"
+    approved: dict = st.session_state.get(map_key, {}) or {}
+
+    if not st.button("Check files (preflight)", key=f"preflight_btn__{wf_type}"):
+        if approved:
+            st.caption("Using previously approved column mappings: " + "; ".join(
+                f"{ik}: " + ", ".join(f"{s}→{c}" for s, c in cols.items())
+                for ik, cols in approved.items()))
+        return approved or None
+
+    # Collect the current uploads into a throwaway temp dir for profiling.
+    preview_tmp = REPO_ROOT / "runs" / "uploads" / ("preview_" + wfr.make_id_safe())
+    inputs = _collect_inputs(descriptor, preview_tmp, use_example)
+    if not inputs:
+        st.info("Provide the required file(s) above, then check again.")
+        return approved or None
+    source_formats = (
+        None if use_example else (_collect_source_formats(descriptor) or None))
+    if source_formats:
+        st.caption("Note: source-format presets are applied at run time; this "
+                   "preview profiles the files as uploaded. Detected columns may "
+                   "differ slightly from the final run.")
+
+    report = preflight_views.preview_preflight(
+        wf_type, inputs,
+        approved_mappings=approved or None,
+        config=_settings_to_config(settings))
+    if report is None:
+        st.caption("Preflight preview is not available for this workflow.")
+        return approved or None
+
+    st.markdown("#### Preflight result")
+    preflight_views.render_preflight_report(
+        preflight_engine.preflight_report_dict(report),
+        key_prefix=f"preview__{wf_type}")
+
+    # Lightweight human-approved mapping for ambiguous/unmapped REQUIRED columns.
+    if preflight_views.needs_mapping_ui(report):
+        chosen = preflight_views.render_mapping_ui(
+            report, key_prefix=f"preview__{wf_type}")
+        if chosen:
+            approved = chosen
+            st.session_state[map_key] = approved
+            st.success("Column mapping recorded. It will be applied on the next "
+                       "run. Click 'Check files (preflight)' again to re-validate.")
+    if preflight_views.is_fail(report.status.value):
+        st.error("Preflight FAILED. Resolve the blocking conditions above (or "
+                 "map the required columns) before running. The workflow will "
+                 "not run and no AI explanation will be produced.")
+        _render_freeform_offer(descriptor)
+    return approved or None
+
+
+def _render_freeform_offer(descriptor) -> None:
+    """Offer Guided Freeform as a SEPARATELY-LABELED, draft-only alternative.
+
+    This is never an automatic fallback for a failed workflow. It is a clearly
+    distinct, optional exploratory mode the user must choose deliberately.
+    """
+    with st.container(border=True):
+        st.markdown("##### Optional: Guided Freeform (separate, draft-only mode)")
+        st.caption(
+            "This is NOT the failed workflow re-run. Guided Freeform is a "
+            "separate, clearly-labeled exploratory mode that produces an "
+            "advisory DRAFT only — it does not perform the workflow's "
+            "deterministic checks. Use it only to explore the data manually.")
+        if st.button("Switch to Guided Freeform",
+                     key=f"to_freeform__{descriptor.workflow_type}"):
+            st.session_state["_goto_freeform"] = True
+            st.info("Select **Run Workflow → Guided freeform** from the workflow "
+                    "picker above to start a separate draft-only session.")
 
 
 # --------------------------------------------------------------------------- #
@@ -412,11 +542,16 @@ def render_history() -> None:
             or summary.get("retention_category")
             or "draft_working"
         )
+        pf_status = summary.get("preflight_status", "")
+        unsupported = summary.get("unsupported_conditions") or []
         rows.append({
             "run_id": r["run_id"][:8],
             "type": r["workflow_type"],
             "created_at": r["created_at"],
             "status": r["status"],
+            "preflight": preflight_views.status_label(pf_status)
+            if pf_status else "n/a",
+            "unsupported": ", ".join(unsupported) if unsupported else "",
             "validation": summary.get("validation_status", "n/a"),
             "retention": retention,
         })
@@ -496,6 +631,27 @@ def render_review_run() -> None:
     role_view = role_views.get_role_view(settings.role)
     st.caption(role_view.caption)
 
+    # --- Preflight / capability report ----------------------------------- #
+    preflight = run.get("preflight")
+    pf_status = ""
+    if preflight:
+        pf_status = (preflight.get("status") or "").lower()
+        st.subheader("Preflight / capability check")
+        if pf_status == "fail":
+            st.error("This run was BLOCKED by preflight. The workflow did NOT "
+                     "run and NO AI explanation was produced. The structured "
+                     "report and next steps below are the only output.")
+        elif pf_status == "partial":
+            st.warning("PARTIAL run: only supported deterministic checks ran. "
+                       "The unsupported conditions below were flagged; the AI "
+                       "explanation (if any) is constrained to deterministic "
+                       "findings and may NOT claim to resolve them.", icon="⚠️")
+        preflight_views.render_preflight_report(
+            preflight, key_prefix=f"review__{run_id}")
+    else:
+        st.caption("No preflight report recorded for this run "
+                   "(it predates the preflight layer).")
+
     # --- Validation warnings (PRIORITIZED) ------------------------------- #
     validations = run.get("validation_results", []) or []
     st.subheader("Validation warnings")
@@ -556,21 +712,32 @@ def render_review_run() -> None:
                 "renamed columns.")
 
     # --- LLM explanation -------------------------------------------------- #
+    # FAIL-CLOSED: for a blocked (failed-preflight) run we must NOT display any
+    # AI-generated explanation as if the workflow ran. The preflight report +
+    # next steps above are the only output.
     st.subheader("AI explanation (DRAFT — human review required)")
-    llms = run.get("llm_responses", []) or []
-    if llms:
-        rj = llms[-1].get("response_json", {}) or {}
-        if rj.get("summary"):
-            st.write(rj["summary"])
-        for key in ("draft_memo", "draft", "review_checklist"):
-            if rj.get(key):
-                with st.expander(key.replace("_", " ").title()):
-                    val = rj[key]
-                    st.write(val if isinstance(val, str) else val)
-        with st.expander("Full AI response (JSON)"):
-            st.json(rj)
+    if pf_status == "fail":
+        st.info("No AI explanation is shown for a failed-preflight run. The "
+                "workflow did not run; follow the preflight next steps above.")
     else:
-        st.caption("No AI explanation recorded.")
+        if pf_status == "partial":
+            st.caption("PARTIAL run: this explanation is constrained to "
+                       "deterministic findings and does not resolve the "
+                       "unsupported conditions flagged in the preflight report.")
+        llms = run.get("llm_responses", []) or []
+        if llms:
+            rj = llms[-1].get("response_json", {}) or {}
+            if rj.get("summary"):
+                st.write(rj["summary"])
+            for key in ("draft_memo", "draft", "review_checklist"):
+                if rj.get(key):
+                    with st.expander(key.replace("_", " ").title()):
+                        val = rj[key]
+                        st.write(val if isinstance(val, str) else val)
+            with st.expander("Full AI response (JSON)"):
+                st.json(rj)
+        else:
+            st.caption("No AI explanation recorded.")
 
     # --- Human review controls (per finding) ----------------------------- #
     st.subheader("Human review controls")

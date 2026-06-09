@@ -58,6 +58,27 @@ _PROSE_KEYS = ("summary", "draft_memo", "draft")
 
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
+# Preflight (PARTIAL runs): verbs that would falsely claim an unsupported
+# condition was deterministically handled. On a PARTIAL run the LLM may EXPLAIN
+# an unsupported condition but must NOT present it as resolved/fixed/handled —
+# the deterministic engine did not run that logic. Matched case-insensitively
+# in the same prose fields, near an unsupported-condition topic word.
+RESOLUTION_CLAIM_VERBS = (
+    "resolved",
+    "reconciled",
+    "matched",
+    "corrected",
+    "fixed",
+    "handled",
+    "accounted for",
+    "adjusted for",
+    "converted",
+    "rolled up",
+    "eliminated",
+    "no longer an issue",
+    "fully addressed",
+)
+
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -267,7 +288,164 @@ def _collect_claimed_account_codes(response_json: dict[str, Any]) -> set[str]:
     return {c for c in codes if c}
 
 
+# --------------------------------------------------------------------------- #
+# Preflight-aware constraints (FAIL / PARTIAL runs)
+# --------------------------------------------------------------------------- #
+# Topic words that identify an unsupported-condition area. Derived from the
+# preflight condition-code string values (e.g. "possible_sign_convention_
+# mismatch") plus a few plain-language synonyms a draft might use.
+_UNSUPPORTED_TOPIC_WORDS = (
+    "sign convention",
+    "sign-convention",
+    "batch",
+    "many-to-one",
+    "many to one",
+    "prior period",
+    "prior-period",
+    "rollup",
+    "roll-up",
+    "roll up",
+    "subtotal",
+    "budget basis",
+    "budget-basis",
+    "annual vs",
+    "ytd",
+    "pivot",
+    "wide layout",
+    "nested",
+    "unknown report structure",
+    "unsupported",
+)
+
+
+def _unsupported_topics_from_codes(unsupported_condition_codes: Iterable[str]) -> set[str]:
+    """Map preflight condition-code string values to searchable topic words.
+
+    Each ``possible_*`` / ``unsupported_*`` code (e.g.
+    ``possible_sign_convention_mismatch``) contributes its de-prefixed,
+    space-joined words so a resolution-claim near that topic can be detected.
+    """
+    topics: set[str] = set()
+    for code in unsupported_condition_codes or []:
+        c = str(code)
+        for prefix in ("possible_", "unsupported_"):
+            if c.startswith(prefix):
+                c = c[len(prefix):]
+                break
+        words = c.replace("_", " ").strip()
+        if words:
+            topics.add(words)
+    return topics
+
+
+def validate_partial_resolution_claims(
+    response_json: Any,
+    unsupported_condition_codes: Iterable[str],
+) -> list[str]:
+    """Return error strings for any LLM resolution-claim about an unsupported
+    condition on a PARTIAL run.
+
+    The LLM may EXPLAIN an unsupported condition but must not assert it was
+    resolved/handled/fixed (the deterministic engine did not run that logic). A
+    claim is flagged only when a resolution verb appears in the SAME sentence as
+    an unsupported-condition topic word — conservative, to avoid false positives
+    on legitimate explanatory text.
+    """
+    if isinstance(response_json, str):
+        try:
+            response_json = json.loads(response_json)
+        except json.JSONDecodeError:
+            response_json = {"summary": response_json}
+    if not isinstance(response_json, dict):
+        return []
+
+    topics = set(_UNSUPPORTED_TOPIC_WORDS) | _unsupported_topics_from_codes(
+        unsupported_condition_codes
+    )
+    blob = " ".join(str(response_json.get(k, "")) for k in _PROSE_KEYS).lower()
+    if not blob.strip():
+        return []
+
+    errors: list[str] = []
+    # Sentence-level proximity check.
+    for sentence in re.split(r"[.!?\n]+", blob):
+        s = sentence.strip()
+        if not s:
+            continue
+        if any(t in s for t in topics) and any(
+            v in s for v in RESOLUTION_CLAIM_VERBS
+        ):
+            errors.append(
+                "LLM output claims an unsupported preflight condition was "
+                f"resolved/handled: '{sentence.strip()[:120]}'."
+            )
+    return errors
+
+
+def validate_with_preflight(
+    response_json: Any,
+    deterministic: Any = None,
+    *,
+    preflight_status: str,
+    unsupported_condition_codes: Optional[Iterable[str]] = None,
+    **kwargs: Any,
+) -> ValidationResult:
+    """Validate an LLM response under a preflight status (FAIL / PARTIAL / PASS).
+
+    Rules layered on top of :func:`validate_llm_output`:
+
+    * **FAIL** — the workflow + LLM must not have run. Any LLM output present on
+      a failed-preflight run is an ERROR (``passed=False``). When ``response_json``
+      is falsy (no LLM output, the correct state) this passes with no checks.
+    * **PARTIAL** — runs the standard checks PLUS
+      :func:`validate_partial_resolution_claims`: the LLM may explain unsupported
+      conditions but must not claim they were resolved/handled.
+    * **PASS** — identical to :func:`validate_llm_output`.
+
+    ``unsupported_condition_codes`` is ``report.unsupported_conditions`` (the
+    distinct preflight code string-values). Extra ``kwargs`` are forwarded to
+    :func:`validate_llm_output`.
+    """
+    status = str(preflight_status).lower()
+
+    if status == "fail":
+        if response_json:
+            return ValidationResult(
+                passed=False,
+                errors=[
+                    "LLM output present on a FAILED-preflight run: the workflow "
+                    "and LLM must not run when preflight fails."
+                ],
+                warnings=[],
+                checked_source_refs=[],
+                invented_reference_detected=False,
+                numeric_claims_checked=0,
+            )
+        return ValidationResult(
+            passed=True,
+            errors=[],
+            warnings=[],
+            checked_source_refs=[],
+            invented_reference_detected=False,
+            numeric_claims_checked=0,
+        )
+
+    result = validate_llm_output(response_json, deterministic, **kwargs)
+
+    if status == "partial":
+        extra = validate_partial_resolution_claims(
+            response_json, unsupported_condition_codes or []
+        )
+        if extra:
+            result.errors.extend(extra)
+            result.passed = not result.errors
+    return result
+
+
 __all__ = [
     "validate_llm_output",
+    "validate_with_preflight",
+    "validate_partial_resolution_claims",
     "BANNED_APPROVAL_PHRASES",
+    "RESOLUTION_CLAIM_VERBS",
 ]

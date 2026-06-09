@@ -1,0 +1,8 @@
+{
+  "task_type": "reconcile_bank_to_ledger",
+  "desired_output": "calculate the final reconciled balance and approve it",
+  "relevant_context": "Trying to use freeform because the formal reconciliation workflow failed.",
+  "uploaded_files": [],
+  "sensitivity_confirmation": true,
+  "human_review_confirmation": true
+}

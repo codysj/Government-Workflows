@@ -77,5 +77,22 @@ Justification recorded in `docs/research/workflow_selection_scorecard.md` and
 - [x] New Streamlit pages wired (Scheduled runs, Redaction assist) + AppSettings `role` / `default_retention_category`
 - [x] Final verification: `pytest` **235 passed**; 3 CLI sample runs exit 0 (Validation PASSED); all 10 Streamlit pages render via AppTest; secret/PII sweep clean
 
+## Preflight / capability robustness pass
+Reusable preflight / capability layer so each workflow can determine whether an
+uploaded file set is PASS / PARTIAL / FAIL before running (and before any LLM
+call). Fail-closed; conservative messy-data handling; Guided Freeform stays
+draft-only and is not a fallback. See `docs/workflow_capabilities.md` and the
+"Preflight / capability layer" section of `docs/decisions.md`.
+
+- [x] Preflight engine + schemas (`src/core/preflight.py`, preflight models in `src/core/schemas.py`)
+- [x] Messy-data + parse-confidence + semantic-detection helpers (`src/normalize/cleaning.py`)
+- [x] Per-workflow `CAPABILITY` + `detect_conditions` for all 4 workflows; optional `column_mappings` override
+- [x] Runner branch (FAIL → no workflow/no LLM; PARTIAL → supported logic + flags; PASS → normal) in `app/workflow_registry.py`
+- [x] Ledger persistence (`store_preflight` / `get_preflight`), validation rules (`validate_with_preflight`), review-packet artifacts (`preflight_report.json` + `preflight_summary.md`)
+- [x] CLI surfacing (`PREFLIGHT:` / `STATUS:` lines, `--mappings`, `--preflight-only`) + Streamlit preflight views / mapping UI
+- [x] Synthetic messy-data fixtures per workflow (PASS / PARTIAL / FAIL)
+- [x] New doc `docs/workflow_capabilities.md` (rules + per-workflow capability table)
+- [x] Final verification: `pytest` **317 passed**, no regressions; 3 CLI sample runs PREFLIGHT PASS / exit 0; all 10 Streamlit pages render via AppTest; mock-LLM offline default + secret/PII sweep clean
+
 ## Architecture decision log
 Major decisions recorded in `docs/decisions.md` as implemented.

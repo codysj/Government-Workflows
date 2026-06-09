@@ -94,6 +94,40 @@ audit-log writes, and export generation. The CLI integration test
 > tests with a project-local basetemp, e.g.
 > `.venv\Scripts\python.exe -m pytest tests/integration/test_eval.py -q --basetemp=.pytmp_eval`.
 
+### Preflight / messy-data test fixtures
+
+The preflight / capability layer adds its own deterministic test coverage on top
+of the known-answer eval (the full suite is **317 tests**). These tests exercise
+the PASS / PARTIAL / FAIL determination and the conservative messy-data handling,
+all on synthetic data only:
+
+- `tests/unit/test_preflight.py` (19 tests) — the shared engine contract:
+  status rules, blocking vs non-blocking findings, column mapping (auto / human /
+  unmapped), parse-confidence gating, source-row preservation, and a crashing
+  domain detector being caught.
+- Per-workflow preflight tests —
+  `tests/unit/test_bank_reconciliation_preflight.py` (10),
+  `tests/unit/test_budget_variance_preflight.py` (12),
+  `tests/unit/test_report_review_preflight.py` (13),
+  `tests/unit/test_freeform_preflight.py` (11) — each asserts the `CAPABILITY`
+  shape, PASS on clean data, FAIL on a missing required file/column (with the
+  expected blocking codes and empty `supported_checks`), PARTIAL on the workflow's
+  unsupported conditions, that `detect_conditions` returns `[]` on clean data,
+  and that a human `column_mappings` override is honored while `None` matches
+  current auto-detect behavior.
+- `tests/integration/test_preflight_integration.py` (7 tests) — end-to-end through
+  the runner: PASS recorded in the ledger and review packet; FAIL not running the
+  workflow or LLM (no stored LLM response, failed-preflight packet = only the two
+  preflight files, blocked audit lifecycle); PARTIAL merging preflight findings
+  into the deterministic findings and rejecting LLM resolution-claims.
+
+Synthetic messy-data fixtures live under
+`data/synthetic/<workflow>/messy/` and cover, per workflow: a FAIL case (missing
+required column/file), PARTIAL cases (bank sign-convention mismatch and batch
+deposit; budget embedded-subtotal rollup; report unrecognized line types / wide
+pivot), and a clean PASS case. Each fixture directory's `README.md` states the
+data is synthetic only with no real PII.
+
 ## Human pilot metrics (Phase 7 "Human pilot metrics")
 
 The automated harness measures correctness and throughput; it cannot measure
