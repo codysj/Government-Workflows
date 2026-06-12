@@ -252,6 +252,28 @@ Use `.venv\Scripts\python.exe` for all Python and pytest invocations below.
 Built and tested on Python 3.12. No other dependencies are required; the tool
 runs fully offline (the mock LLM provider is the default).
 
+### Troubleshooting: `Unable to import required dependency numpy`
+
+If launching the CLI or Streamlit fails with
+`ImportError: Unable to import required dependency numpy` or
+`No module named 'numpy._core._multiarray_umath'`, the virtual environment's
+Python was upgraded after the packages were installed (for example from 3.12 to
+3.14). Compiled wheels are tied to one Python version (`cp312` vs `cp314`), so
+the old binaries can no longer be loaded. Check the mismatch and repair it by
+reinstalling the binary packages for the current interpreter:
+
+```bat
+.venv\Scripts\python.exe --version
+.venv\Scripts\python.exe -m pip install --force-reinstall --only-binary=:all: ^
+  numpy pandas pyarrow pydantic_core pillow charset-normalizer ^
+  httptools MarkupSafe rpds-py websockets
+```
+
+This keeps the same package versions and only swaps the binaries to match the
+interpreter. If problems persist, recreate the environment from scratch
+(`rmdir /s /q .venv` then repeat the setup commands above) so every package is
+reinstalled for the current Python.
+
 ## How to run the CLI
 
 List the available workflows, then run any of them on the bundled synthetic
