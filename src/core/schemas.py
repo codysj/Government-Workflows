@@ -60,6 +60,14 @@ class FindingType(str, Enum):
     VARIANCE = "variance"
     MISSING_ACCOUNT = "missing_account"
     CONSISTENCY = "consistency"
+    # Tyler/Munis-style workflow findings (transaction search, AP duplicate
+    # review, JE upload prep, PO/invoice mismatch review). Purely additive.
+    SEARCH_MATCH = "search_match"
+    DUPLICATE_PAYMENT = "duplicate_payment"
+    VENDOR_ANOMALY = "vendor_anomaly"
+    PO_MISMATCH = "po_mismatch"
+    JE_VALIDATION = "je_validation"
+    MISSING_REFERENCE = "missing_reference"
     OTHER = "other"
 
 

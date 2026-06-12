@@ -28,13 +28,18 @@ from typing import Any, Callable, Optional
 from src.core.schemas import make_id
 
 # Import every workflow module so its import-time registration runs.
+from src.workflows import ap_duplicate_review as _ap_dup
 from src.workflows import bank_reconciliation as _bank
 from src.workflows import budget_variance as _budget
 from src.workflows import freeform as _freeform
+from src.workflows import je_upload_prep as _je_prep
+from src.workflows import po_invoice_review as _po_inv
 from src.workflows import report_review as _report
+from src.workflows import transaction_search as _tx_search
 
-# Repo-relative location of the bundled synthetic sample data.
-_DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "synthetic"
+# Repo root + repo-relative location of the bundled synthetic sample data.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DATA_ROOT = _REPO_ROOT / "data" / "synthetic"
 
 
 # --------------------------------------------------------------------------- #
@@ -183,6 +188,43 @@ def _sample_report_review() -> dict:
     }
 
 
+def _abs_sample_inputs(sample: dict) -> dict:
+    """Resolve a module's repo-relative SAMPLE_INPUTS paths to absolute paths.
+
+    The Tyler-era workflow modules publish ``SAMPLE_INPUTS`` with repo-relative
+    ``data/synthetic/...`` strings; non-path values (e.g. the transaction-search
+    ``query``) pass through unchanged.
+    """
+    out: dict = {}
+    for key, val in sample.items():
+        if isinstance(val, str) and val.replace("\\", "/").startswith("data/"):
+            out[key] = str(_REPO_ROOT / val)
+        else:
+            out[key] = val
+    return out
+
+
+def _sample_transaction_search() -> dict:
+    return _abs_sample_inputs(_tx_search.SAMPLE_INPUTS)
+
+
+def _sample_ap_duplicate_review() -> dict:
+    sample = dict(_ap_dup.SAMPLE_INPUTS)
+    # Bundled deterministic threshold config (documents the config contract).
+    sample["config"] = "data/synthetic/ap_duplicate_review/review_config.json"
+    return _abs_sample_inputs(sample)
+
+
+def _sample_je_upload_prep() -> dict:
+    # SAMPLE_INPUTS already points at the VALID draft so the sample run
+    # produces an upload-ready packet (je_upload.xlsx written).
+    return _abs_sample_inputs(_je_prep.SAMPLE_INPUTS)
+
+
+def _sample_po_invoice_review() -> dict:
+    return _abs_sample_inputs(_po_inv.SAMPLE_INPUTS)
+
+
 def _sample_freeform() -> dict:
     # Freeform has no tabular sample; supply a synthetic structured request that
     # confirms no real sensitive data (required) so the sample run completes.
@@ -231,6 +273,56 @@ _SPECS: list[WorkflowSpec] = [
         input_help="report_table=<report.csv> [chart_of_accounts=<coa.csv>] "
         "[prior_version=<prior.csv>] [checklist_config=<config.json>]",
         help="Flag consistency / error issues in a financial report.",
+    ),
+    WorkflowSpec(
+        workflow_type=_tx_search.WORKFLOW_TYPE,
+        cli_name="transaction-search",
+        aliases=("transaction_search", "search", "tx-search"),
+        run=_tx_search.run,
+        sample_dir=_sample_dir("tyler"),
+        sample_inputs=_sample_transaction_search,
+        input_help='query="<plain-English search>" [gl_detail=<gl.csv>] '
+        "[ap_invoices=<ap.csv>] [checks=<checks.csv>] "
+        "[purchase_orders=<po.csv>] (at least one data file required)",
+        help="Search Tyler/Munis exports with a plain-English query "
+        "(criteria parsed, then executed as deterministic filters).",
+    ),
+    WorkflowSpec(
+        workflow_type=_ap_dup.WORKFLOW_TYPE,
+        cli_name="ap-duplicate-review",
+        aliases=("ap_duplicate_review", "ap-duplicates", "duplicate-review"),
+        run=_ap_dup.run,
+        sample_dir=_sample_dir("tyler"),
+        sample_inputs=_sample_ap_duplicate_review,
+        input_help="ap_invoices=<ap_invoice_detail.csv> "
+        "[vendor_list=<vendors.csv>] [check_register=<checks.csv>] "
+        "[purchase_orders=<po.csv>] [config=<review_config.json>]",
+        help="Flag duplicate / suspicious AP payments (D1-D8 checks) in a "
+        "Tyler/Munis AP export.",
+    ),
+    WorkflowSpec(
+        workflow_type=_je_prep.WORKFLOW_TYPE,
+        cli_name="je-upload-prep",
+        aliases=("je_upload_prep", "je-prep", "journal-entry-prep"),
+        run=_je_prep.run,
+        sample_dir=_sample_dir("je_upload_prep"),
+        sample_inputs=_sample_je_upload_prep,
+        input_help="je_draft=<draft.csv|xlsx> chart_of_accounts=<coa.csv> "
+        "[gl_detail=<gl.csv>] [config=<je_config.json>]",
+        help="Validate a draft journal entry against the COA and produce an "
+        "upload-ready workbook (fails closed on blocking errors).",
+    ),
+    WorkflowSpec(
+        workflow_type=_po_inv.WORKFLOW_TYPE,
+        cli_name="po-invoice-review",
+        aliases=("po_invoice_review", "po-review", "po-match"),
+        run=_po_inv.run,
+        sample_dir=_sample_dir("tyler"),
+        sample_inputs=_sample_po_invoice_review,
+        input_help="purchase_orders=<po.csv> ap_invoices=<ap_invoice_detail.csv> "
+        "[vendor_list=<vendors.csv>] [check_register=<checks.csv>] "
+        "[config=<match_config.json>]",
+        help="Join AP invoices to PO lines and flag mismatches (P1-P8 checks).",
     ),
     WorkflowSpec(
         workflow_type=_freeform.WORKFLOW_TYPE,

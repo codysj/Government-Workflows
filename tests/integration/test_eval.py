@@ -30,23 +30,27 @@ SPEC_METRIC_FIELDS = (
 )
 
 
-def test_default_workflows_are_the_three_mvp():
+def test_default_workflows_are_the_seven_known_answer_workflows():
     assert set(DEFAULT_WORKFLOWS) == {
         "bank_reconciliation",
         "budget_variance",
         "report_review",
+        "transaction_search",
+        "ap_duplicate_review",
+        "je_upload_prep",
+        "po_invoice_review",
     }
 
 
 def test_run_eval_end_to_end_all_pass(tmp_path):
     report = run_eval(out_dir=tmp_path, export=True, write=True)
 
-    # A report row exists for each MVP workflow and all of them ran.
+    # A report row exists for each known-answer workflow and all of them ran.
     assert set(report["workflows"]) == set(DEFAULT_WORKFLOWS)
     totals = report["totals"]
-    assert totals["workflows_evaluated"] == 3
-    assert totals["workflows_ran"] == 3
-    assert totals["workflows_known_answer_passed"] == 3
+    assert totals["workflows_evaluated"] == 7
+    assert totals["workflows_ran"] == 7
+    assert totals["workflows_known_answer_passed"] == 7
     assert totals["all_passed"] is True
 
     # The report file was written and is valid JSON matching the returned dict.
@@ -113,6 +117,58 @@ def test_known_answer_report_review(tmp_path):
     assert by_rule["required_section_present"] == 1
     assert by_rule["consistent_account_naming"] == 1
     assert by_rule["large_change_from_prior_version"] == 2
+
+
+def test_known_answer_transaction_search(tmp_path):
+    res = run_workflow_eval("transaction_search", export_dir=tmp_path)
+    assert res.ran and res.known_answer.passed
+    s = res.metrics.summary
+    # Known-answer Q1: 2 Cascade Paving AP invoices over $5,000, Mar-May 2026.
+    assert s["total_matches"] == 2
+    assert s["total_signed_amount"] == "16800.00"
+    assert res.metrics.findings_by_type["search_match"] == 2
+    assert res.metrics.transactions_processed == 66  # AP rows scanned
+
+
+def test_known_answer_ap_duplicate_review(tmp_path):
+    res = run_workflow_eval("ap_duplicate_review", export_dir=tmp_path)
+    assert res.ran and res.known_answer.passed
+    s = res.metrics.summary
+    # Planted D1-D8 anomalies in the Riverbend AP export.
+    assert s["total_findings"] == 15
+    by_rule = s["findings_by_rule"]
+    assert by_rule["duplicate_invoice_number"] == 1
+    assert by_rule["inactive_vendor_payment"] == 1
+    assert by_rule["unknown_vendor_payment"] == 1
+    assert by_rule["split_payment_pattern"] == 3
+    assert res.metrics.findings_by_type["duplicate_payment"] == 11
+
+
+def test_known_answer_je_upload_prep(tmp_path):
+    res = run_workflow_eval("je_upload_prep", export_dir=tmp_path)
+    assert res.ran and res.known_answer.passed
+    s = res.metrics.summary
+    # The VALID draft is upload-ready (balanced, valid accounts, in period).
+    assert s["upload_ready"] is True
+    assert s["blocking_findings"] == 0
+    assert s["total_debits"] == s["total_credits"] == "17500.00"
+    # The upload workbook was actually produced on the export path.
+    assert res.metrics.export_packets_generated >= 1
+
+
+def test_known_answer_po_invoice_review(tmp_path):
+    res = run_workflow_eval("po_invoice_review", export_dir=tmp_path)
+    assert res.ran and res.known_answer.passed
+    s = res.metrics.summary
+    # Planted P1-P8 anomalies (missing PO split into P3a + P3b).
+    assert s["total_findings"] == 9
+    by_rule = s["findings_by_rule"]
+    for rule in ("invoice_exceeds_po", "wrong_vendor", "missing_po",
+                 "missing_po_over_threshold", "closed_po_usage",
+                 "unit_price_mismatch", "quantity_mismatch",
+                 "received_not_invoiced", "invoiced_not_received"):
+        assert by_rule[rule] == 1, rule
+    assert res.metrics.transactions_processed == 84  # 18 PO + 66 AP rows
 
 
 def test_known_answer_checks_have_field_level_detail(tmp_path):

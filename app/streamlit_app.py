@@ -185,6 +185,15 @@ def _collect_inputs(descriptor, run_tmp: Path, use_example: bool) -> dict:
         uploaded = st.session_state.get(f"upload__{descriptor.workflow_type}__{field.key}")
         if uploaded is not None:
             inputs[field.key] = _save_upload(run_tmp, field.key, uploaded)
+    # Transaction search takes a plain-English query as a non-file input
+    # (mirrors the freeform structured-fields pattern). The example query is
+    # used when running on the example files with no query typed.
+    if descriptor.workflow_type == "transaction_search":
+        query = (st.session_state.get("query__transaction_search") or "").strip()
+        if not query and use_example:
+            query = wfr.TRANSACTION_SEARCH_EXAMPLE_QUERY
+        if query:
+            inputs["query"] = query
     return inputs
 
 
@@ -244,6 +253,16 @@ def render_run_workflow() -> None:
     )
     descriptor = options[idx]
 
+    # Role-based suggestion (display hint only; every role can run everything).
+    suggested = role_views.suggested_workflows_for_role(settings.role)
+    if suggested:
+        titles = [
+            wfr.DESCRIPTORS[w].title for w in suggested if w in wfr.DESCRIPTORS
+        ]
+        if titles:
+            st.caption(f"Suggested for the {settings.role} role: "
+                       + "; ".join(titles) + ".")
+
     st.markdown(f"### {descriptor.title}")
     st.write(descriptor.description)
 
@@ -270,6 +289,21 @@ def render_run_workflow() -> None:
             if u.key == "uploaded_files":
                 continue
             _render_upload_field(descriptor, u)
+
+    # Transaction search: free-text query (a non-file input, like freeform's
+    # structured fields). The query is parsed into structured criteria and
+    # schema-validated; the search itself runs as deterministic filters.
+    if descriptor.workflow_type == "transaction_search":
+        st.markdown("**Search query (plain English)**")
+        st.text_input(
+            "Search query",
+            key="query__transaction_search",
+            help=("Example: 'payments to Cascade Paving over $5,000 between "
+                  "March and May 2026'. The query is parsed into structured, "
+                  "validated criteria and executed as deterministic filters - "
+                  "the AI never picks rows itself. Leave blank with example "
+                  "files to use the bundled example query."),
+        )
 
     # Freeform structured fields (Phase 5).
     freeform_inputs: dict = {}

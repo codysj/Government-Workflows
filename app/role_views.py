@@ -22,12 +22,17 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class RoleView:
-    """Per-role display emphasis (non-destructive)."""
+    """Per-role display emphasis (non-destructive).
+
+    ``suggested_workflows`` is a display HINT only (shown as a caption on the
+    Run Workflow page); every role can run every workflow.
+    """
 
     name: str
     caption: str
     emphasis_types: tuple[str, ...] = ()
     hide_low_severity: bool = False
+    suggested_workflows: tuple[str, ...] = ()
 
 
 # Order is the dropdown order. Accountant is the default (sees everything).
@@ -35,10 +40,19 @@ ROLE_VIEWS: dict[str, RoleView] = {
     "AP clerk": RoleView(
         name="AP clerk",
         caption=(
-            "Focus for AP clerk: unmatched and duplicate items that block "
-            "payment processing. Variance commentary is de-emphasized."
+            "Focus for AP clerk: unmatched, duplicate, and PO-mismatch items "
+            "that block payment processing. Variance commentary is "
+            "de-emphasized."
         ),
-        emphasis_types=("unmatched", "duplicate", "missing"),
+        # 'duplicate' also matches duplicate_payment; 'missing' matches
+        # missing_reference; vendor_anomaly / po_mismatch / search_match are
+        # the Tyler-era AP finding types.
+        emphasis_types=("unmatched", "duplicate", "missing", "vendor_anomaly",
+                        "po_mismatch", "search_match"),
+        suggested_workflows=(
+            "ap_duplicate_review", "po_invoice_review", "transaction_search",
+            "bank_reconciliation",
+        ),
     ),
     "Accountant": RoleView(
         name="Accountant",
@@ -46,14 +60,22 @@ ROLE_VIEWS: dict[str, RoleView] = {
             "Focus for Accountant: the full set of findings, unfiltered. You "
             "see every deterministic result and all AI draft sections."
         ),
+        suggested_workflows=(
+            "je_upload_prep", "bank_reconciliation", "report_review",
+            "transaction_search",
+        ),
     ),
     "Finance analyst": RoleView(
         name="Finance analyst",
         caption=(
-            "Focus for Finance analyst: budget-to-actual variances and large "
-            "changes. Routine matched items are de-emphasized."
+            "Focus for Finance analyst: budget-to-actual variances, large "
+            "changes, and transaction search results. Routine matched items "
+            "are de-emphasized."
         ),
-        emphasis_types=("variance", "change", "threshold"),
+        emphasis_types=("variance", "change", "threshold", "search_match"),
+        suggested_workflows=(
+            "budget_variance", "transaction_search", "ap_duplicate_review",
+        ),
     ),
     "Finance director": RoleView(
         name="Finance director",
@@ -64,6 +86,7 @@ ROLE_VIEWS: dict[str, RoleView] = {
         ),
         emphasis_types=("summary", "approval"),
         hide_low_severity=True,
+        suggested_workflows=("budget_variance", "report_review"),
     ),
 }
 
@@ -80,6 +103,15 @@ DEFAULT_ROLE = "Accountant"
 def get_role_view(role: str) -> RoleView:
     """Return the :class:`RoleView` for ``role`` (falls back to the default)."""
     return ROLE_VIEWS.get(role, ROLE_VIEWS[DEFAULT_ROLE])
+
+
+def suggested_workflows_for_role(role: str) -> tuple[str, ...]:
+    """Workflow types suggested (display hint only) for ``role``.
+
+    Never restrictive: every role can run every workflow; the Run Workflow
+    page only shows these as a 'suggested for your role' caption.
+    """
+    return get_role_view(role).suggested_workflows
 
 
 def _emphasis_score(finding_type: str, emphasis_types: tuple[str, ...]) -> int:
@@ -122,4 +154,5 @@ __all__ = [
     "DEFAULT_ROLE",
     "get_role_view",
     "order_findings_for_role",
+    "suggested_workflows_for_role",
 ]

@@ -1,0 +1,7 @@
+{
+  "fiscal_period_start": "2025-07-01",
+  "fiscal_period_end": "2026-06-30",
+  "allow_inactive_accounts": false,
+  "round_dollar_warning_threshold": "10000.00",
+  "min_description_length": 3
+}

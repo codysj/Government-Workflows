@@ -55,7 +55,7 @@ from src.core.exports import write_csv, write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
-from src.ingest.csv_loader import load_csv
+from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
 
 # --------------------------------------------------------------------------- #
@@ -458,7 +458,8 @@ class MockLLMProvider(_CoreMockLLMProvider):
 def _as_parsed(table_or_path: Any, default_name: str) -> ParsedTable:
     if isinstance(table_or_path, ParsedTable):
         return table_or_path
-    return load_csv(table_or_path, table_name=default_name)
+    # CSV or Excel by extension (the CAPABILITY accepts both).
+    return load_table(table_or_path, table_name=default_name)
 
 
 def _prepared(parsed: ParsedTable) -> tuple[pd.DataFrame, list[str], str]:
@@ -612,11 +613,18 @@ def analyze(
             f"{KEY_COLUMNS}; budget has {b_keys}, actuals has {a_keys}."
         )
 
+    # Preference order is exact and deterministic. The trailing entries
+    # recognize a Tyler/Munis-style COMBINED budget-to-actual export (one file
+    # carrying Original Budget / Revised Budget / YTD Actual): pass the SAME
+    # file as both the 'budget' and 'actuals' inputs and the budget side reads
+    # the revised (else original) budget while the actuals side reads the YTD
+    # actual. Two-file inputs hit the earlier names first - behavior unchanged.
     b_amount_col = _mapped(column_mappings, "budget", "amount") or _amount_column(
-        b_df, ["budget_amount", "budget", "amount", "budgeted"]
+        b_df,
+        ["budget_amount", "budget", "amount", "budgeted", "revised_budget", "original_budget"],
     )
     a_amount_col = _mapped(column_mappings, "actuals", "amount") or _amount_column(
-        a_df, ["actual_amount", "actual", "amount", "actuals"]
+        a_df, ["actual_amount", "actual", "amount", "actuals", "ytd_actual"]
     )
     if (
         b_amount_col is None
@@ -794,6 +802,8 @@ def analyze(
 
     summary = {
         "join_keys": keys,
+        "budget_amount_column": b_amount_col,
+        "actual_amount_column": a_amount_col,
         "joined_lines": len(variance_rows),
         "flagged_variances": len(flagged_rows),
         "budget_only": len(b_keys_set - a_keys_set),

@@ -1,0 +1,8 @@
+Journal,Line,Eff Date,Fund,Org,Object,Account Description,Debit,Credit,Line Description,Reference
+9100,1,2026-02-15,100,5100,5010,Office Supplies,500.00,,Supply reorder Q3,PO-3000
+9100,2,2026-02-15,100,5100,5110,Salaries and Wages,,500.00,Feb payroll alloc,PAY-FEB
+9101,1,2026-03-01,200,6100,5310,Professional Services,1200.00,,Engineering contract,PO-3003
+9101,2,2026-03-01,200,6100,5410,Road Materials,800.00,,Materials purchase,
+9101,3,2026-03-01,200,6100,5110,Salaries and Wages,,2000.00,Labor reclass,
+9102,1,2026-04-10,300,7100,6100,Capital Outlay,15000.00,,Equipment acquisition,PO-3009
+9102,2,2026-04-10,300,7100,5310,Professional Services,,15000.00,Design fees,

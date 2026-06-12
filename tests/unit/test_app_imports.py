@@ -87,6 +87,50 @@ def test_registry_exposes_pipeline_and_descriptors():
     assert {"bank_reconciliation", "budget_variance", "report_review", "freeform"} <= types
 
 
+def test_registry_exposes_all_eight_workflows():
+    """The four Tyler-era workflows are wired beside the original four."""
+    wfr = importlib.import_module("app.workflow_registry")
+    types = {d.workflow_type for d in wfr.list_descriptors()}
+    assert types == {
+        "bank_reconciliation", "budget_variance", "report_review",
+        "transaction_search", "ap_duplicate_review", "je_upload_prep",
+        "po_invoice_review", "freeform",
+    }
+    # CLI registry resolves the same eight (canonical names + aliases).
+    from src.workflows import registry as cli_registry
+    assert {s.workflow_type for s in cli_registry.list_specs()} == types
+    for name in ("transaction-search", "ap-duplicate-review",
+                 "je-upload-prep", "po-invoice-review"):
+        assert cli_registry.get_spec(name) is not None
+    # Sample inputs resolve to existing files (query passes through as text).
+    for name in ("transaction_search", "ap_duplicate_review",
+                 "je_upload_prep", "po_invoice_review"):
+        sample = cli_registry.get_spec(name).sample_inputs()
+        for key, val in sample.items():
+            if key == "query":
+                assert isinstance(val, str) and val.strip()
+            else:
+                assert Path(val).is_file(), f"{name}.{key}: {val}"
+
+
+def test_role_views_suggest_tyler_workflows():
+    """Role mapping (display hint only): AP-style roles see the AP-era
+    workflows; accountant sees JE upload prep."""
+    from app import role_views
+
+    ap = role_views.suggested_workflows_for_role("AP clerk")
+    assert "ap_duplicate_review" in ap
+    assert "po_invoice_review" in ap
+    assert "transaction_search" in ap
+    analyst = role_views.suggested_workflows_for_role("Finance analyst")
+    assert "transaction_search" in analyst
+    assert "ap_duplicate_review" in analyst
+    accountant = role_views.suggested_workflows_for_role("Accountant")
+    assert "je_upload_prep" in accountant
+    # Unknown role falls back to the default role's suggestions (never raises).
+    assert role_views.suggested_workflows_for_role("nobody") == accountant
+
+
 def test_human_review_actions_match_spec():
     """The six spec human-review controls are present."""
     wfr = importlib.import_module("app.workflow_registry")

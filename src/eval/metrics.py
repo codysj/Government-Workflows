@@ -112,6 +112,17 @@ def _transactions_processed(workflow_type: str, summary: dict[str, Any]) -> int:
         # lines, which it does not expose as a count. Use total_findings as a
         # floor only if no better signal exists.
         return _as_int(summary.get("rows_processed"), 0)
+    if workflow_type == "transaction_search":
+        # Rows scanned across every loaded Tyler export.
+        return sum(
+            _as_int(f.get("row_count"))
+            for f in (summary.get("input_files") or [])
+            if isinstance(f, dict)
+        )
+    if workflow_type == "po_invoice_review":
+        return _as_int(summary.get("po_rows")) + _as_int(summary.get("ap_rows"))
+    if workflow_type == "je_upload_prep":
+        return _as_int(summary.get("row_count"))
     return 0
 
 
@@ -239,6 +250,84 @@ KNOWN_ANSWERS: dict[str, dict[str, Any]] = {
             "account_code_in_chart_of_accounts": 1,
             "consistent_account_naming": 1,
             "large_change_from_prior_version": 2,
+        },
+    },
+    # ------------------------------------------------------------------ #
+    # Tyler/Munis-era workflows on the City of Riverbend dataset
+    # (data/synthetic/tyler; anomalies planted per known_answers.json).
+    # ------------------------------------------------------------------ #
+    "transaction_search": {
+        # Sample query Q1: payments to Cascade Paving over $5,000 between
+        # March and May 2026 -> exactly 2 AP invoice rows ($16,800 total).
+        "summary": {
+            "total_matches": 2,
+            "total_signed_amount": "16800.00",
+            "truncated": False,
+        },
+        "findings_by_type": {
+            "search_match": 2,
+        },
+    },
+    "ap_duplicate_review": {
+        # Planted D1-D8 anomalies (known_answers.json ap_anomalies).
+        "summary": {
+            "total_findings": 15,
+        },
+        "findings_by_rule": {
+            "duplicate_invoice_number": 1,            # D1
+            "invoice_paid_by_multiple_checks": 2,     # D1b
+            "same_vendor_same_amount_near_date": 4,   # D2
+            "similar_vendor_names_same_amount": 1,    # D3
+            "missing_po_over_threshold": 1,           # D4
+            "payment_before_invoice_date": 1,         # D5
+            "inactive_vendor_payment": 1,             # D6
+            "unknown_vendor_payment": 1,              # D7
+            "split_payment_pattern": 3,               # D8
+        },
+        "findings_by_type": {
+            "duplicate_payment": 11,
+            "vendor_anomaly": 2,
+            "missing_reference": 2,
+        },
+    },
+    "je_upload_prep": {
+        # The VALID draft: balanced, all accounts active and in the COA, all
+        # dates in period -> upload-ready with two round-dollar warnings only.
+        "summary": {
+            "upload_ready": True,
+            "total_findings": 2,
+            "blocking_findings": 0,
+            "warning_findings": 2,
+            "total_debits": "17500.00",
+            "total_credits": "17500.00",
+            "row_count": 7,
+        },
+        "findings_by_type": {
+            "je_validation": 2,
+        },
+    },
+    "po_invoice_review": {
+        # Planted P1-P8 anomalies (known_answers.json po_anomalies), with the
+        # missing-PO check split into hard-missing (P3a) + over-threshold (P3b).
+        "summary": {
+            "total_findings": 9,
+            "po_rows": 18,
+            "ap_rows": 66,
+        },
+        "findings_by_rule": {
+            "invoice_exceeds_po": 1,        # P1
+            "wrong_vendor": 1,              # P2
+            "missing_po": 1,                # P3a
+            "missing_po_over_threshold": 1, # P3b
+            "closed_po_usage": 1,           # P4
+            "unit_price_mismatch": 1,       # P5
+            "quantity_mismatch": 1,         # P6
+            "received_not_invoiced": 1,     # P7
+            "invoiced_not_received": 1,     # P8
+        },
+        "findings_by_type": {
+            "po_mismatch": 7,
+            "missing_reference": 2,
         },
     },
 }

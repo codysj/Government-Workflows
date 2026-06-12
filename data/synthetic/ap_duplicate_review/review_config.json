@@ -1,0 +1,9 @@
+{
+  "_comment": "Default thresholds for the AP duplicate / suspicious payment review workflow.",
+  "near_date_window_days": 7,
+  "amount_tolerance": "0.01",
+  "split_threshold": "5000.00",
+  "split_window_days": 3,
+  "missing_po_min_amount": "5000.00",
+  "vendor_similarity_threshold": 0.88
+}

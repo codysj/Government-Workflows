@@ -1,0 +1,9 @@
+Journal,Line,Eff Date,Fund,Org,Object,Account Description,Debit,Credit,Line Description,Reference
+9200,1,2026-02-15,100,5100,5010,Office Supplies,500.00,,Valid debit line,REF-001
+9200,2,2026-02-15,100,5100,5110,Salaries and Wages,,400.00,Debit credit imbalance,REF-002
+9200,3,2026-02-15,100,5100,9999,Unknown Account,100.00,,Account not in COA,REF-003
+9200,4,,100,5100,5230,Utilities,200.00,,Missing eff date,REF-004
+9200,5,2026-13-40,100,5100,5240,Motor Fuel,300.00,,Invalid date string,REF-005
+9200,6,2026-02-15,100,5100,5999,Obsolete Expense,150.00,,Inactive account usage,REF-006
+9200,7,2026-02-15,100,5100,5310,Professional Services,250.00,250.00,Both debit and credit,REF-007
+9200,8,2026-02-15,100,5100,5410,Road Materials,-75.00,,Negative debit,REF-008

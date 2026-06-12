@@ -243,6 +243,76 @@ The values below are the workflows' `CAPABILITY` specs as implemented
 | partial (flagged) patterns | `possible_unknown_report_structure` |
 | unsupported patterns | `authoritative_financial_answers`, `taking_over_a_failed_formal_workflow`, `calculation_or_matching` |
 
+### transaction_search
+
+The `query` is a string input, not a file; the data inputs are optional. The
+two blocking conditions below are emitted by `detect_conditions`, not the
+generic engine (the generic engine only knows about file inputs).
+
+| field | value |
+| --- | --- |
+| required inputs | none (query is a string field) |
+| optional inputs | `gl_detail`, `ap_invoices`, `checks`, `purchase_orders` |
+| accepted file types | csv, xlsx |
+| required semantic columns | none (Tyler normalizer handles column detection per dataset type) |
+| supported patterns | vendor substring/fuzzy match, invoice/PO/check number exact match, fund/org/object exact match, date range, amount range, description keyword (OR semantics), multi-file search |
+| partial (flagged) patterns | `multi_module_cross_search` |
+| unsupported patterns | `free_text_narrative_match_without_keywords`, `semantic_similarity_search` |
+| blocking FAIL conditions | blank/empty `query`; no data file provided (these are domain conditions, not generic preflight findings) |
+
+### ap_duplicate_review
+
+| field | value |
+| --- | --- |
+| required inputs | `ap_invoices` |
+| optional inputs | `vendor_list`, `check_register`, `purchase_orders` |
+| accepted file types | csv, xlsx |
+| required semantic columns | `ap_invoices` -> `vendor_number`, `vendor_name`, `invoice_number`, `invoice_amount` |
+| optional semantic columns | `ap_invoices` -> `invoice_date`, `po_number`, `check_number`, `check_date`; `vendor_list` -> `vendor_number`, `status`; `check_register` -> `check_number`, `check_date`, `vendor_number` |
+| supported patterns | duplicate_invoice_number (D1), invoice_paid_by_multiple_checks (D1b), same_vendor_same_amount_near_date (D2), similar_vendor_names_same_amount (D3), missing_po_over_threshold (D4), payment_before_invoice_date (D5), inactive_vendor_payment (D6), unknown_vendor_payment (D7), split_payment_pattern (D8) |
+| partial (flagged) patterns | none (absent optional files produce INFO findings, not PARTIAL) |
+| unsupported patterns | `multi_currency_payments`, `inter_fund_transfer_detection` |
+
+When an optional file is absent, checks that depend on it are explicitly skipped
+with an `INFO` finding. Void checks are excluded from D1b (void + reissue is a
+normal workflow).
+
+### je_upload_prep
+
+| field | value |
+| --- | --- |
+| required inputs | `je_draft`, `chart_of_accounts` |
+| optional inputs | `gl_detail`, `config` |
+| accepted file types | csv, xlsx |
+| required semantic columns | `je_draft` -> `journal`, `line`, `fund`, `org`, `object`; `chart_of_accounts` -> `fund`, `org`, `object` |
+| optional semantic columns | `je_draft` -> `date`, `debit`, `credit`, `description`, `reference` |
+| supported patterns | debits_equal_credits_per_journal, debits_equal_credits_overall, eff_date_required, eff_date_in_fiscal_period, required_fields_present, account_in_coa, no_inactive_account, no_both_debit_and_credit, no_negative_amount, no_duplicate_journal_line |
+| partially supported patterns | `combo_plausibility_warning` (requires `gl_detail`) |
+| unsupported patterns | none declared |
+
+The domain `detect_conditions` returns `[]` (no advisory conditions). Blocking
+conditions are enforced by the deterministic validator, not the preflight engine.
+`je_upload.xlsx` and `je_upload.csv` are never written unless all blocking checks
+pass (strict fail-closed gate).
+
+### po_invoice_review
+
+| field | value |
+| --- | --- |
+| required inputs | `purchase_orders`, `ap_invoices` |
+| optional inputs | `vendor_list`, `check_register` |
+| accepted file types | csv, xlsx |
+| required semantic columns | `purchase_orders` -> `po_number`, `vendor_number`, `status`, `line`, `qty`, `unit_price`, `line_amount`; `ap_invoices` -> `vendor_number`, `invoice_number`, `invoice_amount` |
+| optional semantic columns | `purchase_orders` -> `last_activity_date`, `po_date`, `received_qty`, `invoiced_qty`; `ap_invoices` -> `po_number`, `qty`, `unit_price`, `invoice_date` |
+| supported patterns | invoice_exceeds_po (P1), wrong_vendor (P2), missing_po (P3a), missing_po_over_threshold (P3b), closed_po_usage (P4), unit_price_mismatch (P5), quantity_mismatch (P6), received_not_invoiced (P7), invoiced_not_received (P8) |
+| partial (flagged) patterns | none |
+| unsupported patterns | `multi_currency_po`, `framework_agreement_releases` |
+
+When an optional file is absent, dependent sub-checks are explicitly skipped with
+an `INFO` finding. P7 (received_not_invoiced) is informational (severity LOW,
+`requires_human_review=False`): it flags likely accrual candidates, not payment
+errors.
+
 ## Condition codes
 
 The condition codes (`PreflightConditionCode` in `src/core/schemas.py`):

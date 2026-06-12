@@ -1,0 +1,128 @@
+Year,Period,Journal,Eff Date,Src,Fund,Org,Object,Project,Account Description,Description/Vendor,Debit,Credit,PO Number,Check Number,Invoice Number
+2026,1,8001,2025-07-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50002,INV-7101
+2026,2,8002,2025-08-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50007,INV-7102
+2026,3,8003,2025-09-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50010,INV-7103
+2026,4,8004,2025-10-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50016,INV-7104
+2026,5,8005,2025-11-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50020,INV-7105
+2026,6,8006,2025-12-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50115,INV-7106
+2026,7,8007,2026-01-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50115,INV-7107
+2026,8,8008,2026-02-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50029,INV-7108
+2026,9,8009,2026-03-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50032,INV-7109
+2026,10,8010,2026-04-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50035,INV-7110
+2026,11,8011,2026-05-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,50038,INV-7111
+2026,12,8012,2026-06-25,API,100,5100,5230,,Utilities,Valley Telecom Services,480.00,,,,INV-7112
+2026,1,8013,2025-07-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50001,INV-7201
+2026,2,8014,2025-08-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50003,INV-7202
+2026,3,8015,2025-09-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50008,INV-7203
+2026,4,8016,2025-10-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50013,INV-7204
+2026,5,8017,2025-11-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50018,INV-7205
+2026,6,8018,2025-12-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50021,INV-7206
+2026,7,8019,2026-01-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50023,INV-7207
+2026,8,8020,2026-02-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50026,INV-7208
+2026,9,8021,2026-03-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50030,INV-7209
+2026,10,8022,2026-04-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50033,INV-7210
+2026,11,8023,2026-05-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,50036,INV-7211
+2026,12,8024,2026-06-01,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1150.00,,,,INV-7212
+2026,2,8025,2025-08-12,API,100,5100,5240,,Motor Fuel,Metro Fuel Cooperative,812.40,,,50004,INV-7301
+2026,4,8026,2025-10-12,API,100,5100,5240,,Motor Fuel,Metro Fuel Cooperative,743.15,,,50014,INV-7302
+2026,6,8027,2025-12-12,API,100,5100,5240,,Motor Fuel,Metro Fuel Cooperative,901.22,,,50022,INV-7303
+2026,8,8028,2026-02-12,API,100,5100,5240,,Motor Fuel,Metro Fuel Cooperative,688.90,,,50027,INV-7304
+2026,10,8029,2026-04-12,API,100,5100,5240,,Motor Fuel,Metro Fuel Cooperative,754.33,,,50034,INV-7305
+2026,12,8030,2026-06-05,API,100,5100,5240,,Motor Fuel,Metro Fuel Cooperative,826.18,,,50039,INV-7306
+2026,2,8031,2025-08-20,API,100,5100,5010,,Office Supplies,Cedar Valley Print Shop,950.00,,PO-3000,50006,INV-74000
+2026,8,8032,2026-02-10,API,100,5100,5010,,Office Supplies,Riverbend Auto Parts,1700.00,,PO-3003,50028,INV-90100
+2026,10,8033,2026-04-28,API,300,7100,6100,,Capital Outlay,Foothill Engineering PLLC,48000.00,,PO-3009,50180,INV-90110
+2026,9,8034,2026-03-08,API,300,7100,5310,,Professional Services,Ironwood Equipment Rental,2400.00,,PO-3010,50031,INV-90120
+2026,11,8035,2026-05-12,API,200,6100,5310,,Professional Services,Tri-County Lab Services,1800.00,,PO-3011,50037,INV-90130
+2026,7,8036,2026-01-10,API,100,5100,5310,,Professional Services,Sunrise Software LLC,6800.00,,PO-3012,50024,INV-90140
+2026,3,8037,2025-09-20,API,100,5100,5010,,Office Supplies,Maple Street Catering,487.50,,,50009,INV-74001
+2026,7,8038,2026-01-05,API,100,5100,5010,,Office Supplies,Cedar Valley Print Shop,640.00,,,50101,INV-90150
+2026,5,8039,2025-11-03,API,100,5100,5010,,Office Supplies,Cedar Valley Print Shop,12.50,,,50017,INV-74002
+2026,4,8040,2025-10-01,API,100,5100,5310,,Professional Services,Prairie Insurance Group,4800.00,,,50011,INV-74003
+2026,4,8041,2025-10-12,API,100,5200,5310,,Professional Services,Lakeside HVAC Inc,385.00,,,50015,INV-74004
+2026,2,8042,2025-08-20,API,100,5200,5230,,Utilities,Riverbend Electric Co,1340.00,,,50005,INV-5478
+2026,7,8043,2026-01-12,API,200,6100,5310,,Professional Services,Riverbend Electric Company,2980.00,,,50025,INV-5600
+2026,5,8044,2025-11-10,API,100,5100,5010,,Office Supplies,Acme Office Supply LLC,215.75,,,50019,INV-10300
+2026,8,8045,2026-02-02,API,100,5100,5010,,Office Supplies,Acme Office Supply LLC,310.00,,,50122,INV-10501
+2026,8,8046,2026-02-18,API,100,5100,5010,,Office Supplies,Acme Office Supply LLC,89.99,,,50128,INV-10502
+2026,3,8047,2025-09-02,API,100,5100,5010,,Office Supplies,Acme Office Supply LLC,1250.00,,,50012,INV-10234
+2026,3,8048,2025-09-02,API,100,5100,5010,,Office Supplies,Acme Office Supply LLC,1250.00,,,50044,INV-10234
+2026,9,8049,2026-03-10,API,100,5100,5410,,Road Materials,Cascade Paving Inc,8400.00,,PO-3015,50138,INV-20881
+2026,9,8050,2026-03-13,API,100,5100,5410,,Road Materials,Cascade Paving Inc,8400.00,,PO-3015,50142,INV-20890
+2026,10,8051,2026-04-02,API,100,5200,5230,,Utilities,Riverbend Electric Co,2200.00,,,50161,5521
+2026,10,8052,2026-04-04,API,100,5200,5230,,Utilities,Riverbend Electric Company,2200.00,,,50165,5521
+2026,10,8053,2026-04-05,API,100,5100,5310,,Professional Services,Summit IT Services,12000.00,,,50170,INV-44510
+2026,11,8054,2026-05-20,API,200,6100,5310,,Professional Services,Pacific Water Treatment Co,3150.00,,,50190,INV-55003
+2026,8,8055,2026-02-10,API,100,5200,5010,,Office Supplies,Old Town Hardware,730.00,,,50120,INV-66001
+2026,11,8056,2026-05-15,API,100,5100,5310,,Professional Services,Unknown Vendor Services,4000.00,,,50205,INV-77001
+2026,8,8057,2026-02-17,API,100,5100,5310,,Professional Services,Northgate Consulting Group,4900.00,,,50125,INV-88001
+2026,8,8058,2026-02-17,API,100,5100,5310,,Professional Services,Northgate Consulting Group,4900.00,,,50126,INV-88002
+2026,8,8059,2026-02-17,API,100,5100,5310,,Professional Services,Northgate Consulting Group,4900.00,,,50127,INV-88003
+2026,8,8060,2026-02-20,API,100,5100,5410,,Road Materials,Cascade Paving Inc,11500.00,,PO-3001,50130,INV-90011
+2026,7,8061,2026-01-22,API,100,5100,5310,,Professional Services,Evergreen Landscaping LLC,2500.00,,PO-3002,50105,INV-90022
+2026,9,8062,2026-03-18,API,100,5200,5310,,Professional Services,Bluebird Janitorial Services,1800.00,,PO-3999,50145,INV-90033
+2026,9,8063,2026-03-05,API,100,5200,5310,,Professional Services,Lakeside HVAC Inc,2750.00,,PO-3004,50140,INV-90044
+2026,10,8064,2026-04-10,API,100,5100,5010,,Office Supplies,Harbor Safety Supply,2750.00,,PO-3005,50168,INV-90055
+2026,10,8065,2026-04-15,API,100,5200,5010,,Office Supplies,Westside Uniform Supply,2600.00,,PO-3006,50172,INV-90066
+2026,11,8066,2026-05-05,API,200,6100,5010,,Office Supplies,Clearwater Chemical Inc,2200.00,,PO-3008,50185,INV-90088
+2026,2,9001,2025-08-15,GEN,100,5100,5010,,Office Supplies,Postage meter refill,12.50,,,,
+2026,12,9002,2026-06-15,GEN,100,5200,5230,,Utilities,Electric utility true-up,410.00,,,,
+2026,9,9003,2026-03-22,GEN,200,6100,5410,,Road Materials,Water main repair materials,2300.00,,,,
+2026,7,9004,2026-01-31,GEN,100,5200,5010,,Office Supplies,Reclass supplies to Parks,950.00,,,,
+2026,7,9004,2026-01-31,GEN,100,5100,5010,,Office Supplies,Reclass supplies to Parks,,950.00,,,
+2026,10,9010,2026-04-08,GEN,300,7100,5410,,Road Materials,Pothole repair - Maple St emergency patch,1850.00,,,,
+2026,10,9011,2026-04-22,GEN,300,7100,5410,,Road Materials,Pothole repair - 5th Ave arterial crew,2400.00,,,,
+2026,11,9012,2026-05-06,GEN,300,7100,5410,,Road Materials,Asphalt cold patch material - pothole program,975.00,,,,
+2026,8,7001,2026-02-12,POE,300,7100,6100,,Capital Outlay,Granite Concrete Works,9000.00,,PO-3007,,
+2026,10,7002,2026-04-15,POE,300,7100,6100,,Capital Outlay,Ironwood Equipment Rental,15000.00,,PO-3013,,
+2026,11,7003,2026-05-20,POE,100,5100,5410,,Road Materials,Cascade Paving Inc,22000.00,,PO-3014,,
+2026,7,6001,2026-01-20,CRP,200,6100,4010,,Charges for Services,Water utility billing receipts - January,,38000.00,,,
+2026,10,6002,2026-04-12,CRP,100,5200,4010,,Charges for Services,Park facility rental receipts,,1250.00,,,
+2026,1,9101,2025-07-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2025-07,18400.00,,,,
+2026,1,9101,2025-07-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2025-07,9750.00,,,,
+2026,1,9101,2025-07-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2025-07,14200.00,,,,
+2026,1,9101,2025-07-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2025-07,11300.00,,,,
+2026,2,9102,2025-08-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2025-08,18400.00,,,,
+2026,2,9102,2025-08-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2025-08,9750.00,,,,
+2026,2,9102,2025-08-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2025-08,14200.00,,,,
+2026,2,9102,2025-08-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2025-08,11300.00,,,,
+2026,3,9103,2025-09-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2025-09,18400.00,,,,
+2026,3,9103,2025-09-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2025-09,9750.00,,,,
+2026,3,9103,2025-09-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2025-09,14200.00,,,,
+2026,3,9103,2025-09-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2025-09,11300.00,,,,
+2026,4,9104,2025-10-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2025-10,18400.00,,,,
+2026,4,9104,2025-10-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2025-10,9750.00,,,,
+2026,4,9104,2025-10-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2025-10,14200.00,,,,
+2026,4,9104,2025-10-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2025-10,11300.00,,,,
+2026,5,9105,2025-11-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2025-11,18400.00,,,,
+2026,5,9105,2025-11-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2025-11,9750.00,,,,
+2026,5,9105,2025-11-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2025-11,14200.00,,,,
+2026,5,9105,2025-11-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2025-11,11300.00,,,,
+2026,6,9106,2025-12-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2025-12,18400.00,,,,
+2026,6,9106,2025-12-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2025-12,9750.00,,,,
+2026,6,9106,2025-12-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2025-12,14200.00,,,,
+2026,6,9106,2025-12-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2025-12,11300.00,,,,
+2026,7,9107,2026-01-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2026-01,18400.00,,,,
+2026,7,9107,2026-01-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2026-01,9750.00,,,,
+2026,7,9107,2026-01-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2026-01,14200.00,,,,
+2026,7,9107,2026-01-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2026-01,11300.00,,,,
+2026,8,9108,2026-02-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2026-02,18400.00,,,,
+2026,8,9108,2026-02-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2026-02,9750.00,,,,
+2026,8,9108,2026-02-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2026-02,14200.00,,,,
+2026,8,9108,2026-02-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2026-02,11300.00,,,,
+2026,9,9109,2026-03-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2026-03,18400.00,,,,
+2026,9,9109,2026-03-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2026-03,9750.00,,,,
+2026,9,9109,2026-03-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2026-03,14200.00,,,,
+2026,9,9109,2026-03-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2026-03,11300.00,,,,
+2026,10,9110,2026-04-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2026-04,18400.00,,,,
+2026,10,9110,2026-04-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2026-04,9750.00,,,,
+2026,10,9110,2026-04-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2026-04,14200.00,,,,
+2026,10,9110,2026-04-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2026-04,11300.00,,,,
+2026,11,9111,2026-05-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2026-05,18400.00,,,,
+2026,11,9111,2026-05-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2026-05,9750.00,,,,
+2026,11,9111,2026-05-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2026-05,14200.00,,,,
+2026,11,9111,2026-05-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2026-05,11300.00,,,,
+2026,12,9112,2026-06-28,GEN,100,5100,5110,,Salaries and Wages,Payroll - Public Works Admin 2026-06,18400.00,,,,
+2026,12,9112,2026-06-28,GEN,100,5200,5110,,Salaries and Wages,Payroll - Parks 2026-06,9750.00,,,,
+2026,12,9112,2026-06-28,GEN,200,6100,5110,,Salaries and Wages,Payroll - Water Ops 2026-06,14200.00,,,,
+2026,12,9112,2026-06-28,GEN,300,7100,5110,,Salaries and Wages,Payroll - Capital Engineering 2026-06,11300.00,,,,

@@ -94,5 +94,45 @@ draft-only and is not a fallback. See `docs/workflow_capabilities.md` and the
 - [x] New doc `docs/workflow_capabilities.md` (rules + per-workflow capability table)
 - [x] Final verification: `pytest` **317 passed**, no regressions; 3 CLI sample runs PREFLIGHT PASS / exit 0; all 10 Streamlit pages render via AppTest; mock-LLM offline default + secret/PII sweep clean
 
+## Tyler/Munis ERP enablement + four review workflows
+
+Four new workflows added on top of the preflight-hardened MVP. All changes are
+additive; no existing workflow logic, test, or schema was altered in a
+breaking way.
+
+- [x] Tyler/Munis-style export normalizer (`src/ingest/tyler.py`): 8 dataset
+  types (gl_detail, ap_invoice_detail, vendor_list, check_register,
+  purchase_orders, budget_to_actual, chart_of_accounts, je_upload); deterministic
+  header detection; Decimal/date parsing; debit/credit -> signed amount derivation;
+  SHA-256 input file hashing; source_row_index traceability; fail-closed on
+  unknown type / missing required columns / unparseable file.
+- [x] `TYLER_MUNIS_STYLE` preset extended with Munis-style column aliases
+  (`src/ingest/presets.py`; additive only).
+- [x] `FindingType` extended with SEARCH_MATCH, DUPLICATE_PAYMENT,
+  VENDOR_ANOMALY, PO_MISMATCH, JE_VALIDATION, MISSING_REFERENCE
+  (`src/core/schemas.py`; additive only).
+- [x] Synthetic City of Riverbend dataset (`data/synthetic/tyler/`): 8 files,
+  planted D1-D8/P1-P8/Q1-Q4/JE anomalies, `known_answers.json`.
+- [x] `transaction_search` workflow: two-stage (LLM proposes SearchCriteria,
+  execution is deterministic pandas filters); 50 unit tests.
+- [x] `ap_duplicate_review` workflow: D1/D1b/D2-D8 checks; 92 unit tests.
+- [x] `je_upload_prep` workflow: 11 blocking rules, 3 warnings; fail-closed
+  upload workbook gate; 82 unit tests.
+- [x] `po_invoice_review` workflow: P1-P8 + P3b; 70 unit tests.
+- [x] Tyler readiness for original 3 workflows: derive_signed_amount,
+  combined budget-to-actual file, Excel load path, exact-name semantic
+  precedence; 26 unit tests (`test_tyler_readiness.py`).
+- [x] Registry wiring: all 8 workflows in `src/workflows/registry.py` (CLI),
+  `app/workflow_registry.py` (Streamlit), eval harness, integration tests.
+- [x] Role views extended: suggested_workflows per role; AP/vendor emphasis
+  types for AP clerk and analyst.
+- [x] Eval harness extended: 7/7 tabular workflows, 7/7 known-answer checks pass.
+- [x] Integration tests added: `test_cli.py`, `test_app_registry.py`,
+  `test_eval.py` extended for all 4 new workflows.
+- [x] Workflow spec docs written (4 new files under `docs/workflow_specs/`).
+- [x] Final verification: `pytest` **705 passed**; all 8 CLI `--sample` runs
+  PREFLIGHT PASS / STATUS PASS / Validation PASSED; eval harness 7/7
+  known-answer pass; no regressions.
+
 ## Architecture decision log
 Major decisions recorded in `docs/decisions.md` as implemented.

@@ -1,0 +1,65 @@
+Check Number,Check Date,Vendor Number,Vendor Name,Check Amount,Status,Type,Clear Date,Invoice Number(s)
+50001,2025-07-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2025-07-27,INV-7201
+50002,2025-08-08,V-1022,Valley Telecom Services,480.00,Cleared,EFT,2025-08-14,INV-7101
+50003,2025-08-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2025-08-27,INV-7202
+50004,2025-08-22,V-1013,Metro Fuel Cooperative,812.40,Cleared,EFT,2025-08-28,INV-7301
+50005,2025-09-03,V-1002,Riverbend Electric Co,1340.00,Cleared,Printed,2025-09-09,INV-5478
+50006,2025-09-03,V-1011,Cedar Valley Print Shop,950.00,Cleared,Printed,2025-09-09,INV-74000
+50007,2025-09-08,V-1022,Valley Telecom Services,480.00,Cleared,EFT,2025-09-14,INV-7102
+50008,2025-09-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2025-09-27,INV-7203
+50009,2025-10-04,V-1024,Maple Street Catering,487.50,Cleared,Printed,2025-10-10,INV-74001
+50010,2025-10-09,V-1022,Valley Telecom Services,480.00,Cleared,EFT,2025-10-15,INV-7103
+50011,2025-10-15,V-1025,Prairie Insurance Group,4800.00,Cleared,Printed,2025-10-21,INV-74003
+50012,2025-09-15,V-1001,Acme Office Supply LLC,1250.00,Cleared,Printed,2025-09-21,INV-10234
+50013,2025-10-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2025-10-27,INV-7204
+50014,2025-10-22,V-1013,Metro Fuel Cooperative,743.15,Cleared,EFT,2025-10-28,INV-7302
+50015,2025-10-26,V-1014,Lakeside HVAC Inc,385.00,Cleared,Printed,2025-11-01,INV-74004
+50016,2025-11-08,V-1022,Valley Telecom Services,480.00,Cleared,EFT,2025-11-14,INV-7104
+50017,2025-11-17,V-1011,Cedar Valley Print Shop,12.50,Cleared,Printed,2025-11-23,INV-74002
+50018,2025-11-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2025-11-27,INV-7205
+50019,2025-11-24,V-1001,Acme Office Supply LLC,215.75,Cleared,Printed,2025-11-30,INV-10300
+50020,2025-12-09,V-1022,Valley Telecom Services,480.00,Cleared,EFT,2025-12-15,INV-7105
+50021,2025-12-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2025-12-27,INV-7206
+50022,2025-12-22,V-1013,Metro Fuel Cooperative,901.22,Cleared,EFT,2025-12-28,INV-7303
+50023,2026-01-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2026-01-27,INV-7207
+50024,2026-01-24,V-1021,Sunrise Software LLC,6800.00,Cleared,EFT,2026-01-30,INV-90140
+50025,2026-01-26,V-1019,Riverbend Electric Company,2980.00,Cleared,Printed,2026-02-01,INV-5600
+50026,2026-02-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2026-02-27,INV-7208
+50027,2026-02-22,V-1013,Metro Fuel Cooperative,688.90,Cleared,EFT,2026-02-28,INV-7304
+50028,2026-02-24,V-1010,Riverbend Auto Parts,1700.00,Cleared,Printed,2026-03-02,INV-90100
+50029,2026-03-11,V-1022,Valley Telecom Services,480.00,Cleared,EFT,2026-03-17,INV-7108
+50030,2026-03-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2026-03-27,INV-7209
+50031,2026-03-22,V-1023,Ironwood Equipment Rental,2400.00,Cleared,Printed,2026-03-28,INV-90120
+50032,2026-04-08,V-1022,Valley Telecom Services,480.00,Cleared,EFT,2026-04-14,INV-7109
+50033,2026-04-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2026-04-27,INV-7210
+50034,2026-04-22,V-1013,Metro Fuel Cooperative,754.33,Cleared,EFT,2026-04-28,INV-7305
+50035,2026-05-09,V-1022,Valley Telecom Services,480.00,Cleared,EFT,2026-05-15,INV-7110
+50036,2026-05-21,V-1009,Bluebird Janitorial Services,1150.00,Cleared,Printed,2026-05-27,INV-7211
+50037,2026-05-26,V-1016,Tri-County Lab Services,1800.00,Cleared,Printed,2026-06-01,INV-90130
+50038,2026-06-08,V-1022,Valley Telecom Services,480.00,Issued,EFT,,INV-7111
+50039,2026-06-15,V-1013,Metro Fuel Cooperative,826.18,Issued,EFT,,INV-7306
+50044,2025-10-06,V-1001,Acme Office Supply LLC,1250.00,Cleared,Printed,2025-10-12,INV-10234
+50100,2026-01-14,V-1011,Cedar Valley Print Shop,640.00,Void,Printed,,INV-90150
+50101,2026-01-21,V-1011,Cedar Valley Print Shop,640.00,Cleared,Printed,2026-01-27,INV-90150
+50105,2026-02-03,V-1008,Evergreen Landscaping LLC,2500.00,Cleared,Printed,2026-02-09,INV-90022
+50115,2026-02-05,V-1022,Valley Telecom Services,960.00,Cleared,EFT,2026-02-11,INV-7106;INV-7107
+50120,2026-02-24,V-1005,Old Town Hardware,730.00,Cleared,Printed,2026-03-02,INV-66001
+50122,2026-02-12,V-1001,Acme Office Supply LLC,310.00,Cleared,Printed,2026-02-18,INV-10501
+50125,2026-02-27,V-1007,Northgate Consulting Group,4900.00,Cleared,Printed,2026-03-05,INV-88001
+50126,2026-02-27,V-1007,Northgate Consulting Group,4900.00,Cleared,Printed,2026-03-05,INV-88002
+50127,2026-02-27,V-1007,Northgate Consulting Group,4900.00,Cleared,Printed,2026-03-05,INV-88003
+50128,2026-02-26,V-1001,Acme Office Supply LLC,89.99,Cleared,Printed,2026-03-04,INV-10502
+50130,2026-02-27,V-1003,Cascade Paving Inc,11500.00,Cleared,Printed,2026-03-05,INV-90011
+50138,2026-03-20,V-1003,Cascade Paving Inc,8400.00,Cleared,Printed,2026-03-26,INV-20881
+50140,2026-03-17,V-1014,Lakeside HVAC Inc,2750.00,Cleared,Printed,2026-03-23,INV-90044
+50142,2026-03-24,V-1003,Cascade Paving Inc,8400.00,Cleared,Printed,2026-03-30,INV-20890
+50145,2026-03-30,V-1009,Bluebird Janitorial Services,1800.00,Cleared,Printed,2026-04-05,INV-90033
+50161,2026-04-14,V-1002,Riverbend Electric Co,2200.00,Cleared,Printed,2026-04-20,5521
+50165,2026-04-17,V-1019,Riverbend Electric Company,2200.00,Cleared,Printed,2026-04-23,5521
+50168,2026-04-22,V-1012,Harbor Safety Supply,2750.00,Cleared,Printed,2026-04-28,INV-90055
+50170,2026-04-20,V-1004,Summit IT Services,12000.00,Cleared,Printed,2026-04-26,INV-44510
+50172,2026-04-27,V-1017,Westside Uniform Supply,2600.00,Cleared,Printed,2026-05-03,INV-90066
+50180,2026-05-08,V-1020,Foothill Engineering PLLC,48000.00,Cleared,Printed,2026-05-14,INV-90110
+50185,2026-05-15,V-1018,Clearwater Chemical Inc,2200.00,Cleared,Printed,2026-05-21,INV-90088
+50190,2026-05-12,V-1006,Pacific Water Treatment Co,3150.00,Cleared,Printed,2026-05-18,INV-55003
+50205,2026-05-28,V-9999,Unknown Vendor Services,4000.00,Cleared,Printed,2026-06-03,INV-77001

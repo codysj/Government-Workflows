@@ -56,8 +56,9 @@ from src.core.exports import write_csv, write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
-from src.ingest.csv_loader import load_csv
+from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import (
+    derive_signed_amount,
     normalize_columns,
     parse_amount,
     parse_date,
@@ -224,6 +225,10 @@ def detect_conditions(
         l_parsed = _as_parsed(inputs.get("ledger"), "ledger")
         b_df = normalize_columns(b_parsed.dataframe).reset_index(drop=True)
         l_df = normalize_columns(l_parsed.dataframe).reset_index(drop=True)
+        # Mirror the engine/reconcile derivation so Tyler/Munis-style
+        # debit/credit exports keep their domain detectors active.
+        b_df, _ = derive_signed_amount(b_df)
+        l_df, _ = derive_signed_amount(l_df)
     except Exception:
         return findings  # the generic engine owns unreadable inputs
 
@@ -446,7 +451,8 @@ class ReconciliationOutput:
 def _as_parsed(table_or_path: Any, default_name: str) -> ParsedTable:
     if isinstance(table_or_path, ParsedTable):
         return table_or_path
-    return load_csv(table_or_path, table_name=default_name)
+    # CSV or Excel by extension (the CAPABILITY accepts both).
+    return load_table(table_or_path, table_name=default_name)
 
 
 def _first_col(df: pd.DataFrame, candidates: tuple[str, ...]) -> Optional[str]:
@@ -538,6 +544,17 @@ def reconcile(
     b_df = normalize_columns(b_parsed.dataframe).reset_index(drop=True)
     l_df = normalize_columns(l_parsed.dataframe).reset_index(drop=True)
 
+    # Source-row refs always cite the file's REAL (normalized) columns.
+    b_src_df = b_df
+    l_src_df = l_df
+
+    # Tyler/Munis-style exports: derive the signed 'amount' (= debit - credit,
+    # same semantics as src.ingest.tyler) when the file carries separate
+    # debit/credit columns and no amount column. Deterministic; original
+    # columns kept; surfaced in the summary below.
+    b_df, b_amt_derived = derive_signed_amount(b_df)
+    l_df, l_amt_derived = derive_signed_amount(l_df)
+
     b_amt = _resolve_col(b_df, b_overrides, "amount", _AMOUNT_COLUMNS)
     b_date = _resolve_col(b_df, b_overrides, "date", _DATE_COLUMNS)
     l_amt = _resolve_col(l_df, l_overrides, "amount", _AMOUNT_COLUMNS)
@@ -575,10 +592,10 @@ def reconcile(
     unmatched_ledger_rows: list[dict] = []
 
     def bank_ref(idx: int) -> SourceRowRef:
-        return _row_ref(b_parsed.file_id, "bank", idx, b_df.loc[idx])
+        return _row_ref(b_parsed.file_id, "bank", idx, b_src_df.loc[idx])
 
     def ledger_ref(idx: int) -> SourceRowRef:
-        return _row_ref(l_parsed.file_id, "ledger", idx, l_df.loc[idx])
+        return _row_ref(l_parsed.file_id, "ledger", idx, l_src_df.loc[idx])
 
     # --- Matched (exact amount + date) ---------------------------------- #
     for a, b in result.matched_pairs:
@@ -738,6 +755,15 @@ def reconcile(
         "total_ledger_amount": str(_total(ledger_cands)),
         "requires_human_review": any(f.requires_human_review for f in findings),
     }
+    # Audit note: surface any deterministic debit/credit -> amount derivation.
+    # Key added ONLY when a derivation happened so existing runs are unchanged.
+    derived_amounts = {}
+    if b_amt_derived:
+        derived_amounts["bank"] = "amount = debit - credit"
+    if l_amt_derived:
+        derived_amounts["ledger"] = "amount = debit - credit"
+    if derived_amounts:
+        summary["derived_amount_columns"] = derived_amounts
 
     result_tables = {
         "matched_transactions": pd.DataFrame(matched_rows),

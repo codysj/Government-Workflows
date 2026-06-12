@@ -54,12 +54,19 @@ from src.workflows import registry as workflow_registry
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPORT_PATH = REPO_ROOT / "runs" / "eval_report.json"
 
-# The MVP workflows that have a synthetic known-answer dataset. Freeform has no
-# tabular dataset / known-answer expectations, so it is excluded by default.
+# The workflows that have a synthetic known-answer dataset: the three MVP
+# workflows plus the four Tyler/Munis-era workflows (whose samples run on the
+# City of Riverbend dataset under data/synthetic/tyler, planted per
+# data/synthetic/tyler/known_answers.json). Freeform has no tabular dataset /
+# known-answer expectations, so it is excluded by default.
 DEFAULT_WORKFLOWS: tuple[str, ...] = (
     "bank_reconciliation",
     "budget_variance",
     "report_review",
+    "transaction_search",
+    "ap_duplicate_review",
+    "je_upload_prep",
+    "po_invoice_review",
 )
 
 

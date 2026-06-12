@@ -51,10 +51,14 @@ from src.core.schemas import (
 from src.ingest.csv_loader import load_csv, to_input_file
 from src.ingest.presets import normalize_csv
 from src.workflows import (
+    ap_duplicate_review,
     bank_reconciliation,
     budget_variance,
     freeform,
+    je_upload_prep,
+    po_invoice_review,
     report_review,
+    transaction_search,
 )
 
 # Source-format choices for the per-upload "source format" selector. Each is
@@ -184,9 +188,132 @@ FREEFORM = WorkflowDescriptor(
     example_files={},
 )
 
+TRANSACTION_SEARCH = WorkflowDescriptor(
+    workflow_type="transaction_search",
+    title="Transaction search (plain English)",
+    description=(
+        "Search across Tyler/Munis exports (GL detail, AP invoices, checks, "
+        "purchase orders) using a plain-English query. The query is parsed "
+        "into structured criteria, schema-validated, and then executed as "
+        "deterministic filters; every match cites its source row. The AI "
+        "never selects rows itself."
+    ),
+    uploads=(
+        UploadField("gl_detail", "GL detail (CSV/XLSX)", False, ("csv", "xlsx")),
+        UploadField("ap_invoices", "AP invoice detail (CSV/XLSX)", False,
+                    ("csv", "xlsx")),
+        UploadField("checks", "Check register (CSV/XLSX)", False, ("csv", "xlsx")),
+        UploadField("purchase_orders", "Purchase orders (CSV/XLSX)", False,
+                    ("csv", "xlsx"),
+                    help="At least one data file is required."),
+    ),
+    example_files={
+        "gl_detail": "tyler/gl_detail.csv",
+        "ap_invoices": "tyler/ap_invoice_detail.csv",
+        "checks": "tyler/check_register.csv",
+        "purchase_orders": "tyler/purchase_orders.csv",
+    },
+)
+
+# Example query used when running transaction search on the example files
+# (matches the module's bundled SAMPLE_INPUTS / known-answer dataset).
+TRANSACTION_SEARCH_EXAMPLE_QUERY = transaction_search.SAMPLE_INPUTS["query"]
+
+AP_DUPLICATE_REVIEW = WorkflowDescriptor(
+    workflow_type="ap_duplicate_review",
+    title="AP duplicate / suspicious payment review",
+    description=(
+        "Review a Tyler/Munis AP invoice export for duplicate, suspicious, "
+        "and policy-violating payments (exact duplicates, near-date same-"
+        "amount pairs, similar vendor names, missing POs, inactive/unknown "
+        "vendors, split payments). All checks are deterministic; the AI only "
+        "summarizes and drafts review notes citing the flagged rows."
+    ),
+    uploads=(
+        UploadField("ap_invoices", "AP invoice detail (CSV/XLSX)", True,
+                    ("csv", "xlsx")),
+        UploadField("vendor_list", "Vendor list (CSV/XLSX)", False,
+                    ("csv", "xlsx")),
+        UploadField("check_register", "Check register (CSV/XLSX)", False,
+                    ("csv", "xlsx")),
+        UploadField("purchase_orders", "Purchase orders (CSV/XLSX)", False,
+                    ("csv", "xlsx")),
+        UploadField("config", "Review thresholds (JSON)", False, ("json",)),
+    ),
+    example_files={
+        "ap_invoices": "tyler/ap_invoice_detail.csv",
+        "vendor_list": "tyler/vendor_list.csv",
+        "check_register": "tyler/check_register.csv",
+        "purchase_orders": "tyler/purchase_orders.csv",
+        "config": "ap_duplicate_review/review_config.json",
+    },
+)
+
+JE_UPLOAD_PREP = WorkflowDescriptor(
+    workflow_type="je_upload_prep",
+    title="Journal entry upload prep",
+    description=(
+        "Validate a draft journal entry against the chart of accounts and "
+        "fiscal configuration (balanced debits/credits, valid accounts, "
+        "dates in period, no duplicates), then produce an upload-ready "
+        "workbook. If ANY blocking error exists the upload file is NOT "
+        "written - only a structured error report. The AI only drafts a "
+        "plain-language summary of the deterministic validation results."
+    ),
+    uploads=(
+        UploadField("je_draft", "Draft journal entry (CSV/XLSX)", True,
+                    ("csv", "xlsx")),
+        UploadField("chart_of_accounts", "Chart of accounts (CSV/XLSX)", True,
+                    ("csv", "xlsx")),
+        UploadField("gl_detail", "GL detail history (CSV/XLSX)", False,
+                    ("csv", "xlsx"),
+                    help="Optional: enables the fund/org/object combination "
+                         "plausibility warning."),
+        UploadField("config", "Fiscal period config (JSON)", False, ("json",)),
+    ),
+    example_files={
+        "je_draft": "je_upload_prep/je_draft_valid.csv",
+        "chart_of_accounts": "tyler/chart_of_accounts.csv",
+        "gl_detail": "tyler/gl_detail.csv",
+        "config": "je_upload_prep/je_config.json",
+    },
+)
+
+PO_INVOICE_REVIEW = WorkflowDescriptor(
+    workflow_type="po_invoice_review",
+    title="PO / invoice mismatch review",
+    description=(
+        "Join AP invoices to purchase-order lines and flag every known "
+        "mismatch pattern: invoice over PO total, wrong vendor, missing PO, "
+        "closed-PO usage, unit-price/quantity mismatches, received-vs-"
+        "invoiced gaps. All matching is deterministic; the AI only explains "
+        "the flagged issues and suggests human follow-up."
+    ),
+    uploads=(
+        UploadField("purchase_orders", "Purchase orders (CSV/XLSX)", True,
+                    ("csv", "xlsx")),
+        UploadField("ap_invoices", "AP invoice detail (CSV/XLSX)", True,
+                    ("csv", "xlsx")),
+        UploadField("vendor_list", "Vendor list (CSV/XLSX)", False,
+                    ("csv", "xlsx")),
+        UploadField("check_register", "Check register (CSV/XLSX)", False,
+                    ("csv", "xlsx")),
+        UploadField("config", "Match tolerances (JSON)", False, ("json",)),
+    ),
+    example_files={
+        "purchase_orders": "tyler/purchase_orders.csv",
+        "ap_invoices": "tyler/ap_invoice_detail.csv",
+        "vendor_list": "tyler/vendor_list.csv",
+        "check_register": "tyler/check_register.csv",
+        "config": "po_invoice_review/match_config.json",
+    },
+)
+
 DESCRIPTORS: dict[str, WorkflowDescriptor] = {
     d.workflow_type: d
-    for d in (BANK_RECONCILIATION, BUDGET_VARIANCE, REPORT_REVIEW, FREEFORM)
+    for d in (BANK_RECONCILIATION, BUDGET_VARIANCE, REPORT_REVIEW,
+              TRANSACTION_SEARCH, AP_DUPLICATE_REVIEW, JE_UPLOAD_PREP,
+              PO_INVOICE_REVIEW, FREEFORM)
 }
 
 # Each workflow module exposes a module-level ``CAPABILITY: CapabilitySpec`` and
@@ -197,14 +324,38 @@ WORKFLOW_MODULES: dict[str, Any] = {
     "bank_reconciliation": bank_reconciliation,
     "budget_variance": budget_variance,
     "report_review": report_review,
+    "transaction_search": transaction_search,
+    "ap_duplicate_review": ap_duplicate_review,
+    "je_upload_prep": je_upload_prep,
+    "po_invoice_review": po_invoice_review,
     "freeform": freeform,
 }
+
+# The Tyler-era workflows share one self-managing run() contract
+# (run(inputs, *, provider, ledger, audit, run_id, actor, export_dir, config)
+# -> dict) and are driven by a single generic adapter below.
+_SELF_MANAGED_MODULES: dict[str, Any] = {
+    "transaction_search": transaction_search,
+    "ap_duplicate_review": ap_duplicate_review,
+    "je_upload_prep": je_upload_prep,
+    "po_invoice_review": po_invoice_review,
+}
+
+# Workflows whose run() appends <run_id> to the export_dir it is given (the
+# others write directly into the directory passed). The runner hands these the
+# PARENT export dir so artifacts land in the same per-run subdirectory either
+# way.
+_APPENDS_RUN_ID_TO_EXPORT_DIR = frozenset({"transaction_search", "je_upload_prep"})
 
 # Display order for the Run Workflow page.
 WORKFLOW_ORDER = (
     "bank_reconciliation",
     "budget_variance",
     "report_review",
+    "transaction_search",
+    "ap_duplicate_review",
+    "je_upload_prep",
+    "po_invoice_review",
     "freeform",
 )
 
@@ -377,6 +528,39 @@ def _run_freeform(
     )
 
 
+def _run_self_managed(
+    module, workflow_type, inputs, provider, export_dir, run_id, ledger, audit,
+    actor, config,
+):
+    """Drive a Tyler-era self-managing workflow module through its uniform
+    ``run()`` and normalize the returned dict into a UniformRunResult.
+
+    ``export_dir`` must already account for the module's own run_id nesting
+    (see ``_APPENDS_RUN_ID_TO_EXPORT_DIR``).
+    """
+    res = module.run(
+        inputs,
+        provider=provider,
+        ledger=ledger,
+        audit=audit,
+        run_id=run_id,
+        actor=actor,
+        export_dir=export_dir,
+        config=config,
+    )
+    det = res.get("deterministic")
+    return UniformRunResult(
+        run_id=run_id,
+        workflow_type=workflow_type,
+        findings=list(res.get("findings") or []),
+        summary=dict(res.get("summary") or {}),
+        result_tables=getattr(det, "result_tables", {}) or {},
+        llm_response=res.get("llm_response"),
+        validation=res.get("validation"),
+        export_paths={k: str(v) for k, v in (res.get("export_paths") or {}).items()},
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Audit lifecycle ownership
 # --------------------------------------------------------------------------- #
@@ -473,6 +657,31 @@ def _apply_source_formats(
     return new_inputs, applied
 
 
+# The deterministic config keys each Tyler-era workflow documents. Only these
+# keys are threaded from a caller-supplied config dict into the workflow run;
+# anything else (e.g. bank-specific Settings tolerances) is dropped so one
+# workflow's settings never silently leak into another's thresholds.
+_SELF_MANAGED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
+    "transaction_search": (
+        "max_results", "fuzzy_threshold", "missing_po_threshold",
+    ),
+    "ap_duplicate_review": (
+        "near_date_window_days", "amount_tolerance", "split_threshold",
+        "split_window_days", "missing_po_min_amount",
+        "vendor_similarity_threshold",
+    ),
+    "je_upload_prep": (
+        "fiscal_period_start", "fiscal_period_end", "allow_inactive_accounts",
+        "round_dollar_warning_threshold", "min_description_length",
+    ),
+    "po_invoice_review": (
+        "unit_price_tolerance_pct", "qty_tolerance",
+        "invoice_over_po_tolerance_pct", "closed_po_grace_days",
+        "missing_po_min_amount",
+    ),
+}
+
+
 def _config_for(workflow_type: str, inputs: dict, config: Optional[dict]) -> Any:
     """Map UI/Settings config onto each workflow's expected shape.
 
@@ -480,6 +689,12 @@ def _config_for(workflow_type: str, inputs: dict, config: Optional[dict]) -> Any
     an explicit config/threshold file in ``inputs`` (uploaded files win).
     """
     config = config or {}
+    if workflow_type in _SELF_MANAGED_CONFIG_KEYS:
+        if inputs.get("config"):
+            return None  # uploaded config file takes precedence
+        keys = _SELF_MANAGED_CONFIG_KEYS[workflow_type]
+        out = {k: config[k] for k in keys if k in config}
+        return out or None
     if workflow_type == "bank_reconciliation":
         if inputs.get("reconciliation_config"):
             return None  # uploaded config file takes precedence
@@ -789,6 +1004,21 @@ def run_workflow(
             result = _run_freeform(
                 wf_inputs, provider, run_export_dir, run_id, ledger, wf_audit,
                 actor, column_mappings=approved or None)
+        elif workflow_type in _SELF_MANAGED_MODULES:
+            # Tyler-era workflows: one uniform self-managing run() contract.
+            # transaction_search / je_upload_prep append <run_id> themselves,
+            # so they get the PARENT export dir; the others write directly
+            # into the per-run subdirectory.
+            if run_export_dir is None:
+                wf_export: Optional[Path] = None
+            elif workflow_type in _APPENDS_RUN_ID_TO_EXPORT_DIR:
+                wf_export = Path(export_dir)
+            else:
+                wf_export = run_export_dir
+            result = _run_self_managed(
+                _SELF_MANAGED_MODULES[workflow_type], workflow_type,
+                wf_inputs, provider, wf_export, run_id, ledger, wf_audit,
+                actor, wf_config)
         else:  # pragma: no cover - guarded above
             raise ValueError(workflow_type)
     except freeform.SensitivityNotConfirmedError as exc:

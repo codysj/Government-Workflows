@@ -1,0 +1,435 @@
+{
+  "_synthetic": "All data in this directory is synthetic and was generated for the fictional City of Riverbend. No real city, vendor, or financial data is present.",
+  "dataset": {
+    "city": "City of Riverbend",
+    "fiscal_year": 2026,
+    "fiscal_year_start": "2025-07-01",
+    "fiscal_year_end": "2026-06-30",
+    "funds": {
+      "100": "General",
+      "200": "Water",
+      "300": "Capital Projects"
+    },
+    "orgs": {
+      "5100": "Public Works Admin",
+      "5200": "Parks",
+      "6100": "Water Ops",
+      "7100": "Capital Engineering"
+    },
+    "objects": {
+      "4010": "Charges for Services",
+      "5010": "Office Supplies",
+      "5110": "Salaries and Wages",
+      "5230": "Utilities",
+      "5240": "Motor Fuel",
+      "5310": "Professional Services",
+      "5410": "Road Materials",
+      "5999": "Obsolete Expense",
+      "6100": "Capital Outlay"
+    }
+  },
+  "file_row_counts": {
+    "gl_detail.csv": 127,
+    "ap_invoice_detail.csv": 66,
+    "vendor_list.csv": 25,
+    "check_register.csv": 64,
+    "purchase_orders.csv": 18,
+    "budget_to_actual.csv": 18,
+    "chart_of_accounts.csv": 21,
+    "je_upload_template.csv": 0,
+    "gl_detail.xlsx": 127,
+    "budget_to_actual.xlsx": 18,
+    "je_upload_template.xlsx": 0
+  },
+  "missing_po_threshold": "5000.00",
+  "ap_anomalies": {
+    "D1": {
+      "pattern": "duplicate_invoice_number",
+      "finding_type": "duplicate_payment",
+      "vendor_number": "V-1001",
+      "vendor_name": "Acme Office Supply LLC",
+      "invoice_number": "INV-10234",
+      "amount": "1250.00",
+      "check_numbers": [
+        "50012",
+        "50044"
+      ],
+      "ap_row_indices": [
+        46,
+        47
+      ],
+      "expected_row_count": 2
+    },
+    "D2": {
+      "pattern": "same_vendor_same_amount_near_date",
+      "finding_type": "duplicate_payment",
+      "vendor_number": "V-1003",
+      "vendor_name": "Cascade Paving Inc",
+      "invoice_numbers": [
+        "INV-20881",
+        "INV-20890"
+      ],
+      "amount": "8400.00",
+      "invoice_dates": [
+        "2026-03-10",
+        "2026-03-13"
+      ],
+      "days_apart": 3,
+      "ap_row_indices": [
+        48,
+        49
+      ]
+    },
+    "D3": {
+      "pattern": "similar_vendor_names",
+      "finding_type": "vendor_anomaly",
+      "vendor_numbers": [
+        "V-1002",
+        "V-1019"
+      ],
+      "vendor_names": [
+        "Riverbend Electric Co",
+        "Riverbend Electric Company"
+      ],
+      "invoice_number": "5521",
+      "amount": "2200.00",
+      "invoice_dates": [
+        "2026-04-02",
+        "2026-04-04"
+      ],
+      "ap_row_indices": [
+        50,
+        51
+      ]
+    },
+    "D4": {
+      "pattern": "missing_po_over_threshold",
+      "finding_type": "missing_reference",
+      "vendor_number": "V-1004",
+      "vendor_name": "Summit IT Services",
+      "invoice_number": "INV-44510",
+      "amount": "12000.00",
+      "po_number": "",
+      "threshold": "5000.00",
+      "ap_row_indices": [
+        52
+      ]
+    },
+    "D5": {
+      "pattern": "payment_before_invoice_date",
+      "finding_type": "duplicate_payment",
+      "vendor_number": "V-1006",
+      "vendor_name": "Pacific Water Treatment Co",
+      "invoice_number": "INV-55003",
+      "invoice_date": "2026-05-20",
+      "check_number": "50190",
+      "check_date": "2026-05-12",
+      "ap_row_indices": [
+        53
+      ]
+    },
+    "D6": {
+      "pattern": "inactive_vendor",
+      "finding_type": "vendor_anomaly",
+      "vendor_number": "V-1005",
+      "vendor_name": "Old Town Hardware",
+      "vendor_status": "Inactive",
+      "invoice_number": "INV-66001",
+      "amount": "730.00",
+      "check_number": "50120",
+      "ap_row_indices": [
+        54
+      ]
+    },
+    "D7": {
+      "pattern": "unknown_vendor",
+      "finding_type": "missing_reference",
+      "vendor_number": "V-9999",
+      "vendor_name": "Unknown Vendor Services",
+      "vendor_in_vendor_list": false,
+      "invoice_number": "INV-77001",
+      "amount": "4000.00",
+      "ap_row_indices": [
+        55
+      ]
+    },
+    "D8": {
+      "pattern": "split_payments",
+      "finding_type": "duplicate_payment",
+      "vendor_number": "V-1007",
+      "vendor_name": "Northgate Consulting Group",
+      "invoice_numbers": [
+        "INV-88001",
+        "INV-88002",
+        "INV-88003"
+      ],
+      "amount_each": "4900.00",
+      "invoice_date": "2026-02-17",
+      "check_numbers": [
+        "50125",
+        "50126",
+        "50127"
+      ],
+      "threshold": "5000.00",
+      "ap_row_indices": [
+        56,
+        57,
+        58
+      ]
+    }
+  },
+  "po_anomalies": {
+    "P1": {
+      "pattern": "invoice_exceeds_po",
+      "po_number": "PO-3001",
+      "po_total": "10000.00",
+      "invoice_number": "INV-90011",
+      "invoice_amount": "11500.00",
+      "vendor_number": "V-1003",
+      "ap_row_indices": [
+        59
+      ],
+      "po_row_indices": [
+        1
+      ]
+    },
+    "P2": {
+      "pattern": "wrong_vendor",
+      "po_number": "PO-3002",
+      "po_vendor_number": "V-1004",
+      "invoice_number": "INV-90022",
+      "invoice_vendor_number": "V-1008",
+      "invoice_amount": "2500.00",
+      "ap_row_indices": [
+        60
+      ],
+      "po_row_indices": [
+        2
+      ]
+    },
+    "P3": {
+      "pattern": "missing_po",
+      "po_number": "PO-3999",
+      "po_exists": false,
+      "invoice_number": "INV-90033",
+      "invoice_amount": "1800.00",
+      "vendor_number": "V-1009",
+      "ap_row_indices": [
+        61
+      ]
+    },
+    "P4": {
+      "pattern": "closed_po_usage",
+      "po_number": "PO-3004",
+      "po_status": "Closed",
+      "last_activity_date": "2026-01-31",
+      "invoice_number": "INV-90044",
+      "invoice_date": "2026-03-05",
+      "invoice_amount": "2750.00",
+      "vendor_number": "V-1014",
+      "ap_row_indices": [
+        62
+      ],
+      "po_row_indices": [
+        4
+      ]
+    },
+    "P5": {
+      "pattern": "unit_price_mismatch",
+      "po_number": "PO-3005",
+      "po_line": 1,
+      "po_unit_price": "25.00",
+      "invoice_number": "INV-90055",
+      "invoice_unit_price": "27.50",
+      "qty": "100",
+      "vendor_number": "V-1012",
+      "ap_row_indices": [
+        63
+      ],
+      "po_row_indices": [
+        5
+      ]
+    },
+    "P6": {
+      "pattern": "quantity_mismatch",
+      "po_number": "PO-3006",
+      "po_line": 1,
+      "po_qty": "50",
+      "invoice_number": "INV-90066",
+      "invoice_qty": "65",
+      "unit_price": "40.00",
+      "vendor_number": "V-1017",
+      "ap_row_indices": [
+        64
+      ],
+      "po_row_indices": [
+        7
+      ]
+    },
+    "P7": {
+      "pattern": "received_not_invoiced",
+      "po_number": "PO-3007",
+      "po_line": 1,
+      "received_qty": "80",
+      "invoiced_qty": "0",
+      "invoice_exists": false,
+      "vendor_number": "V-1015",
+      "po_row_indices": [
+        9
+      ]
+    },
+    "P8": {
+      "pattern": "invoiced_not_received",
+      "po_number": "PO-3008",
+      "po_line": 1,
+      "received_qty": "10",
+      "invoiced_qty": "40",
+      "invoice_number": "INV-90088",
+      "vendor_number": "V-1018",
+      "ap_row_indices": [
+        65
+      ],
+      "po_row_indices": [
+        10
+      ]
+    }
+  },
+  "transaction_search": {
+    "Q1": {
+      "query": "payments to Cascade Paving over $5,000 between March and May 2026",
+      "expected_criteria": {
+        "module": "ap_invoice_detail",
+        "vendor_name_contains": "Cascade Paving",
+        "amount_min": "5000.00",
+        "date_field": "invoice_date",
+        "date_from": "2026-03-01",
+        "date_to": "2026-05-31"
+      },
+      "expected_row_count": 2,
+      "expected_invoice_numbers": [
+        "INV-20881",
+        "INV-20890"
+      ],
+      "expected_row_indices": [
+        48,
+        49
+      ]
+    },
+    "Q2": {
+      "query": "invoice INV-10234",
+      "expected_criteria": {
+        "module": "ap_invoice_detail",
+        "invoice_number": "INV-10234"
+      },
+      "expected_row_count": 2,
+      "expected_row_indices": [
+        46,
+        47
+      ],
+      "gl_detail_row_count": 2,
+      "gl_detail_row_indices": [
+        46,
+        47
+      ]
+    },
+    "Q3": {
+      "query": "checks to Acme Office Supply in February 2026",
+      "expected_criteria": {
+        "module": "check_register",
+        "vendor_name_contains": "Acme Office Supply",
+        "date_field": "check_date",
+        "date_from": "2026-02-01",
+        "date_to": "2026-02-28"
+      },
+      "expected_row_count": 2,
+      "expected_check_numbers": [
+        "50122",
+        "50128"
+      ],
+      "expected_row_indices": [
+        45,
+        49
+      ]
+    },
+    "Q4": {
+      "query": "pothole repair charges in fund 300",
+      "expected_criteria": {
+        "module": "gl_detail",
+        "fund": "300",
+        "description_keywords": [
+          "pothole",
+          "asphalt"
+        ]
+      },
+      "expected_row_count": 3,
+      "expected_journals": [
+        "9010",
+        "9011",
+        "9012"
+      ],
+      "expected_row_indices": [
+        71,
+        72,
+        73
+      ]
+    }
+  },
+  "journal_entry": {
+    "template_columns": [
+      "Journal",
+      "Line",
+      "Eff Date",
+      "Fund",
+      "Org",
+      "Object",
+      "Account Description",
+      "Debit",
+      "Credit",
+      "Line Description",
+      "Reference"
+    ],
+    "inactive_account": {
+      "account": "100-5100-5999",
+      "fund": "100",
+      "org": "5100",
+      "object": "5999",
+      "account_description": "Obsolete Expense",
+      "status": "Inactive",
+      "coa_row_indices": [
+        6
+      ]
+    }
+  },
+  "true_negatives": {
+    "void_check": {
+      "check_number": "50100",
+      "status": "Void",
+      "reissued_as": "50101"
+    },
+    "batch_check": {
+      "check_number": "50115",
+      "invoice_numbers": [
+        "INV-7106",
+        "INV-7107"
+      ]
+    },
+    "clean_po_numbers": [
+      "PO-3000",
+      "PO-3003",
+      "PO-3009",
+      "PO-3010",
+      "PO-3011",
+      "PO-3012",
+      "PO-3013",
+      "PO-3014"
+    ],
+    "open_unpaid_invoices": [
+      11,
+      23
+    ]
+  },
+  "amount_range": {
+    "min_ap_invoice": "12.50",
+    "max_ap_invoice": "48000.00"
+  }
+}

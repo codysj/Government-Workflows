@@ -1,0 +1,8 @@
+{
+  "_comment": "Default tolerance config for PO/invoice mismatch review (City of Riverbend demo).",
+  "unit_price_tolerance_pct": 1.0,
+  "qty_tolerance": 0,
+  "invoice_over_po_tolerance_pct": 0.0,
+  "closed_po_grace_days": 0,
+  "missing_po_min_amount": "5000.00"
+}

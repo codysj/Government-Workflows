@@ -70,11 +70,88 @@ from the deterministic findings. Prompt templates are versioned in
 | **Budget-to-actual variance review** | Join budget to actuals by fund/account/department/object; compute dollar and percent variance; flag lines over threshold and budget-only / actual-only / missing accounts. | Draft plain-language variance commentary referencing flagged rows. |
 | **Financial report consistency review** | Check a draft report for subtotal mismatches, invalid account codes, duplicate lines, missing sections, large changes from a prior version, and inconsistent naming. | Explain each flagged issue and draft a review checklist. |
 | **Guided freeform** | A structured (not chat) fallback that routes ad-hoc tasks through the same logging and validation; fails closed unless sensitivity is confirmed. | Produce a DRAFT output, source-linked where possible, for human review. |
+| **Transaction search** | Parse a plain-English query into validated `SearchCriteria`; apply as deterministic pandas filters against Tyler-normalized GL, AP, check, and PO exports; return matched rows with source-row traceability. | Translate the plain-English query into a structured `SearchCriteria` JSON (schema-validated before execution); summarize matches and suggest review steps. |
+| **AP duplicate / suspicious payment review** | Run eight deterministic checks (D1-D8) on Tyler AP invoice exports: duplicate invoice numbers, same-vendor/amount near-date pairs, similar vendor names, missing PO over threshold, payment before invoice date, inactive vendor, unknown vendor, split-payment pattern. | Summarize flagged issues and draft review notes citing source rows; does not conclude fraud. |
+| **Journal entry upload prep** | Validate a draft JE against the chart of accounts and fiscal-period config: debit/credit balance, date in period, required fields, active account codes, no negative/both-populated, no duplicate journal-line; produce an upload-ready Munis-template workbook or a blocking error report. Strictly fail-closed: no upload file is written unless all blocking checks pass. | Draft a plain-language validation summary (labelled DRAFT); never edits or generates upload workbook content. |
+| **PO / invoice mismatch review** | Run nine deterministic checks (P1-P8 + P3b) joining Tyler purchase-order and AP invoice exports: invoice exceeds PO, wrong vendor, missing PO reference, closed PO usage, unit-price mismatch, quantity mismatch, received-not-invoiced, invoiced-not-received. | Summarize flagged mismatches and draft review notes citing source rows; does not declare an invoice improper. |
 
-All four are exposed through the CLI, the registry
+All eight are exposed through the CLI, the registry
 (`src/workflows/registry.py`), and the Streamlit UI — every workflow, including
 bank reconciliation, is runnable end-to-end from the app on the bundled
 synthetic sample data.
+
+### Tyler/Munis-style exports
+
+Four of the eight workflows consume Tyler/Munis-style ERP exports: transaction
+search, AP duplicate review, JE upload prep, and PO/invoice review. They all
+route file loading through `src/ingest/tyler.py`, the Tyler/Munis-style export
+normalizer.
+
+**What the normalizer supports.** Eight dataset types, each with a canonical
+column set and Munis-style header aliases:
+
+| Dataset type | `dataset_type` key | Contents |
+| --- | --- | --- |
+| GL detail | `gl_detail` | Journal transactions (debit/credit -> signed amount derived) |
+| AP invoice detail | `ap_invoice_detail` | Invoice-level payables |
+| Vendor list | `vendor_list` | Vendor master with Status |
+| Check register | `check_register` | Issued checks |
+| Purchase orders | `purchase_orders` | PO lines with qty/price/received |
+| Budget-to-actual | `budget_to_actual` | Fund/org/object budget vs YTD actual |
+| Chart of accounts | `chart_of_accounts` | Account codes with Status |
+| JE upload template | `je_upload` | Munis JE upload headers (Journal/Line/Eff Date/...) |
+
+**Dataset type detection** is deterministic header-overlap scoring
+(0.8 * required-hit-ratio + 0.2 * optional-hit-ratio, snake_cased after
+applying Munis-style aliases). Auto-detection requires a margin of at least
+0.05 between the top two candidates; otherwise the caller must pass
+`dataset_type` explicitly.
+
+**Traceability guarantees.** The raw file is SHA-256 hashed into `InputFile`
+before any normalization. Each row carries a `source_row_index` (0-based
+position in the parsed data region); for Excel files with title blocks
+`header_row_used` gives the 0-based sheet row of the header, so the absolute
+file row is `header_row_used + 1 + source_row_index`. Amount columns are
+parsed to `Decimal` (dollar signs, commas, and parentheses-negative all
+handled). Debit/credit columns produce a derived signed `amount` column
+(`debit - credit`); original columns are kept.
+
+**Synthetic data note.** The files under `data/synthetic/tyler/` imitate common
+Munis-style export shapes (local CSV/XLSX only; no ERP integration, no
+credentials, no real vendor schemas). The "City of Riverbend" and all vendors,
+invoices, checks, POs, and amounts are fabricated. See
+`data/synthetic/tyler/README.md` for the full dataset description and
+`data/synthetic/tyler/known_answers.json` for the machine-readable manifest of
+every planted anomaly.
+
+**CLI examples for the four Tyler workflows:**
+
+```bat
+REM Natural-language transaction search (Q1 from the known-answer dataset)
+.venv\Scripts\python.exe cli\run_workflow.py transaction-search --sample
+
+REM Run with a custom query against the synthetic dataset
+.venv\Scripts\python.exe cli\run_workflow.py transaction-search ^
+    --input query="checks to Acme in February 2026" ^
+    --input gl_detail=data/synthetic/tyler/gl_detail.csv ^
+    --input ap_invoices=data/synthetic/tyler/ap_invoice_detail.csv ^
+    --input checks=data/synthetic/tyler/check_register.csv
+
+REM AP duplicate / suspicious payment review
+.venv\Scripts\python.exe cli\run_workflow.py ap-duplicate-review --sample
+
+REM Journal entry upload prep (valid draft -> upload-ready workbook)
+.venv\Scripts\python.exe cli\run_workflow.py je-upload-prep --sample
+
+REM PO / invoice mismatch review
+.venv\Scripts\python.exe cli\run_workflow.py po-invoice-review --sample
+
+REM Export artifacts to disk for any of the above
+.venv\Scripts\python.exe cli\run_workflow.py ap-duplicate-review --sample --export out\ap_review
+```
+
+All four run fully offline (mock LLM is the default). Add `--real` to use a
+real LLM provider when an API key is configured.
 
 ### Preflight & capability checks
 
@@ -313,6 +390,13 @@ A 2–3 minute end-to-end walkthrough on synthetic data only:
 12. **Repeat** with Budget variance and Report review (also example files), then
     try **Guided freeform** — note it refuses to run unless the sensitivity
     confirmation is checked.
+13. **Tyler-era workflows:** run **Transaction search** (type a plain-English
+    query such as "payments to Cascade Paving over $5,000 in March 2026"), **AP
+    duplicate review**, **JE upload prep** (loads the valid-draft sample and
+    produces a `je_upload.xlsx` artifact), and **PO / invoice review** — all
+    using their bundled City of Riverbend synthetic data. The role selector
+    (AP clerk, Accountant, Finance analyst, Finance director) suggests the most
+    relevant of the eight workflows for the selected role.
 
 To explain the architecture in one line: *deterministic code does all the math
 and matching; the LLM only drafts language and must cite source rows; every run
@@ -327,8 +411,10 @@ is logged, validated, and exported for a human to approve.*
 To run a single test file, name its path, e.g.
 `.venv\Scripts\python.exe -m pytest tests/unit/test_app_imports.py -q`.
 
-The full suite is **317 tests** (all passing), including the preflight /
-capability layer and the per-workflow messy-data fixtures.
+The full suite is **705 tests** (all passing), including the preflight /
+capability layer, the per-workflow messy-data fixtures, the four new Tyler-era
+workflow unit test suites, integration tests for the CLI/app registry/eval
+harness, and the Tyler normalizer and readiness tests.
 
 The evaluation harness produces measured per-workflow metrics:
 
@@ -365,9 +451,9 @@ analysis, LLM assist, validate, human review, export, audit log — with the UI,
 CLI, persistence (SQLite run ledger), validation, and LLM wrapper kept separate
 so workflows never touch Streamlit or provider code.
 
-**Workflow implementation.** Three high-value workflows plus a guided-freeform
-fallback share that pipeline through a uniform registry — all four runnable from
-the CLI and the Streamlit UI — each producing source-linked findings and a
+**Workflow implementation.** Seven high-value workflows plus a guided-freeform
+fallback share that pipeline through a uniform registry — all eight runnable
+from the CLI and the Streamlit UI — each producing source-linked findings and a
 consolidated review packet (`review_packet.md` + `run_manifest.json`) that
 separates deterministic findings, the AI draft, validation, reviewer notes,
 approval status, and audit history. A searchable AI Audit Log surfaces every AI
@@ -378,11 +464,14 @@ the source data, rejecting or flagging invented references and numeric claims no
 present in the deterministic findings; an eval harness runs known-answer datasets
 for each workflow.
 
-**Measured result.** The eval harness runs all three MVP workflows end-to-end on
-synthetic data, passing 3/3 known-answer checks with 0 LLM outputs rejected on
-the mock path; e.g. bank reconciliation deterministically yields 4 matched, 1
-timing difference, and 3 unmatched items across 13 transactions, each run
-completing in well under a second.
+**Measured result.** The eval harness runs all seven tabular workflows
+end-to-end on synthetic data, passing 7/7 known-answer checks with 0 LLM
+outputs rejected on the mock path; e.g. bank reconciliation deterministically
+yields 4 matched, 1 timing difference, and 3 unmatched items across 13
+transactions; AP duplicate review flags exactly 15 findings across D1-D8
+against the City of Riverbend dataset; JE upload prep produces an upload-ready
+workbook with 2 round-dollar warnings for the valid draft; PO/invoice review
+flags 9 exceptions (P1-P8 + P3b).
 
 **Reflection.** Keeping financial logic deterministic and the model
 language-only is what makes the output auditable and trustworthy; the same

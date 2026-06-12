@@ -120,6 +120,51 @@ def parse_amount(value: Any) -> Optional[Decimal]:
 
 
 # --------------------------------------------------------------------------- #
+# Tyler/Munis-style debit/credit -> signed amount derivation
+# --------------------------------------------------------------------------- #
+def derive_signed_amount(
+    df: pd.DataFrame,
+    *,
+    debit_col: str = "debit",
+    credit_col: str = "credit",
+    target_col: str = "amount",
+) -> tuple[pd.DataFrame, bool]:
+    """Derive a signed amount column from separate debit/credit columns.
+
+    Tyler/Munis-style GL exports carry separate ``Debit`` and ``Credit``
+    columns instead of the single signed ``amount`` column the workflows
+    expect. When ``target_col`` is ABSENT and BOTH ``debit_col`` and
+    ``credit_col`` are present (snake_cased), a copy of ``df`` is returned
+    with ``target_col`` appended as ``debit - credit`` -- the same semantics
+    as the dedicated Tyler normalizer (``src.ingest.tyler``): a blank side
+    counts as 0, and a row where neither side parses stays blank ("").
+
+    Deterministic and audit-friendly: the original debit/credit columns are
+    KEPT, no rows are dropped or reordered, and source-row indices are
+    preserved. Returns ``(dataframe, derived)`` where ``derived`` is True only
+    when the column was added; otherwise the original frame is returned
+    unchanged.
+    """
+    if (
+        target_col in df.columns
+        or debit_col not in df.columns
+        or credit_col not in df.columns
+    ):
+        return (df, False)
+    out = df.copy()
+    values: list[str] = []
+    for d_raw, c_raw in zip(out[debit_col].tolist(), out[credit_col].tolist()):
+        d = parse_amount(d_raw)
+        c = parse_amount(c_raw)
+        if d is None and c is None:
+            values.append("")
+        else:
+            values.append(str((d or Decimal("0")) - (c or Decimal("0"))))
+    out[target_col] = values
+    return (out, True)
+
+
+# --------------------------------------------------------------------------- #
 # Duplicate detection
 # --------------------------------------------------------------------------- #
 def detect_duplicate_rows(
@@ -320,15 +365,30 @@ def best_semantic_column(
     if not scored:
         return (None, 0.0, [])
 
-    scored.sort(key=lambda t: t[1], reverse=True)
+    # Highest score first; among equal scores a column whose snake_cased name
+    # EXACTLY equals the semantic name wins (e.g. a literal/derived "amount"
+    # column beats the "debit"/"credit" synonyms in a Tyler/Munis export).
+    scored.sort(
+        key=lambda t: (-t[1], 0 if to_snake_case(t[0]) == semantic_name else 1)
+    )
     ranked = [c for c, _ in scored]
     best_col, best_score = scored[0]
 
     # Ambiguity: a near-tie between the top two strong candidates lowers
-    # confidence so the engine flags AMBIGUOUS_COLUMN_MAPPING.
+    # confidence so the engine flags AMBIGUOUS_COLUMN_MAPPING. Exception: when
+    # the leader is an EXACT name match for the semantic field and the
+    # runner-up is only a synonym, the exact match is the obvious deterministic
+    # pick, so confidence is kept (no false ambiguity on Tyler-style files that
+    # carry amount + debit + credit together).
     if len(scored) >= 2:
-        second_score = scored[1][1]
-        if best_score >= 0.6 and (best_score - second_score) <= 0.1:
+        second_col, second_score = scored[1]
+        exact_best = to_snake_case(best_col) == semantic_name
+        exact_second = to_snake_case(second_col) == semantic_name
+        if (
+            best_score >= 0.6
+            and (best_score - second_score) <= 0.1
+            and not (exact_best and not exact_second)
+        ):
             best_score = min(best_score, 0.5)
 
     return (best_col, round(float(best_score), 4), ranked)

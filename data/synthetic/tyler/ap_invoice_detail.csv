@@ -1,0 +1,67 @@
+Vendor Number,Vendor Name,Invoice Number,Invoice Date,Due Date,PO Number,Invoice Amount,Qty,Unit Price,Check Number,Check Date,Status,Fund,Org,Object,Description
+V-1022,Valley Telecom Services,INV-7101,2025-07-25,2025-08-24,,480.00,,,50002,2025-08-08,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7102,2025-08-25,2025-09-24,,480.00,,,50007,2025-09-08,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7103,2025-09-25,2025-10-25,,480.00,,,50010,2025-10-09,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7104,2025-10-25,2025-11-24,,480.00,,,50016,2025-11-08,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7105,2025-11-25,2025-12-25,,480.00,,,50020,2025-12-09,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7106,2025-12-25,2026-01-24,,480.00,,,50115,2026-02-05,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7107,2026-01-25,2026-02-24,,480.00,,,50115,2026-02-05,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7108,2026-02-25,2026-03-27,,480.00,,,50029,2026-03-11,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7109,2026-03-25,2026-04-24,,480.00,,,50032,2026-04-08,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7110,2026-04-25,2026-05-25,,480.00,,,50035,2026-05-09,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7111,2026-05-25,2026-06-24,,480.00,,,50038,2026-06-08,Paid,100,5100,5230,Monthly phone and internet service
+V-1022,Valley Telecom Services,INV-7112,2026-06-25,2026-07-25,,480.00,,,,,Open,100,5100,5230,Monthly phone and internet service
+V-1009,Bluebird Janitorial Services,INV-7201,2025-07-01,2025-07-31,,1150.00,,,50001,2025-07-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7202,2025-08-01,2025-08-31,,1150.00,,,50003,2025-08-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7203,2025-09-01,2025-10-01,,1150.00,,,50008,2025-09-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7204,2025-10-01,2025-10-31,,1150.00,,,50013,2025-10-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7205,2025-11-01,2025-12-01,,1150.00,,,50018,2025-11-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7206,2025-12-01,2025-12-31,,1150.00,,,50021,2025-12-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7207,2026-01-01,2026-01-31,,1150.00,,,50023,2026-01-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7208,2026-02-01,2026-03-03,,1150.00,,,50026,2026-02-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7209,2026-03-01,2026-03-31,,1150.00,,,50030,2026-03-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7210,2026-04-01,2026-05-01,,1150.00,,,50033,2026-04-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7211,2026-05-01,2026-05-31,,1150.00,,,50036,2026-05-21,Paid,100,5200,5310,Monthly janitorial service - parks facilities
+V-1009,Bluebird Janitorial Services,INV-7212,2026-06-01,2026-07-01,,1150.00,,,,,Open,100,5200,5310,Monthly janitorial service - parks facilities
+V-1013,Metro Fuel Cooperative,INV-7301,2025-08-12,2025-09-11,,812.40,,,50004,2025-08-22,Paid,100,5100,5240,Fleet fuel purchases
+V-1013,Metro Fuel Cooperative,INV-7302,2025-10-12,2025-11-11,,743.15,,,50014,2025-10-22,Paid,100,5100,5240,Fleet fuel purchases
+V-1013,Metro Fuel Cooperative,INV-7303,2025-12-12,2026-01-11,,901.22,,,50022,2025-12-22,Paid,100,5100,5240,Fleet fuel purchases
+V-1013,Metro Fuel Cooperative,INV-7304,2026-02-12,2026-03-14,,688.90,,,50027,2026-02-22,Paid,100,5100,5240,Fleet fuel purchases
+V-1013,Metro Fuel Cooperative,INV-7305,2026-04-12,2026-05-12,,754.33,,,50034,2026-04-22,Paid,100,5100,5240,Fleet fuel purchases
+V-1013,Metro Fuel Cooperative,INV-7306,2026-06-05,2026-07-05,,826.18,,,50039,2026-06-15,Paid,100,5100,5240,Fleet fuel purchases
+V-1011,Cedar Valley Print Shop,INV-74000,2025-08-20,2025-09-19,PO-3000,950.00,1,950.00,50006,2025-09-03,Paid,100,5100,5010,Summer brochure printing
+V-1010,Riverbend Auto Parts,INV-90100,2026-02-10,2026-03-12,PO-3003,1700.00,20,85.00,50028,2026-02-24,Paid,100,5100,5010,Fleet repair parts
+V-1020,Foothill Engineering PLLC,INV-90110,2026-04-28,2026-05-28,PO-3009,48000.00,1,48000.00,50180,2026-05-08,Paid,300,7100,6100,Bridge design services - final billing
+V-1023,Ironwood Equipment Rental,INV-90120,2026-03-08,2026-04-07,PO-3010,2400.00,2,1200.00,50031,2026-03-22,Paid,300,7100,5310,Excavator rental - two weeks
+V-1016,Tri-County Lab Services,INV-90130,2026-05-12,2026-06-11,PO-3011,1800.00,12,150.00,50037,2026-05-26,Paid,200,6100,5310,Water quality testing - spring series
+V-1021,Sunrise Software LLC,INV-90140,2026-01-10,2026-02-09,PO-3012,6800.00,1,6800.00,50024,2026-01-24,Paid,100,5100,5310,Annual permitting software license
+V-1024,Maple Street Catering,INV-74001,2025-09-20,2025-10-20,,487.50,,,50009,2025-10-04,Paid,100,5100,5010,Council retreat catering
+V-1011,Cedar Valley Print Shop,INV-90150,2026-01-05,2026-02-04,,640.00,,,50101,2026-01-21,Paid,100,5100,5010,Winter newsletter printing
+V-1011,Cedar Valley Print Shop,INV-74002,2025-11-03,2025-12-03,,12.50,,,50017,2025-11-17,Paid,100,5100,5010,Name badge engraving
+V-1025,Prairie Insurance Group,INV-74003,2025-10-01,2025-10-31,,4800.00,,,50011,2025-10-15,Paid,100,5100,5310,Liability premium installment
+V-1014,Lakeside HVAC Inc,INV-74004,2025-10-12,2025-11-11,,385.00,,,50015,2025-10-26,Paid,100,5200,5310,Fall furnace tune-up
+V-1002,Riverbend Electric Co,INV-5478,2025-08-20,2025-09-19,,1340.00,,,50005,2025-09-03,Paid,100,5200,5230,Ballfield light repair
+V-1019,Riverbend Electric Company,INV-5600,2026-01-12,2026-02-11,,2980.00,,,50025,2026-01-26,Paid,200,6100,5310,Well pump motor service
+V-1001,Acme Office Supply LLC,INV-10300,2025-11-10,2025-12-10,,215.75,,,50019,2025-11-24,Paid,100,5100,5010,Copy paper and toner
+V-1001,Acme Office Supply LLC,INV-10501,2026-02-02,2026-03-04,,310.00,,,50122,2026-02-12,Paid,100,5100,5010,Office supplies restock
+V-1001,Acme Office Supply LLC,INV-10502,2026-02-18,2026-03-20,,89.99,,,50128,2026-02-26,Paid,100,5100,5010,Desk organizers
+V-1001,Acme Office Supply LLC,INV-10234,2025-09-02,2025-10-02,,1250.00,,,50012,2025-09-15,Paid,100,5100,5010,Office furniture order
+V-1001,Acme Office Supply LLC,INV-10234,2025-09-02,2025-10-02,,1250.00,,,50044,2025-10-06,Paid,100,5100,5010,Office furniture order
+V-1003,Cascade Paving Inc,INV-20881,2026-03-10,2026-04-09,PO-3015,8400.00,1,8400.00,50138,2026-03-20,Paid,100,5100,5410,Street patching - blanket release 1
+V-1003,Cascade Paving Inc,INV-20890,2026-03-13,2026-04-12,PO-3015,8400.00,1,8400.00,50142,2026-03-24,Paid,100,5100,5410,Street patching - blanket release 2
+V-1002,Riverbend Electric Co,5521,2026-04-02,2026-05-02,,2200.00,,,50161,2026-04-14,Paid,100,5200,5230,Park pavilion electrical service
+V-1019,Riverbend Electric Company,5521,2026-04-04,2026-05-04,,2200.00,,,50165,2026-04-17,Paid,100,5200,5230,Park pavilion electrical service
+V-1004,Summit IT Services,INV-44510,2026-04-05,2026-05-05,,12000.00,,,50170,2026-04-20,Paid,100,5100,5310,Network infrastructure upgrade
+V-1006,Pacific Water Treatment Co,INV-55003,2026-05-20,2026-06-19,,3150.00,,,50190,2026-05-12,Paid,200,6100,5310,Filter media replacement
+V-1005,Old Town Hardware,INV-66001,2026-02-10,2026-03-12,,730.00,,,50120,2026-02-24,Paid,100,5200,5010,Trail repair hardware
+V-9999,Unknown Vendor Services,INV-77001,2026-05-15,2026-06-14,,4000.00,,,50205,2026-05-28,Paid,100,5100,5310,Consulting services
+V-1007,Northgate Consulting Group,INV-88001,2026-02-17,2026-03-19,,4900.00,,,50125,2026-02-27,Paid,100,5100,5310,Rate study consulting - phase 1
+V-1007,Northgate Consulting Group,INV-88002,2026-02-17,2026-03-19,,4900.00,,,50126,2026-02-27,Paid,100,5100,5310,Rate study consulting - phase 2
+V-1007,Northgate Consulting Group,INV-88003,2026-02-17,2026-03-19,,4900.00,,,50127,2026-02-27,Paid,100,5100,5310,Rate study consulting - phase 3
+V-1003,Cascade Paving Inc,INV-90011,2026-02-20,2026-03-22,PO-3001,11500.00,,,50130,2026-02-27,Paid,100,5100,5410,Asphalt road materials
+V-1008,Evergreen Landscaping LLC,INV-90022,2026-01-22,2026-02-21,PO-3002,2500.00,10,250.00,50105,2026-02-03,Paid,100,5100,5310,Landscape maintenance - winter cleanup
+V-1009,Bluebird Janitorial Services,INV-90033,2026-03-18,2026-04-17,PO-3999,1800.00,1,1800.00,50145,2026-03-30,Paid,100,5200,5310,Deep clean - community center
+V-1014,Lakeside HVAC Inc,INV-90044,2026-03-05,2026-04-04,PO-3004,2750.00,1,2750.00,50140,2026-03-17,Paid,100,5200,5310,HVAC quarterly maintenance
+V-1012,Harbor Safety Supply,INV-90055,2026-04-10,2026-05-10,PO-3005,2750.00,100,27.50,50168,2026-04-22,Paid,100,5100,5010,Safety vests
+V-1017,Westside Uniform Supply,INV-90066,2026-04-15,2026-05-15,PO-3006,2600.00,65,40.00,50172,2026-04-27,Paid,100,5200,5010,Work uniforms
+V-1018,Clearwater Chemical Inc,INV-90088,2026-05-05,2026-06-04,PO-3008,2200.00,40,55.00,50185,2026-05-15,Paid,200,6100,5010,Water treatment chemicals

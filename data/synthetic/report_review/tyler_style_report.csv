@@ -1,0 +1,10 @@
+Report Section,Row Type,Account,Account Description,Amount
+General Government,line_item,100-1000-5010,Salaries,250000.00
+General Government,line_item,100-1000-5210,Office Supplies,12500.00
+General Government,line_item,100-1000-5210,Office Supplies,12500.00
+General Government,subtotal,,General Government Subtotal,275000.00
+Public Works,line_item,200-3000-5310,Contract Services,48000.00
+Public Works,line_item,200-3000-5610,Fuel,9500.00
+Public Works,line_item,999-9999-9999,Miscellaneous,1000.00
+Public Works,subtotal,,Public Works Subtotal,58600.00
+,grand_total,,Report Total,333600.00

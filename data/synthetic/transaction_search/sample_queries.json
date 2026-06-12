@@ -1,0 +1,40 @@
+{
+  "_synthetic": "Sample queries for the transaction_search workflow; Q1-Q4 mirror known_answers.json.",
+  "queries": [
+    {
+      "id": "Q1",
+      "query": "payments to Cascade Paving over $5,000 between March and May 2026",
+      "notes": "Vendor name match + amount filter + date range on AP invoices"
+    },
+    {
+      "id": "Q2",
+      "query": "invoice INV-10234",
+      "notes": "Invoice number lookup across AP and GL"
+    },
+    {
+      "id": "Q3",
+      "query": "checks to Acme Office Supply in February 2026",
+      "notes": "Vendor name + date range on check register"
+    },
+    {
+      "id": "Q4",
+      "query": "pothole repair charges in fund 300",
+      "notes": "Keyword search on GL description + fund filter"
+    },
+    {
+      "id": "E1",
+      "query": "",
+      "notes": "Empty query - should fail closed with structured error"
+    },
+    {
+      "id": "E2",
+      "query": "   ",
+      "notes": "Blank-only query - should fail closed with structured error"
+    },
+    {
+      "id": "E3",
+      "query": "xyzzy nothing matches this completely random string 999",
+      "notes": "Parseable (has number) but no rows match - valid run with 0 results"
+    }
+  ]
+}

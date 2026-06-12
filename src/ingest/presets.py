@@ -81,11 +81,49 @@ GENERIC_ERP: dict[str, str] = {
 }
 
 # Vendor-flavored placeholders (NOT real schemas — illustrative for the demo).
+# Modelled on common Munis-style export header spellings (Eff Date, Org,
+# Object, Src, Vendor Number, ...). Still synthetic / local-file only.
 TYLER_MUNIS_STYLE: dict[str, str] = {
+    # date (Munis GL exports commonly use "Eff Date" / "Effective Date")
     "jrnl_date": "date",
+    "eff_date": "date",
+    "je_date": "date",
+    "jnl_date": "date",
+    # amount
     "gl_amount": "amount",
+    "journal_amount": "amount",
+    "je_amount": "amount",
+    # description
+    "line_description": "description",
+    "je_description": "description",
+    "comment": "description",
+    # dimensions (Munis: Fund / Org / Object / Project)
     "org": "department",
+    "org_code": "department",
     "object": "account_code",
+    "obj": "account_code",
+    "proj": "project",
+    "project_code": "project",
+    # Check-register exports as a generic transaction table (e.g. the ledger
+    # side of bank reconciliation): Munis "Check Date" / "Check Amount" map to
+    # the canonical date/amount. Aliasing never overwrites an existing
+    # canonical column (see apply_aliases), so files that already carry
+    # date/amount are untouched.
+    "check_date": "date",
+    "check_amount": "amount",
+    # AP / PO / check reference fields (used by the Tyler-style workflows)
+    "vendor_no": "vendor_number",
+    "vendor_id": "vendor_number",
+    "vend_no": "vendor_number",
+    "invoice_no": "invoice_number",
+    "inv_no": "invoice_number",
+    "invoice": "invoice_number",
+    "po_no": "po_number",
+    "po": "po_number",
+    "purchase_order": "po_number",
+    "check_no": "check_number",
+    "chk_no": "check_number",
+    "warrant_no": "check_number",
 }
 
 OPENGOV_STYLE: dict[str, str] = {

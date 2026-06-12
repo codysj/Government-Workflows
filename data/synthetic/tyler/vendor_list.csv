@@ -1,0 +1,26 @@
+Vendor Number,Vendor Name,DBA,Status,Address,City,State,Zip,Phone,1099 Flag,Terms
+V-1001,Acme Office Supply LLC,,Active,410 Commerce Way,Riverbend,WA,98901,(509) 555-0101,N,Net 30
+V-1002,Riverbend Electric Co,,Active,88 Substation Rd,Riverbend,WA,98901,(509) 555-0102,Y,Net 30
+V-1003,Cascade Paving Inc,,Active,1200 Quarry Ln,Maple Falls,WA,98911,(509) 555-0103,Y,Net 30
+V-1004,Summit IT Services,,Active,75 Tech Park Dr,Riverbend,WA,98902,(509) 555-0104,Y,Net 30
+V-1005,Old Town Hardware,,Inactive,12 Main St,Riverbend,WA,98901,(509) 555-0105,N,Net 15
+V-1006,Pacific Water Treatment Co,,Active,300 Industrial Pkwy,Clearwater,WA,98920,(509) 555-0106,Y,Net 30
+V-1007,Northgate Consulting Group,,Active,501 5th Ave Ste 200,Riverbend,WA,98902,(509) 555-0107,Y,Net 30
+V-1008,Evergreen Landscaping LLC,,Active,240 Orchard Rd,Riverbend,WA,98903,(509) 555-0108,Y,Net 30
+V-1009,Bluebird Janitorial Services,,Active,660 Birch St,Riverbend,WA,98901,(509) 555-0109,Y,Net 30
+V-1010,Riverbend Auto Parts,,Active,1500 Frontage Rd,Riverbend,WA,98903,(509) 555-0110,N,Net 30
+V-1011,Cedar Valley Print Shop,,Active,34 Cedar Valley Rd,Cedar Valley,WA,98915,(509) 555-0111,N,Net 15
+V-1012,Harbor Safety Supply,,Active,910 Harbor Blvd,Port Landing,WA,98930,(509) 555-0112,N,Net 30
+V-1013,Metro Fuel Cooperative,Metro Fuel,Active,2200 Depot St,Riverbend,WA,98903,(509) 555-0113,N,Net 15
+V-1014,Lakeside HVAC Inc,,Active,47 Lakeside Dr,Riverbend,WA,98902,(509) 555-0114,Y,Net 30
+V-1015,Granite Concrete Works,,Active,800 Gravel Pit Rd,Maple Falls,WA,98911,(509) 555-0115,Y,Net 30
+V-1016,Tri-County Lab Services,,Active,130 Science Ct,Clearwater,WA,98920,(509) 555-0116,Y,Net 30
+V-1017,Westside Uniform Supply,,Active,55 Mercantile Row,Riverbend,WA,98901,(509) 555-0117,N,Net 30
+V-1018,Clearwater Chemical Inc,,Active,415 Treatment Plant Rd,Clearwater,WA,98920,(509) 555-0118,N,Net 30
+V-1019,Riverbend Electric Company,,Active,92 Substation Rd,Riverbend,WA,98901,(509) 555-0119,Y,Net 30
+V-1020,Foothill Engineering PLLC,,Active,18 Summit View Dr,Riverbend,WA,98902,(509) 555-0120,Y,Net 30
+V-1021,Sunrise Software LLC,,Active,700 Innovation Way,Spokane,WA,99201,(509) 555-0121,Y,Net 30
+V-1022,Valley Telecom Services,,Active,260 Exchange St,Riverbend,WA,98901,(509) 555-0122,N,Net 30
+V-1023,Ironwood Equipment Rental,,Active,3100 Equipment Yard Rd,Maple Falls,WA,98911,(509) 555-0123,N,Net 30
+V-1024,Maple Street Catering,,Active,210 Maple St,Riverbend,WA,98901,(509) 555-0124,Y,Net 15
+V-1025,Prairie Insurance Group,,Active,900 Assurance Plaza,Spokane,WA,99201,(509) 555-0125,N,Net 30

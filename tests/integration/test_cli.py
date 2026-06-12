@@ -258,6 +258,147 @@ def test_preflight_only_flag_skips_workflow(capsys):
     assert "AI explanation" not in out
 
 
+# --------------------------------------------------------------------------- #
+# Tyler-era workflows (transaction search, AP duplicates, JE prep, PO review)
+# --------------------------------------------------------------------------- #
+_TYLER_DIR = _REPO_ROOT / "data" / "synthetic" / "tyler"
+_JE_DIR = _REPO_ROOT / "data" / "synthetic" / "je_upload_prep"
+
+import json  # noqa: E402
+
+
+def _export_files(out: str, export_dir: Path) -> Path:
+    """Return the per-run export subdirectory for a printed CLI run."""
+    return export_dir / _run_id(out)
+
+
+def test_list_includes_tyler_workflows(capsys):
+    rc = main(["list"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    for name in ("transaction-search", "ap-duplicate-review",
+                 "je-upload-prep", "po-invoice-review"):
+        assert name in out, f"'{name}' missing from CLI list"
+
+
+_TYLER_SAMPLE_CASES = [
+    # (cli name, export files that must exist in the per-run dir)
+    ("transaction-search",
+     ("search_criteria.json", "search_results.csv", "search_summary.md",
+      "validation_report.json", "audit_log.json")),
+    ("ap-duplicate-review",
+     ("flagged_payments.csv", "duplicate_groups.csv", "ap_review_summary.md",
+      "review_notes_draft.md", "validation_report.json", "audit_log.json")),
+    ("je-upload-prep",
+     ("je_upload.xlsx", "je_upload.csv", "source_mapping.csv",
+      "je_prep_summary.md", "validation_report.json", "audit_log.json")),
+    ("po-invoice-review",
+     ("po_invoice_exceptions.csv", "matched_po_invoices.csv",
+      "po_review_summary.md", "review_notes_draft.md",
+      "validation_report.json", "audit_log.json")),
+]
+
+
+@pytest.mark.parametrize("workflow,expected_files", _TYLER_SAMPLE_CASES)
+def test_tyler_workflow_sample_in_process(capsys, tmp_path, workflow,
+                                          expected_files):
+    """Each new workflow runs end-to-end on --sample: preflight PASS, LLM
+    called, validation passed, and all documented export files written."""
+    export_dir = tmp_path / workflow
+    rc = main([workflow, "--sample", "--export", str(export_dir)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "PREFLIGHT:  PASS" in out
+    assert "STATUS:     PASS" in out
+    assert "Run ID:" in out
+    assert "Validation: PASSED" in out
+    assert "LLM called: True" in out
+    assert "Export paths:" in out
+    run_dir = _export_files(out, export_dir)
+    for name in expected_files:
+        assert (run_dir / name).is_file(), f"missing export: {name}"
+    # validation_report.json records a passing validation.
+    report = json.loads(
+        (run_dir / "validation_report.json").read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    # The consolidated review packet + preflight artifacts are present too.
+    assert (run_dir / "review_packet.md").is_file()
+    assert (run_dir / "preflight_report.json").is_file()
+
+
+def test_tyler_workflow_sample_subprocess(tmp_path):
+    """One of the new workflows end-to-end as a real process (exit 0)."""
+    export_dir = tmp_path / "po_subprocess"
+    proc = subprocess.run(
+        [sys.executable, str(_CLI), "po-invoice-review", "--sample",
+         "--export", str(export_dir)],
+        cwd=str(_REPO_ROOT), capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"stderr:\n{proc.stderr}\nstdout:\n{proc.stdout}"
+    assert "PREFLIGHT:  PASS" in proc.stdout
+    assert "STATUS:     PASS" in proc.stdout
+    assert "LLM called: True" in proc.stdout
+
+
+def test_transaction_search_query_via_input_kv(capsys, tmp_path):
+    """The free-text query passes through the generic --input key=value path."""
+    export_dir = tmp_path / "ts_kv"
+    rc = main([
+        "transaction-search",
+        "--input", "query=invoices to Cascade Paving over $5,000",
+        "--input", f"ap_invoices={_TYLER_DIR / 'ap_invoice_detail.csv'}",
+        "--export", str(export_dir),
+    ])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "PREFLIGHT:  PASS" in out
+    assert "STATUS:     PASS" in out
+    run_dir = _export_files(out, export_dir)
+    criteria = json.loads(
+        (run_dir / "search_criteria.json").read_text(encoding="utf-8"))
+    # The parsed criteria reflect the query deterministically.
+    assert criteria.get("vendor")
+    assert criteria.get("amount_min") == "5000"
+
+
+def test_transaction_search_fails_closed_without_data_file(capsys):
+    """A query with NO data file is a preflight FAIL: no run, no LLM, no AI."""
+    rc = main(["transaction-search", "--input", "query=anything at all"])
+    out = capsys.readouterr().out
+    assert rc == 0  # clean determination, scriptable banner
+    assert "PREFLIGHT:  FAIL" in out
+    assert "STATUS:     FAILED (preflight)" in out
+    assert "AI explanation" not in out
+    assert "LLM called: True" not in out
+
+
+def test_je_upload_prep_invalid_draft_fails_closed(capsys, tmp_path):
+    """The INVALID draft completes as a run (exit 0) but is NOT upload-ready:
+    je_upload.xlsx / je_upload.csv are NOT written; the structured error
+    report (je_validation_errors.csv) is."""
+    export_dir = tmp_path / "je_invalid"
+    rc = main([
+        "je-upload-prep",
+        "--input", f"je_draft={_JE_DIR / 'je_draft_invalid.csv'}",
+        "--input", f"chart_of_accounts={_TYLER_DIR / 'chart_of_accounts.csv'}",
+        "--input", f"gl_detail={_TYLER_DIR / 'gl_detail.csv'}",
+        "--input", f"config={_JE_DIR / 'je_config.json'}",
+        "--export", str(export_dir),
+    ])
+    out = capsys.readouterr().out
+    assert rc == 0
+    # The deterministic outcome is upload_ready: False in the summary.
+    assert "upload_ready: False" in out
+    run_dir = _export_files(out, export_dir)
+    # FAIL CLOSED: no upload workbook may exist anywhere under the export dir.
+    assert not (run_dir / "je_upload.xlsx").exists()
+    assert not (run_dir / "je_upload.csv").exists()
+    assert not list(export_dir.rglob("je_upload.xlsx"))
+    # The structured error report and summary ARE exported.
+    assert (run_dir / "je_validation_errors.csv").is_file()
+    assert (run_dir / "je_prep_summary.md").is_file()
+
+
 def test_mappings_flag_inline_json(capsys, tmp_path):
     """--mappings accepts inline JSON of human-approved column mappings and the
     run completes; the pinned mapping is reported as a human source."""

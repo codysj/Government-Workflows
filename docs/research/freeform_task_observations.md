@@ -12,3 +12,5 @@ Append-only discovery log (spec Phase 5 "Discovery output"). Each guided freefor
 | --- | --- | --- | --- | --- |
 | 2026-06-08T05:04:09.577181+00:00 | 14cd1fcd72d7491a8ebe38eb504ae07a | grant_reimbursement_summary | A short plain-language reimbursement summary memo (draft). | 0 |
 | 2026-06-08T05:19:28.168937+00:00 | 89affc0acdb44ff4807cf909cc5fec23 | grant_reimbursement_summary | A short plain-language reimbursement summary memo (draft). | 0 |
+| 2026-06-11T13:44:37.714939+00:00 | 200321ceb9614916bad5305214c1c8d9 | grant_reimbursement_summary | A short plain-language reimbursement summary memo (draft). | 0 |
+| 2026-06-11T23:54:52.646365+00:00 | 68fbcfe6a5fe4195bacdb18d2712b343 | grant_reimbursement_summary | A short plain-language reimbursement summary memo (draft). | 0 |

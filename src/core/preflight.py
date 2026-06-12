@@ -78,12 +78,24 @@ from src.normalize.cleaning import (
     amount_parse_confidence,
     best_semantic_column,
     date_parse_confidence,
+    derive_signed_amount,
     detect_duplicate_rows,
     detect_footer_total_rows,
     detect_repeated_header_rows,
     normalize_columns,
     to_snake_case,
 )
+
+# File types that the loaders read with pandas/openpyxl. ``ParsedTable`` from
+# the excel loader reports its type as "excel"; treat it as the xlsx family
+# when checking against a spec's accepted file types.
+_EXCEL_TYPES = ("xlsx", "xlsm", "excel")
+
+
+def _norm_file_type(file_type: str) -> str:
+    """Normalize a profile file_type for accepted-type checks ('excel'->'xlsx')."""
+    ft = (file_type or "").lower()
+    return "xlsx" if ft in _EXCEL_TYPES else ft
 
 # Auto-map a semantic column only when confidence is at least this high AND
 # the mapping is unambiguous.
@@ -140,7 +152,12 @@ def _load_df(path_or_parsed: Any) -> tuple[Optional[pd.DataFrame], str, str]:
     if not path.exists():
         return (None, path.name, file_type)
     try:
-        df = pd.read_csv(path, dtype=str, keep_default_na=False)
+        if file_type in ("xlsx", "xlsm"):
+            # Excel reads mirror src.ingest.excel_loader: every cell as text,
+            # blanks preserved as empty strings (no rows dropped).
+            df = pd.read_excel(path, dtype=str, engine="openpyxl").fillna("")
+        else:
+            df = pd.read_csv(path, dtype=str, keep_default_na=False)
     except Exception:
         return (None, path.name, file_type)
     return (df, path.name, file_type)
@@ -172,8 +189,21 @@ def profile_input(
         )
 
     ndf = normalize_columns(df).reset_index(drop=True)
-    detected = list(ndf.columns)
     notes: list[str] = []
+
+    # Tyler/Munis-style exports carry separate Debit/Credit columns instead of
+    # one signed amount. Derive the signed 'amount' (= debit - credit, same
+    # semantics as src.ingest.tyler) so semantic mapping can resolve it; the
+    # derivation is surfaced in the profile notes for the preflight report.
+    ndf, amount_derived = derive_signed_amount(ndf)
+    if amount_derived:
+        notes.append(
+            "Derived signed 'amount' column as debit - credit "
+            "(Tyler/Munis-style debit/credit export); original debit/credit "
+            "columns preserved."
+        )
+
+    detected = list(ndf.columns)
 
     # Parse confidence for plausible date/amount columns (by header synonym).
     parse_confidence: dict[str, float] = {}
@@ -406,7 +436,7 @@ def run_preflight(
                 )
             )
             continue
-        if profile.file_type and profile.file_type.lower() not in accepted:
+        if profile.file_type and _norm_file_type(profile.file_type) not in accepted:
             findings.append(
                 PreflightFinding(
                     code=PreflightConditionCode.UNSUPPORTED_FILE_TYPE,
@@ -429,7 +459,7 @@ def run_preflight(
         if not profile.present:
             continue
         accepted = _accepted_for(spec.accepted_file_types, input_key)
-        if profile.file_type and profile.file_type.lower() not in accepted:
+        if profile.file_type and _norm_file_type(profile.file_type) not in accepted:
             findings.append(
                 PreflightFinding(
                     code=PreflightConditionCode.UNSUPPORTED_FILE_TYPE,

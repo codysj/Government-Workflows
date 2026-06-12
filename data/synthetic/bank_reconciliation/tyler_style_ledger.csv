@@ -1,0 +1,7 @@
+Fiscal Year,Period,Journal,Date,Src,Fund,Org,Object,Description,Debit,Credit
+2026,9,1201,03/02/2026,CRP,100,1000,1010,Utility deposit batch,5000.00,
+2026,9,1202,03/05/2026,API,100,1000,1010,Check 50234 Acme Supply Co,,1250.75
+2026,9,1203,03/10/2026,API,100,1000,1010,Check 50235 Riverbend Fleet Service,,480.00
+2026,9,1204,03/15/2026,GEN,100,1000,1010,Bank service fee,,35.00
+2026,9,1205,03/20/2026,API,100,1000,1010,Check 50236 Delta Maintenance,,900.00
+2026,9,1206,03/25/2026,CRP,100,1000,1010,Permit revenue deposit,2300.00,

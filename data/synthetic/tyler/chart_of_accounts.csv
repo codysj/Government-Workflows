@@ -1,0 +1,22 @@
+Account,Fund,Org,Object,Project,Account Description,Type,Status,Normal Balance
+100-5100-5010,100,5100,5010,,Office Supplies,Expense,Active,Debit
+100-5100-5110,100,5100,5110,,Salaries and Wages,Expense,Active,Debit
+100-5100-5230,100,5100,5230,,Utilities,Expense,Active,Debit
+100-5100-5240,100,5100,5240,,Motor Fuel,Expense,Active,Debit
+100-5100-5310,100,5100,5310,,Professional Services,Expense,Active,Debit
+100-5100-5410,100,5100,5410,,Road Materials,Expense,Active,Debit
+100-5100-5999,100,5100,5999,,Obsolete Expense,Expense,Inactive,Debit
+100-5200-4010,100,5200,4010,,Charges for Services,Revenue,Active,Credit
+100-5200-5010,100,5200,5010,,Office Supplies,Expense,Active,Debit
+100-5200-5110,100,5200,5110,,Salaries and Wages,Expense,Active,Debit
+100-5200-5230,100,5200,5230,,Utilities,Expense,Active,Debit
+100-5200-5310,100,5200,5310,,Professional Services,Expense,Active,Debit
+200-6100-4010,200,6100,4010,,Charges for Services,Revenue,Active,Credit
+200-6100-5010,200,6100,5010,,Office Supplies,Expense,Active,Debit
+200-6100-5110,200,6100,5110,,Salaries and Wages,Expense,Active,Debit
+200-6100-5310,200,6100,5310,,Professional Services,Expense,Active,Debit
+200-6100-5410,200,6100,5410,,Road Materials,Expense,Active,Debit
+300-7100-5110,300,7100,5110,,Salaries and Wages,Expense,Active,Debit
+300-7100-5310,300,7100,5310,,Professional Services,Expense,Active,Debit
+300-7100-5410,300,7100,5410,,Road Materials,Expense,Active,Debit
+300-7100-6100,300,7100,6100,,Capital Outlay,Expense,Active,Debit

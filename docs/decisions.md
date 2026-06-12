@@ -754,3 +754,266 @@ tradeoffs:
   can proceed.
 - **No Guided-Freeform auto-fallback.** Freeform remains a separate, deliberately
   chosen, draft-only mode.
+
+## Tyler ERP enablement and four review workflows (2026-06-11)
+
+This section records the design decisions made when the four Tyler/Munis-era
+workflows were added. All changes were additive; no existing workflow logic,
+test, or schema was changed.
+
+### Tyler normalizer design (`src/ingest/tyler.py`)
+
+**Dataset-type registry.** `TYLER_DATASET_TYPES` is a frozen-dataclass registry
+keyed by `dataset_type` string. Each entry carries: required and optional column
+tuples, a `aliases` dict (snake_cased Munis variant -> canonical name), date and
+amount column tuples, and the ERP module name. There are eight types: `gl_detail`,
+`ap_invoice_detail`, `vendor_list`, `check_register`, `purchase_orders`,
+`budget_to_actual`, `chart_of_accounts`, `je_upload`. Keeping them in a typed
+registry (rather than branched if/else code) lets detect/normalize/validate run
+uniformly across all types with no per-type dispatch in the normalizer itself.
+
+**Header detection.** `detect_dataset_type` snake_cases and alias-resolves all
+headers, then computes a confidence score per registered type
+(0.8 * required-hit-ratio + 0.2 * optional-hit-ratio). Returns the best type
+only when score >= 0.7 AND margin above the second-best candidate >= 0.05.
+Below either threshold it returns `None` (fail-closed: a caller that does not
+pass `dataset_type` explicitly and gets None raises a `ValueError`). For Excel
+files with Munis-style title blocks (e.g. a 3-row title block before the real
+header), the normalizer scores the first 10 rows as candidate headers and picks
+the row with the highest confidence; `header_row_used` records this 0-based
+sheet row so the absolute file row of every data row can be reconstructed.
+
+**Debit/credit derivation.** When separate debit and credit columns are present
+and no signed amount column exists, the normalizer derives
+`amount = debit - credit` (Decimal math; blank side treated as 0; both-blank
+stays blank). Original columns are kept. This matches the implicit sign
+convention in Tyler GL detail and JE upload exports. Decision: derive at
+normalizer time (not in each workflow) so every downstream consumer sees a
+consistent signed amount without duplicating the debit/credit logic. The same
+derivation was back-ported to `src/normalize/cleaning.derive_signed_amount` for
+use by the generic preflight engine on non-Tyler files.
+
+**Traceability.** The raw file is SHA-256 hashed into `InputFile` before any
+normalization. The resulting `TylerNormalizedExport` carries `input_file`,
+`dataset_type`, `table_name`, `dataframe`, `header_row_used`, `applied_aliases`,
+`warnings`, and `detection_scores`. Every data row in the frame carries
+`source_row_index` (0-based data-row position). Footer-total and repeated-header
+rows are flagged in `warnings` but never dropped.
+
+**`source_ref_for_row` helper.** Constructs a `SourceRowRef` from an export and
+a `source_row_index` value so workflows can cite specific rows without
+duplicating the file_id/table_name plumbing.
+
+**Fail-closed.** Unknown `dataset_type`, undetectable type, missing required
+columns, unsupported file extension, unparseable file, or an unparseable
+non-blank date/amount cell (outside flagged footer/repeated-header rows) all
+raise a `ValueError` with "fail closed" in the message. No partial output is
+returned on error.
+
+### Natural-language transaction search: LLM boundary decision
+
+The transaction search workflow has two stages:
+
+1. **Stage 1 (intent parse):** the LLM (or the deterministic mock parser on the
+   offline path) proposes a `SearchCriteria` pydantic v2 model. The proposal is
+   schema-validated (module enum, ISO dates, non-negative amounts), range-sanity-
+   checked (date_from <= date_to, amount_min <= amount_max), and invalid fields
+   are dropped to `unparsed_terms` without crashing. If nothing parseable is
+   extracted, the workflow returns a structured failure report without executing a
+   search.
+
+2. **Stage 2 (execution):** the validated `SearchCriteria` is applied as
+   deterministic pandas filters. Filter order: module, vendor (casefold substring
+   or difflib fuzzy >= 0.85), invoice/PO/check number (exact after casefold),
+   fund/department/object (exact after casefold), date range, amount range (on
+   absolute value of best amount column), keywords (any keyword is a substring of
+   any text column -- OR semantics). Results are capped at `max_results` (default
+   200) with an explicit truncation finding.
+
+**Why schema-validated criteria, not free execution.** The LLM proposing search
+criteria that are then deterministically executed (rather than the LLM executing
+the search itself) is the correct boundary: it lets the model handle the natural-
+language-to-structured-criteria translation task it does well, while keeping the
+actual row filtering (which must be reproducible and auditable) in deterministic
+code. The `SearchCriteria` model is the explicit contract; it is exported in
+`search_criteria.json` so a reviewer can see exactly what criteria were applied.
+
+**Mock parser.** The offline path uses a regex + keyword mock parser. Amount
+patterns run on the raw query (before punctuation normalization) so "$5,000" is
+not fragmented. Vendor names are extracted by substring match against a
+hard-coded list (Riverbend dataset vendors). OR semantics on keywords mean a
+query with one common keyword does not false-positive too broadly; the 200-result
+cap mitigates runaway searches.
+
+### JE upload prep: fail-closed contract
+
+The JE upload prep workflow is strictly fail-closed with respect to the upload
+workbook: `je_upload.xlsx` and `je_upload.csv` are **not written** unless every
+blocking validation rule passes. This is a one-way gate: a partial upload file
+(some lines valid, some not) is more dangerous than no file at all, because a
+finance staff member might not notice the invalid lines were omitted. On a
+blocking error, only the error report artifacts are written
+(`je_validation_errors.csv`, `je_prep_summary.md`, `validation_report.json`,
+`audit_log.json`), and the summary carries `upload_ready=false`.
+
+**Blocking vs warning split.** Rules that are absolute constraints (balance,
+valid date, active account, no negative amounts, no duplicate journal-line) are
+blocking. Rules that are advisory (combo plausibility, short description,
+round-dollar large amount) are warnings that do not block the upload but appear
+in the error report. This split was chosen to match the risk level: a
+debit-credit imbalance is always wrong; a round-dollar amount over $10,000 is
+unusual but not necessarily incorrect.
+
+**Tyler normalizer integration.** The JE draft is loaded via
+`normalize_tyler_export` with `dataset_type="je_upload"`, which handles the Munis
+"Eff Date" alias and the debit/credit columns. The chart of accounts is loaded
+with `dataset_type="chart_of_accounts"`. This gives the workflow the same
+traceability (SHA-256 hash, `source_row_index`) as the other Tyler-era workflows
+with no extra parsing code.
+
+### AP duplicate review: deterministic checks and thresholds
+
+Nine deterministic checks (D1, D1b, D2-D8) are implemented as pure Python/pandas
+operations on Tyler-normalized AP exports. Key design decisions:
+
+- **D1b (multi-check detection)** uses the check register's `invoice_numbers`
+  column, which Tyler formats as semicolon-joined multiple invoice references on
+  batch checks. Void checks (Status=Void) are excluded: a void-and-reissue pair
+  is a normal workflow, not a suspicious multi-payment.
+- **D3 (similar vendor names)** uses difflib SequenceMatcher after stripping
+  common legal suffixes (LLC, Inc, Co, Company, Corp) so suffix variations do
+  not prevent a match. Threshold default 0.88 (configurable).
+- **D8 (split payments)** uses a sliding window (default 3 days) over date-sorted
+  same-vendor invoices. O(n^2) per vendor, which is fine at typical AP file sizes.
+- **Void checks excluded from D1b** but not from other checks: a check in the
+  register may be void, but a payment-before-invoice-date (D5) check on a voided
+  check is irrelevant because the payment did not proceed. The implementation
+  filters void checks specifically for D1b and D5.
+- **INFO findings for absent optional files.** When vendor_list or check_register
+  is not provided, the checks that depend on them (D6/D7, D1b/D5 respectively)
+  emit an explicit INFO finding rather than silently skipping. This ensures a
+  reviewer knows which checks ran and which did not.
+
+### PO/invoice mismatch review: deterministic checks and thresholds
+
+Eight deterministic checks (P1-P8) plus a P3b (blank PO over threshold variant)
+join Tyler purchase-order and AP invoice exports. Key design decisions:
+
+- **P1 uses PO-level totals.** Total invoiced against a PO number is compared to
+  the sum of all PO line amounts, not to individual lines. This is the correct
+  comparison for Munis-style exports where a single invoice can reference a
+  multi-line PO.
+- **P5/P6 use best-matching PO line.** For invoices with qty/unit-price detail,
+  the best matching PO line is the one whose qty matches the invoice qty, falling
+  back to line 1. This is a heuristic; a PO with identical-price lines could
+  theoretically match the wrong line, though the synthetic dataset is designed so
+  this does not occur.
+- **P7 is informational.** "Received not invoiced" (received_qty > 0, invoiced_qty
+  == 0, no AP invoice) is a likely accrual candidate, not a payment error. It has
+  severity LOW and `requires_human_review=False`.
+- **P3 split into P3a and P3b.** P3a flags invoices referencing a PO number that
+  does not exist in the PO file (hard missing). P3b flags invoices with a blank PO
+  number and amount >= threshold (missing reference over threshold). These are
+  distinct conditions: P3a is always an error; P3b is policy-dependent.
+
+### Tyler/Munis readiness for the three original workflows
+
+The three original workflows (bank reconciliation, budget variance, report review)
+were extended to accept Tyler-normalized exports alongside the generic CSV/Excel
+path:
+
+- **Debit/credit -> signed amount.** `src/normalize/cleaning.derive_signed_amount`
+  derives a signed amount column from separate debit/credit columns when the file
+  has no amount column already. Wired into `src/core/preflight.profile_input`
+  (derivation noted in FileProfile) and `bank_reconciliation.reconcile`. Source
+  row refs still cite the pre-derivation frame so audit values match the raw file.
+- **Exact-name semantic precedence.** `best_semantic_column` now breaks a near-tie
+  in favor of a column whose snake_cased name exactly equals the semantic name
+  (e.g. derived/literal `amount` beats the `debit`/`credit` synonyms) instead of
+  lowering confidence to ambiguous.
+- **Combined budget-to-actual file.** Budget variance now accepts the same file
+  as both `budget` and `actuals` inputs. The `budget` side reads `revised_budget`
+  (preferred) or `original_budget`; the `actuals` side reads `ytd_actual`.
+  Decision: deliberately did NOT alias `revised_budget`/`ytd_actual` onto
+  `*_amount` in the Tyler preset -- doing so would create a two-candidate amount
+  ambiguity that preflight correctly blocks on; the preference-list path avoids
+  that trap.
+- **Excel made real.** `src/ingest/excel_loader.load_table` dispatches CSV vs
+  XLSX; all three original workflows use it so `.xlsx` inputs are fully
+  supported end-to-end (not just accepted in the capability spec).
+
+### What is simulated vs what is real
+
+The synthetic data, column aliases, and detection logic are modeled on observed
+Munis-style export shapes, but they are not validated against a real Tyler/Munis
+system or a real city's configuration. Specifically:
+
+- Column names and header aliases in `src/ingest/tyler.py` are based on common
+  Munis export conventions, not confirmed vendor documentation.
+- The "City of Riverbend" dataset is entirely fabricated; all anomalies were
+  planted deterministically and the known answers are generated from the same
+  CSV files (no independent oracle).
+- The JE upload template headers (`Journal, Line, Eff Date, ...`) match a common
+  Munis format but have not been confirmed against a real city's JE import spec.
+- The `data/synthetic/tyler/gl_detail.xlsx` title-block exercise (3-row block,
+  header at sheet row 4) is synthetic; real Munis XLSX exports may have different
+  block structures.
+
+### Intentionally NOT built (Tyler ERP enablement)
+
+- **No direct ERP write-back.** The JE upload prep workflow produces a validated
+  upload file; it does NOT upload that file to Munis or any other ERP. The human
+  takes the `je_upload.xlsx` and uploads it through the ERP's normal import
+  interface. This is a deliberate audit boundary: a human reviews and approves
+  the validated file before it enters the ERP. An automated write-back would
+  bypass that gate.
+- **No real Tyler API calls.** There are no HTTP requests, no OAuth flows, no
+  Tyler API credentials, and no Tyler SDK in this codebase. All data arrives as
+  local CSV/XLSX files.
+- **No production authentication.** The tool has no user accounts, roles, or
+  access-control enforcement. Role views in the Streamlit UI are presentation-
+  only (reorder/emphasize, never hide or delete data) and explicitly not
+  authentication.
+- **No real credentials or sensitive data.** Consistent with the synthetic-data
+  constraint of the entire MVP.
+
+### Remaining Tyler-specific requirements
+
+The following items are not implemented and require external input or confirmed
+real data before they can be addressed:
+
+1. **Real Munis export templates.** Column header spellings, date and amount
+   locale formats, and title-block layouts need to be validated against actual
+   Munis export files from a real city. The current aliases (in
+   `TYLER_DATASET_TYPES` and `src/ingest/presets.py` `TYLER_MUNIS_STYLE`) are
+   modeled, not vendor-confirmed.
+2. **City/vendor field-mapping confirmation.** Before using the JE upload prep
+   workflow on a real Munis system, the exact column order and header spelling
+   for the JE import template must be confirmed with the city's Tyler contact.
+3. **GL cash-account sign convention.** The normalizer derives `amount = debit -
+   credit`; the bank reconciliation extension assumes this convention. A city
+   should confirm this is correct for their GL before reconciling real exports.
+4. **Combined budget-to-actual basis.** The code deterministically prefers
+   `revised_budget` over `original_budget` when both are present. A city must
+   confirm which basis they want (original vs revised) before using the budget
+   variance workflow on a real Munis budget-to-actual export; a column mapping
+   can override the preference.
+5. **Tyler .xlsx exports with multi-row title blocks.** Files like
+   `data/synthetic/tyler/gl_detail.xlsx` (header at sheet row 4) require routing
+   through `src.ingest.tyler.normalize_tyler_export`; the generic preflight
+   file profiler assumes header at row 0 and will profile the title-block rows
+   as data. Tyler-style workflows handle this internally, but a generic upload
+   of such a file through the non-Tyler workflow path would need a UI/CLI
+   warning or pre-processing step.
+6. **Legacy .xls (BIFF) exports.** The normalizer supports `.csv` and `.xlsx`
+   only (no `xlrd` dependency). Real Munis exports saved as old-format `.xls`
+   must be re-saved as `.xlsx` before use.
+7. **Real LLM provider for transaction search Stage 1.** The offline mock parser
+   uses regex + keyword heuristics. A real LLM provider would improve coverage
+   of edge-case queries; the two-stage architecture supports this without changes
+   to Stage 2 (the deterministic execution is unchanged regardless of how
+   `SearchCriteria` is populated).
+8. **Tyler API / SaaS integration.** Scheduled data pulls, webhook-triggered
+   runs, and direct ERP query are out of scope for this local-file-only MVP.
+   Any such integration would require API docs, credentials, authentication, and
+   a security review.

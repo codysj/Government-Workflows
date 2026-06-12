@@ -57,7 +57,7 @@ from src.core.schemas import (
 )
 from src.core.exports import write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
-from src.ingest.csv_loader import load_csv
+from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
 
 WORKFLOW_TYPE = "report_review"
@@ -132,10 +132,14 @@ def _report_frame_from_inputs(inputs: dict[str, Any]) -> Optional[pd.DataFrame]:
         except Exception:
             return None
     path = Path(str(src))
-    if not path.exists() or path.suffix.lstrip(".").lower() != "csv":
+    suffix = path.suffix.lstrip(".").lower()
+    if not path.exists() or suffix not in ("csv", "xlsx", "xlsm"):
         return None
     try:
-        raw = pd.read_csv(path, dtype=str, keep_default_na=False)
+        if suffix == "csv":
+            raw = pd.read_csv(path, dtype=str, keep_default_na=False)
+        else:
+            raw = pd.read_excel(path, dtype=str, engine="openpyxl").fillna("")
     except Exception:
         return None
     return normalize_columns(raw).reset_index(drop=True)
@@ -393,12 +397,12 @@ def _short_ref(ref: SourceRowRef) -> str:
 
 
 def _load_report_frame(path: str | Path, table_name: str) -> tuple[pd.DataFrame, str]:
-    """Load a report CSV, normalize columns, return (df, file_id).
+    """Load a report CSV/XLSX, normalize columns, return (df, file_id).
 
     ``row_index`` (the dataframe positional index) is preserved as the
     SourceRowRef anchor for every finding.
     """
-    parsed = load_csv(path, table_name=table_name)
+    parsed = load_table(path, table_name=table_name)
     df = normalize_columns(parsed.dataframe).reset_index(drop=True)
     return df, parsed.file_id
 
@@ -593,7 +597,13 @@ def run_deterministic(
     # --- Account codes not in chart of accounts ------------------------- #
     if chart_of_accounts_path is not None:
         coa_df, _ = _load_report_frame(chart_of_accounts_path, "chart_of_accounts")
-        coa_code_col = to_snake_case(config.account_code_column)
+        # An approved preflight mapping for the COA input wins (e.g. a Tyler/
+        # Munis COA export names the code column 'Account'); otherwise the
+        # config column is used exactly as before.
+        coa_map = (column_mappings or {}).get("chart_of_accounts", {})
+        coa_code_col = to_snake_case(
+            coa_map.get("account_code") or config.account_code_column
+        )
         valid_codes = {
             str(c).strip() for c in coa_df[coa_code_col].tolist() if str(c).strip()
         }
@@ -651,14 +661,26 @@ def run_deterministic(
     # --- Large unexplained changes from prior version ------------------- #
     if prior_version_path is not None:
         prior_df, _ = _load_report_frame(prior_version_path, "prior")
+        # An approved preflight mapping for the prior_version input wins per
+        # column; otherwise the report's resolved columns are used (existing
+        # behavior, unchanged when no mapping is supplied).
+        prior_map = (column_mappings or {}).get("prior_version", {})
+
+        def _prior_col(semantic: str, fallback: str) -> str:
+            override = prior_map.get(semantic)
+            return to_snake_case(override) if override else fallback
+
+        p_type_col = _prior_col("line_type", type_col)
+        p_code_col = _prior_col("account_code", code_col)
+        p_amt_col = _prior_col("amount", amt_col)
         prior_line = prior_df[
-            prior_df[type_col].astype(str).str.lower() == "line_item"
+            prior_df[p_type_col].astype(str).str.lower() == "line_item"
         ]
         prior_by_code: dict[str, Decimal] = {}
         for i in prior_line.index:
-            code = str(prior_df.at[i, code_col]).strip()
+            code = str(prior_df.at[i, p_code_col]).strip()
             if code:
-                prior_by_code[code] = _amt(prior_df.at[i, amt_col]) or Decimal(0)
+                prior_by_code[code] = _amt(prior_df.at[i, p_amt_col]) or Decimal(0)
         thr_pct = Decimal(str(config.prior_change_pct_threshold))
         thr_min = Decimal(str(config.prior_change_min_amount))
         for i in line_df.index:

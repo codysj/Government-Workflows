@@ -1,0 +1,19 @@
+PO Number,PO Date,Vendor Number,Vendor Name,Status,Line,Description,Qty,Unit Price,Line Amount,Received Qty,Invoiced Qty,Last Activity Date,Fund,Org,Object
+PO-3000,2025-08-05,V-1011,Cedar Valley Print Shop,Closed,1,Summer brochure printing,1,950.00,950.00,1,1,2025-09-03,100,5100,5010
+PO-3001,2026-01-15,V-1003,Cascade Paving Inc,Open,1,Asphalt road materials,100,100.00,10000.00,100,100,2026-02-27,100,5100,5410
+PO-3002,2026-01-05,V-1004,Summit IT Services,Open,1,Network switch maintenance,10,250.00,2500.00,10,10,2026-02-03,100,5100,5310
+PO-3003,2026-01-28,V-1010,Riverbend Auto Parts,Open,1,Fleet repair parts,20,85.00,1700.00,20,20,2026-02-24,100,5100,5010
+PO-3004,2025-11-15,V-1014,Lakeside HVAC Inc,Closed,1,HVAC quarterly maintenance,1,2750.00,2750.00,1,1,2026-01-31,100,5200,5310
+PO-3005,2026-03-20,V-1012,Harbor Safety Supply,Open,1,Safety vests,100,25.00,2500.00,100,100,2026-04-22,100,5100,5010
+PO-3005,2026-03-20,V-1012,Harbor Safety Supply,Open,2,Hard hats,50,30.00,1500.00,0,0,2026-04-22,100,5100,5010
+PO-3006,2026-03-25,V-1017,Westside Uniform Supply,Open,1,Work uniforms,50,40.00,2000.00,50,50,2026-04-27,100,5200,5010
+PO-3006,2026-03-25,V-1017,Westside Uniform Supply,Open,2,Rain gear,20,35.00,700.00,0,0,2026-04-27,100,5200,5010
+PO-3007,2026-02-12,V-1015,Granite Concrete Works,Open,1,Concrete sidewalk panels,100,90.00,9000.00,80,0,2026-05-29,300,7100,6100
+PO-3008,2026-04-18,V-1018,Clearwater Chemical Inc,Open,1,Water treatment chemicals,40,55.00,2200.00,10,40,2026-05-15,200,6100,5010
+PO-3009,2025-09-10,V-1020,Foothill Engineering PLLC,Open,1,Bridge design services,1,48000.00,48000.00,1,1,2026-05-08,300,7100,6100
+PO-3010,2026-02-25,V-1023,Ironwood Equipment Rental,Open,1,Excavator rental,2,1200.00,2400.00,2,2,2026-03-22,300,7100,5310
+PO-3011,2026-04-30,V-1016,Tri-County Lab Services,Open,1,Water quality testing,12,150.00,1800.00,12,12,2026-05-26,200,6100,5310
+PO-3012,2025-12-15,V-1021,Sunrise Software LLC,Open,1,Annual permitting software license,1,6800.00,6800.00,1,1,2026-01-24,100,5100,5310
+PO-3013,2026-04-15,V-1023,Ironwood Equipment Rental,Open,1,Storm drain excavation - Phase 2,1,15000.00,15000.00,0,0,2026-04-15,300,7100,6100
+PO-3014,2026-05-20,V-1003,Cascade Paving Inc,Open,1,Summer overlay program,1,22000.00,22000.00,0,0,2026-05-20,100,5100,5410
+PO-3015,2026-02-28,V-1003,Cascade Paving Inc,Open,1,Blanket PO - street patching,2,8400.00,16800.00,2,2,2026-03-24,100,5100,5410

@@ -69,10 +69,51 @@ def _freeform_inputs(sensitivity=True):
     }
 
 
+def _transaction_search_inputs():
+    return {
+        "query": wfr.TRANSACTION_SEARCH_EXAMPLE_QUERY,
+        "gl_detail": str(SD / "tyler" / "gl_detail.csv"),
+        "ap_invoices": str(SD / "tyler" / "ap_invoice_detail.csv"),
+        "checks": str(SD / "tyler" / "check_register.csv"),
+        "purchase_orders": str(SD / "tyler" / "purchase_orders.csv"),
+    }
+
+
+def _ap_duplicate_inputs():
+    return {
+        "ap_invoices": str(SD / "tyler" / "ap_invoice_detail.csv"),
+        "vendor_list": str(SD / "tyler" / "vendor_list.csv"),
+        "check_register": str(SD / "tyler" / "check_register.csv"),
+        "purchase_orders": str(SD / "tyler" / "purchase_orders.csv"),
+    }
+
+
+def _je_upload_inputs():
+    return {
+        "je_draft": str(SD / "je_upload_prep" / "je_draft_valid.csv"),
+        "chart_of_accounts": str(SD / "tyler" / "chart_of_accounts.csv"),
+        "gl_detail": str(SD / "tyler" / "gl_detail.csv"),
+        "config": str(SD / "je_upload_prep" / "je_config.json"),
+    }
+
+
+def _po_invoice_inputs():
+    return {
+        "purchase_orders": str(SD / "tyler" / "purchase_orders.csv"),
+        "ap_invoices": str(SD / "tyler" / "ap_invoice_detail.csv"),
+        "vendor_list": str(SD / "tyler" / "vendor_list.csv"),
+        "check_register": str(SD / "tyler" / "check_register.csv"),
+    }
+
+
 ALL_CASES = [
     ("bank_reconciliation", _bank_inputs),
     ("budget_variance", _budget_inputs),
     ("report_review", _report_inputs),
+    ("transaction_search", _transaction_search_inputs),
+    ("ap_duplicate_review", _ap_duplicate_inputs),
+    ("je_upload_prep", _je_upload_inputs),
+    ("po_invoice_review", _po_invoice_inputs),
     ("freeform", _freeform_inputs),
 ]
 
@@ -114,6 +155,79 @@ def test_workflow_runs_end_to_end(tmp_path, wtype, make_inputs):
     run_dir = tmp_path / "exports" / result.run_id
     for name in PACKET_FILE_NAMES:
         assert (run_dir / name).is_file()
+
+
+def test_all_eight_descriptors_resolve_in_ui_order():
+    """Every workflow (4 original + 4 Tyler-era) resolves to an available
+    descriptor with uploads + module registration for preflight."""
+    expected = {
+        "bank_reconciliation", "budget_variance", "report_review",
+        "transaction_search", "ap_duplicate_review", "je_upload_prep",
+        "po_invoice_review", "freeform",
+    }
+    assert set(wfr.WORKFLOW_ORDER) == expected
+    assert set(wfr.WORKFLOW_MODULES) == expected
+    for wtype in wfr.WORKFLOW_ORDER:
+        d = wfr.get_descriptor(wtype)
+        assert d.available is True
+        assert d.title
+        if wtype != "freeform":
+            assert d.uploads
+            # Example files exist on disk so the 'use example files' path works.
+            for rel in (d.example_files or {}).values():
+                assert wfr.example_path(rel).is_file(), rel
+
+
+def test_tyler_descriptor_example_run_matches_known_answers(tmp_path):
+    """The Riverbend sample data yields the planted known-answer counts."""
+    ledger, audit = _pipeline(tmp_path)
+    ap = wfr.run_workflow("ap_duplicate_review", _ap_duplicate_inputs(),
+                          ledger=ledger, audit=audit,
+                          export_dir=tmp_path / "ap")
+    assert ap.summary["total_findings"] == 15
+    po = wfr.run_workflow("po_invoice_review", _po_invoice_inputs(),
+                          ledger=ledger, audit=audit,
+                          export_dir=tmp_path / "po")
+    assert po.summary["total_findings"] == 9
+    ts = wfr.run_workflow("transaction_search", _transaction_search_inputs(),
+                          ledger=ledger, audit=audit,
+                          export_dir=tmp_path / "ts")
+    assert ts.summary["total_matches"] == 2
+
+
+def test_transaction_search_blocks_without_query(tmp_path):
+    """No query -> preflight FAIL: blocked, no findings, no LLM call."""
+    ledger, audit = _pipeline(tmp_path)
+    inputs = _transaction_search_inputs()
+    inputs.pop("query")
+    result = wfr.run_workflow(
+        "transaction_search", inputs, ledger=ledger, audit=audit,
+        export_dir=tmp_path / "exports")
+    assert result.blocked
+    assert result.preflight_status == "fail"
+    assert result.llm_called is False
+    assert result.findings == []
+    events = [e["event_type"] for e in audit.list_events(result.run_id)]
+    assert "run_failed" in events
+
+
+def test_je_upload_prep_invalid_draft_fails_closed_in_app(tmp_path):
+    """The invalid JE draft completes as a run but writes NO upload workbook."""
+    ledger, audit = _pipeline(tmp_path)
+    inputs = _je_upload_inputs()
+    inputs["je_draft"] = str(SD / "je_upload_prep" / "je_draft_invalid.csv")
+    result = wfr.run_workflow(
+        "je_upload_prep", inputs, ledger=ledger, audit=audit,
+        export_dir=tmp_path / "exports")
+    assert not result.blocked
+    assert result.summary.get("upload_ready") is False
+    assert result.summary.get("blocking_findings", 0) >= 1
+    # FAIL CLOSED: no upload workbook anywhere under the export dir.
+    assert not list((tmp_path / "exports").rglob("je_upload.xlsx"))
+    assert not list((tmp_path / "exports").rglob("je_upload.csv"))
+    # The structured error report exists in the per-run dir.
+    run_dir = tmp_path / "exports" / result.run_id
+    assert (run_dir / "je_validation_errors.csv").is_file()
 
 
 def test_runs_isolated_in_per_run_subdirectories(tmp_path):
