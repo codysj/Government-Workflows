@@ -1017,3 +1017,150 @@ real data before they can be addressed:
    runs, and direct ERP query are out of scope for this local-file-only MVP.
    Any such integration would require API docs, credentials, authentication, and
    a security review.
+
+## FastAPI seam + React workflow console (2026-06-11)
+
+This section records the design decisions made when the FastAPI adapter
+(`api/`) and React/Vite/TS guided console (`frontend/`) were added on top of
+the full MVP (Streamlit + CLI + 705 tests).
+
+### Motivation: UX pain points of the Streamlit interface
+
+Streamlit was the correct choice for the initial MVP: it gave the project a
+working, end-to-end runnable UI with uploaders, tables, and per-finding review
+controls in a very short cycle, which validated that the workflow logic, audit
+model, and trust-boundary concepts worked. For developer exploration it still
+works well.
+
+For non-technical municipal finance staff, however, the Streamlit layout has
+several concrete problems:
+
+- A blank "Run Workflow" form with no indication of what step to do first. A
+  first-time user sees file uploaders, toggles, and a Run button but no
+  sequencing guidance.
+- The AI draft, deterministic findings, validation warnings, and source-row
+  evidence all appear on the same page in Streamlit's widget stack. The visual
+  separation is present but easy to miss on a dense page.
+- Action intent is unclear: the review controls (mark reviewed, reject AI,
+  approve draft) are a set of selectboxes; it is not obvious what happens
+  when you change one.
+- The preflight report, run status, and export links are scattered across
+  headings and `st.expander` blocks, so a reviewer who wants to download an
+  artifact has to hunt for the Export Center.
+
+The React console addresses these with: a four-step wizard (upload -> file
+check -> run -> review), progressive disclosure (summary strip first, evidence
+one click deep), an always-visible, always-labeled AI container
+(TrustBoundary), and explicit per-finding review action buttons.
+
+### Contract-first approach
+
+The API contract (`docs/frontend/api_contract.md`) was written before `api/`
+was coded. The contract defines the exact JSON shapes, status codes, and
+behavioral guarantees that the frontend can rely on. The API was then
+implemented to match the contract, and the frontend was built against the
+contract rather than the implementation. This means:
+
+- The API's RunDetail is always rehydrated from the ledger (not from any
+  in-memory state), so a POST /runs response and a GET /runs/{id} after a
+  process restart are produced by exactly the same code path and cannot drift.
+- The contract explicitly labels findings as deterministic and ai as advisory
+  draft, so the frontend has a typed signal for which container to render
+  content in; it never has to guess.
+- All deviations from the initial draft contract are documented in the contract
+  file itself (two clarifications: interrupted-run status mapping, freeform
+  confirmation fields), so the frontend can be built against a stable document.
+
+### What was intentionally NOT built
+
+- **No authentication or authorization.** The tool is local-first, single-user,
+  synthetic-data-only. Adding real auth requires a security design, secret
+  management, session handling, and multi-user data isolation that are all out of
+  scope for this MVP. The role selector in Streamlit is presentation-only and is
+  not replicated as an auth mechanism in the API or React console.
+- **No tenanting.** One SQLite ledger, one audit directory, one export
+  directory. Run history is shared by all surfaces (API, Streamlit, CLI).
+- **No ERP integration.** The API receives local file uploads; it does not pull
+  from Tyler/Munis or any ERP. The file-based ingest layer is designed so ERP
+  adapters can be added later without touching the pipeline.
+- **No vector DB.** Reference data is small enough to load from files at run
+  time. RAG over a large document corpus is documented as a post-MVP path.
+- **No multi-agent product behavior.** There is one deterministic pipeline
+  driving every workflow through one uniform registry. The LLM is called once
+  per run for the language tasks defined by the workflow.
+- **No WebSocket streaming.** Workflows complete in seconds on synthetic data,
+  so the POST /runs endpoint blocks synchronously and returns the full RunDetail.
+  If run times grow significantly, a background task queue and polling/streaming
+  endpoint would be the correct extension.
+- **No "agentic" LLM behavior.** The LLM is never given tools, never executes
+  actions, and never calls back into the pipeline. Its output is schema-validated
+  by deterministic code before it is recorded.
+
+### Why runs execute synchronously
+
+All eight workflows complete in well under ten seconds on the bundled synthetic
+data. A background task queue would add a polling loop or WebSocket endpoint,
+a background worker process, and cross-process ledger coordination. None of
+that is warranted for a local-first tool where the user is waiting at the
+keyboard. The synchronous design also simplifies error handling: if the run
+fails, the 200/500 response carries the reason immediately, with no "check back
+later" state to manage. If file sizes or workflow complexity grow, adding an
+async endpoint is straightforward because run execution already goes through a
+single function (`app.workflow_registry.run_workflow`) and the ledger already
+tracks intermediate state.
+
+### Why Streamlit is retained
+
+Streamlit is the richer surface for developer exploration and for features that
+did not get a React screen in this pass (AI Audit Log, Export Center, Scheduled
+runs, Redaction assist, role views, Settings). It shares the same ledger, audit
+log, and export directory as the API, so a run started through the React console
+is immediately visible in Streamlit's History and Export Center. There is no
+data migration and no divergence. The plan is to surface these capabilities
+progressively in the React console rather than to remove Streamlit prematurely.
+
+### The frontend no-finance-math invariant
+
+The React console must never compute financial values, transaction matches, or
+validation verdicts -- even display-only sums or percentages. The concrete rule:
+if a JS expression produces a number that a user might interpret as a financial
+result, it belongs in the API, not the frontend. The only arithmetic allowed in
+the frontend is display formatting (e.g. formatting a file size in bytes as
+"12.4 KB") on values that have no financial significance.
+
+How this is enforced in practice:
+
+- `src/types/api.ts` types Decimal fields as `string`, not `number`, so the
+  TypeScript compiler prevents arithmetic on monetary amounts.
+- The summary strip on the Review Run page counts findings by severity. Counting
+  findings with a given property (filtering and measuring the length of a
+  backend-provided array) is categorized as grouping, not financial calculation;
+  the actual amounts and severities come from the API. Computed sums or
+  differences of `computed_values` fields are not allowed.
+- The frontend source tree was swept for reduce, toFixed, parseFloat, parseInt,
+  Number(), and similar arithmetic patterns before the build was accepted. The
+  only match was `formatFileSize` in `src/lib/format.ts`, which formats the
+  local `File.size` byte count for display in the upload field (not a financial
+  value, not from the API).
+- The `TrustBoundary` component is the sole rendering path for AI content.
+  Deterministic findings never use that component and AI content is never
+  rendered outside it.
+
+### Review-status transition fix (integration pass)
+
+During end-to-end integration testing, a bug was found: `POST /api/runs/{id}/review-actions`
+recorded the action (ledger + audit) but the run row's `human_review_status`
+field never changed from `pending`. The fix (`apply_review_status_transition`
+in `api/services/runs.py`) is a deterministic, non-financial bookkeeping
+mapping over the existing `RunLedger.update_run_status` seam:
+
+- `approve_draft` -> `approved`; `reject_ai_explanation` -> `rejected` (explicit
+  decisions; the latest wins).
+- `mark_reviewed` / `mark_resolved` / `needs_follow_up` move `pending` to
+  `in_review` but never downgrade an `approved` or `rejected` run.
+- `add_note` is status-neutral.
+
+This mapping lives entirely in the API layer; `record_human_review_action`
+remains the single recording path so the audit log stays in sync. No core or
+app module was changed. The fix is documented in `docs/frontend/api_contract.md`
+under POST /api/runs/{run_id}/review-actions.

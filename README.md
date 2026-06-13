@@ -190,6 +190,96 @@ LLM call. See `src/core/review_packet.py`.
 
 ## Architecture
 
+### Three-layer architecture
+
+```text
+  +---------------------------------------------------------------------------+
+  |  DETERMINISTIC CORE  (src/core/, src/workflows/, src/ingest/, src/llm/)   |
+  |                                                                           |
+  |  input files (CSV / Excel)                                                |
+  |         |                                                                 |
+  |         v                                                                 |
+  |  parse -> clean -> normalize -> match / compute variances /               |
+  |  consistency checks -> deterministic findings + source-row refs           |
+  |         |                                                                 |
+  |         v                                                                 |
+  |  AI-assisted explanation / drafting (LLM, mock by default).              |
+  |  Explains / summarizes / drafts ONLY. Cites source rows. Never calculates.|
+  |         |                                                                 |
+  |         v                                                                 |
+  |  Validation (deterministic): reject/flag invented references,             |
+  |  numeric claims not in findings, missing source refs.                     |
+  |         |                                                                 |
+  |         v                                                                 |
+  |  Run ledger (SQLite) + append-only audit log                              |
+  |  Export packet: findings.csv, review_packet.md, run_manifest.json, ...    |
+  +---------------------------------------------------------------------------+
+            |                              |
+            v                              v
+  +--------------------+        +---------------------+
+  |  FastAPI seam       |        |  Streamlit app       |
+  |  (api/)             |        |  (app/)              |
+  |                    |        |                     |
+  |  Thin HTTP adapter  |        |  Legacy / dev UI    |
+  |  over the core.     |        |  (stays working;    |
+  |  Typed JSON         |        |   shares the same   |
+  |  contracts.         |        |   ledger + audit)   |
+  |  No business logic. |        |                     |
+  +--------------------+        +---------------------+
+            |
+            v
+  +-----------------------------+
+  |  React / Vite / TS console   |
+  |  (frontend/)                 |
+  |                             |
+  |  Guided wizard run flow.     |
+  |  Progressive disclosure.     |
+  |  Human review + export.      |
+  |  NEVER calculates or         |
+  |  validates -- renders only.  |
+  +-----------------------------+
+
+  CLI (cli/run_workflow.py) drives the core directly, same as the API and
+  Streamlit -- same pipeline, same ledger, same audit log.
+```
+
+### Why FastAPI + React after the Streamlit MVP
+
+The Streamlit app validated that the workflow logic, audit model, and
+trust-boundary concepts work end-to-end. It serves developers well. For
+non-technical municipal finance staff, however, Streamlit's dense, form-heavy
+layout makes it hard to understand what step they are on, what the AI wrote
+versus what the deterministic code found, and what action is being asked of
+them. The guided React console replaces that experience with:
+
+- A four-step wizard that sequences upload -> file check -> run -> review,
+  so a first-time user is never looking at a blank form wondering what to do.
+- Progressive disclosure: the summary strip (finding counts by severity, AI
+  safety-check badge, review status) appears first; source-row evidence and
+  audit events are one click deeper.
+- Explicit visual and structural separation of AI-drafted content from
+  deterministic findings (the TrustBoundary component, always labeled "Draft -
+  written by AI, verify before use", always in a distinct treatment).
+- Clear review controls and export buttons that are never buried.
+
+Streamlit is retained as the legacy/dev surface. It shares the same run
+history (same ledger.db, same audit directory, same export directory), so a
+developer can run the React UI for a workflow and inspect the result in
+Streamlit's AI Audit Log or Export Center without any data migration.
+
+### Responsibility split
+
+| Layer | Owns | Never does |
+| --- | --- | --- |
+| Deterministic core | Parsing, cleaning, normalization, all financial calculations, transaction matching, validation, source-row tracking, preflight, exports, audit logging | Nothing delegated to the LLM or the UI |
+| FastAPI seam (api/) | HTTP transport, multipart file handling, request/response typing, orchestration (calls core, reads ledger), CORS | No workflow business logic; no LLM calls; no recalculation |
+| React console (frontend/) | Rendering API data, routing, human review actions (POST to API), export downloads | NEVER computes financial values, matches, or verdicts -- even display-only sums or percentages are forbidden (only currency/date formatting of backend-provided strings is allowed) |
+
+This split is what makes the output trustworthy and auditable: every number
+on screen came from deterministic code, not from the UI layer.
+
+### Pipeline data flow (internal)
+
 ```text
   input files (CSV / Excel)
           |
@@ -216,7 +306,8 @@ LLM call. See `src/core/review_packet.py`.
           v
   +-------------------------+
   | HUMAN REVIEW            |   per-finding: mark reviewed / resolved /
-  | (Streamlit controls)    |   needs follow-up / note / reject AI / approve
+  | (React console or        |   needs follow-up / note / reject AI / approve
+  |  Streamlit controls)    |
   +-------------------------+
           |
           v
@@ -234,8 +325,8 @@ LLM call. See `src/core/review_packet.py`.
 ```
 
 Core logic, UI, CLI, persistence, validation, the LLM wrapper, and the workflow
-modules are kept separate. The workflow modules contain no Streamlit and no
-provider-specific code.
+modules are kept separate. The workflow modules contain no Streamlit, no FastAPI,
+and no provider-specific code.
 
 ## Setup
 
@@ -245,12 +336,13 @@ The project uses a local virtual environment at `.venv\Scripts\python.exe`
 ```bat
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install --upgrade pip
-.venv\Scripts\python.exe -m pip install pandas pydantic openpyxl streamlit pytest
+.venv\Scripts\python.exe -m pip install pandas pydantic openpyxl streamlit pytest fastapi uvicorn httpx python-multipart
 ```
 
 Use `.venv\Scripts\python.exe` for all Python and pytest invocations below.
-Built and tested on Python 3.12. No other dependencies are required; the tool
-runs fully offline (the mock LLM provider is the default).
+Built and tested on Python 3.12+. Node v24+ and npm are required for the
+React frontend. The tool runs fully offline by default (the mock LLM
+provider requires no API key and no internet).
 
 ### Troubleshooting: `Unable to import required dependency numpy`
 
@@ -274,7 +366,59 @@ interpreter. If problems persist, recreate the environment from scratch
 (`rmdir /s /q .venv` then repeat the setup commands above) so every package is
 reinstalled for the current Python.
 
-## How to run the CLI
+## How to run everything
+
+### API (FastAPI)
+
+```bat
+.venv\Scripts\python.exe -m uvicorn api.main:app --port 8000
+```
+
+The API listens on `http://127.0.0.1:8000`. A quick smoke check:
+
+```bat
+curl http://127.0.0.1:8000/api/health
+REM -> {"status":"ok","app":"municipal-finance-ai","version":"0.1.0","llm_mode":"mock"}
+curl http://127.0.0.1:8000/api/workflows
+REM -> {"workflows": [...8 items...]}
+```
+
+See `docs/frontend/api_contract.md` for the full endpoint reference.
+
+The API shares the same run ledger, audit log, and export directory as the
+Streamlit app (`runs/ledger.db`, `runs/audit/`, `runs/exports/`). Runs from
+either surface appear in the other.
+
+### React console (frontend) -- development mode
+
+```bat
+cd frontend
+npm install
+npm run dev
+```
+
+Opens `http://localhost:5173`. All `/api` requests are proxied to
+`http://127.0.0.1:8000`, so the API must be running first. The dev server
+supports hot-reload; the backend does not need to be restarted for frontend
+changes.
+
+### React console -- built bundle (single-server mode)
+
+```bat
+cd frontend
+npm run build
+```
+
+This produces `frontend/dist/`. When the API starts and `frontend/dist/`
+exists, it is mounted at `/`. A single uvicorn process serves both the API
+and the frontend:
+
+```bat
+.venv\Scripts\python.exe -m uvicorn api.main:app --port 8000
+REM Open http://127.0.0.1:8000
+```
+
+### CLI
 
 List the available workflows, then run any of them on the bundled synthetic
 sample data:
@@ -293,7 +437,7 @@ Other flags: repeatable `--input key=value` (instead of `--sample`),
 `--config <json-file-or-inline>` for tolerances/thresholds, and `--mock`
 (default) / `--real`. The mock provider is the offline default and needs no key.
 
-## How to run Streamlit
+### Legacy Streamlit app
 
 ```bat
 streamlit run app/streamlit_app.py
@@ -426,6 +570,8 @@ is logged, validated, and exported for a human to approve.*
 
 ## How to run tests
 
+### Python tests (pytest)
+
 ```bat
 .venv\Scripts\python.exe -m pytest
 ```
@@ -433,16 +579,116 @@ is logged, validated, and exported for a human to approve.*
 To run a single test file, name its path, e.g.
 `.venv\Scripts\python.exe -m pytest tests/unit/test_app_imports.py -q`.
 
-The full suite is **705 tests** (all passing), including the preflight /
+To run only the API tests:
+
+```bat
+.venv\Scripts\python.exe -m pytest tests/api -p no:cacheprovider --basetemp=.pytest_tmp_api
+```
+
+The full suite is **712 tests** (all passing), including the preflight /
 capability layer, the per-workflow messy-data fixtures, the four new Tyler-era
 workflow unit test suites, integration tests for the CLI/app registry/eval
-harness, and the Tyler normalizer and readiness tests.
+harness, the Tyler normalizer and readiness tests, and the 26 API endpoint
+tests (`tests/api/`).
 
 The evaluation harness produces measured per-workflow metrics:
 
 ```bat
 .venv\Scripts\python.exe -m src.eval.harness --out runs/eval_report.json
 ```
+
+### Frontend tests (vitest)
+
+```bat
+cd frontend
+npm test
+```
+
+Runs 19 tests across 4 test files (client, TrustBoundary, RunWizardPage,
+ReviewRunPage). Also available: `npm run typecheck` (tsc strict) and
+`npm run lint` (eslint flat config with typescript-eslint).
+
+### Scripted end-to-end demo loop (API)
+
+With the API running on port 8000, the following sequence reproduces the
+integration validation path:
+
+```bat
+REM 1. Health check
+curl http://127.0.0.1:8000/api/health
+
+REM 2. List workflows
+curl http://127.0.0.1:8000/api/workflows
+
+REM 3. Run ap_duplicate_review on sample data
+curl -X POST http://127.0.0.1:8000/api/workflows/ap_duplicate_review/runs ^
+  -F "use_sample=true"
+
+REM 4. List runs (get the run_id from step 3)
+curl http://127.0.0.1:8000/api/runs?limit=5
+
+REM 5. Post a review action (replace <run_id> with the id from step 3)
+curl -X POST http://127.0.0.1:8000/api/runs/<run_id>/review-actions ^
+  -H "Content-Type: application/json" ^
+  -d "{\"action\":\"mark_reviewed\",\"actor\":\"finance_staff\",\"note\":null,\"finding_id\":null}"
+
+REM 6. Download an artifact
+curl -o validation_report.json ^
+  http://127.0.0.1:8000/api/runs/<run_id>/artifacts/validation_report.json
+
+REM 7. Audit trail
+curl http://127.0.0.1:8000/api/runs/<run_id>/audit
+```
+
+Expected outcomes (verified by the integration agent on 2026-06-11):
+- ap_duplicate_review: 15 findings, validation passed, 10 artifacts,
+  human_review_status pending -> in_review after mark_reviewed
+- transaction_search with use_sample: 2 findings, status completed
+- je_upload_prep with invalid JE draft: status completed, no je_upload.xlsx
+  in artifacts (fail-closed gate)
+- Restart test: GET /api/runs/{id} after uvicorn restart returns the full
+  RunDetail with all findings, artifacts, and review actions rehydrated from
+  the ledger
+
+## Limitations and follow-ups
+
+The following items are known gaps or deliberate deferred decisions. They are
+not bugs; they are scope boundaries of the current MVP.
+
+- **No auth or multi-user support.** The tool is local-first and single-user.
+  There are no user accounts, roles, sessions, or access-control enforcement.
+  The role selector in Streamlit is presentation-only (reorder/emphasize, never
+  hide or delete). Adding real auth would require a security design.
+- **No real ERP integration.** All data arrives as local CSV/XLSX. There are
+  no API calls to Tyler/Munis, OpenGov, or any ERP. The Tyler normalizer column
+  aliases are modeled on observed Munis export shapes and have not been validated
+  against a real city's configuration.
+- **Synchronous run execution.** The API runs workflows synchronously in the
+  request handler (workflows complete in seconds on synthetic data). A
+  long-running workflow on a large real dataset would need a background task
+  queue and a status-polling or WebSocket endpoint.
+- **No WebSocket streaming.** Run progress (preflight -> analysis -> LLM ->
+  validation -> export) is not streamed; the POST /runs endpoint blocks until
+  the full run is done and returns the complete RunDetail.
+- **No tenanting.** One SQLite ledger, one audit directory, one export
+  directory. Multiple users on the same machine would share run history.
+- **No production deployment hardening.** CORS is whitelisted for localhost.
+  There is no HTTPS, no rate limiting, and no secret management.
+- **Tyler column aliases are illustrative.** The real Munis export column
+  names, date/amount locale formats, and XLSX title-block layouts need to be
+  validated against a live system before use on real data.
+- **JE upload template is synthetic.** The Munis JE import column order and
+  header spellings should be confirmed with the city's Tyler contact before
+  using je_upload_prep on a real system.
+- **PDF export is text-only.** The pure-stdlib PDF writer (`src/core/pdf_export.py`)
+  produces a fixed-font text PDF with no formatting, images, or markdown
+  rendering. A rich PDF would require a third-party library.
+- **Redaction is a prototype, not a compliance tool.** The regex PII scanner
+  covers only a handful of patterns and makes no completeness guarantee.
+  It is not a public-records or CPRA compliance tool.
+- **No vector DB / RAG.** Reference data (chart of accounts, city profile) is
+  loaded from files at run time. A large institutional-document corpus would
+  benefit from a retrieval layer, but none is needed at current scale.
 
 ## Synthetic data disclaimer
 

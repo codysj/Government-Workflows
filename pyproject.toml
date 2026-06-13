@@ -13,6 +13,10 @@ dependencies = [
     "openpyxl",
     "streamlit",
     "pytest",
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "python-multipart",
 ]
 
 [tool.setuptools]

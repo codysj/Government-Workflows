@@ -8,6 +8,6 @@
   "variance_threshold_pct": 10.0,
   "variance_dollar_threshold": 10000.0,
   "export_dir": "C:\\Users\\Cody\\Desktop\\Projs\\GovWorkflows\\runs\\exports",
-  "role": "Accountant",
+  "role": "Finance director",
   "default_retention_category": "draft_working"
 }

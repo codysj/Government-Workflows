@@ -134,5 +134,51 @@ breaking way.
   PREFLIGHT PASS / STATUS PASS / Validation PASSED; eval harness 7/7
   known-answer pass; no regressions.
 
+## FastAPI seam + React workflow console (2026-06-11)
+
+Thin HTTP adapter over the existing core + a guided, progressive-disclosure
+React/Vite/TS console replacing the dense Streamlit UX for non-technical staff.
+Streamlit stays working as the legacy/dev surface. See
+`docs/decisions.md` "FastAPI seam + React workflow console (2026-06-11)" for
+the full design rationale.
+
+- [x] `api/` FastAPI app factory (`api/main.py`): `create_app(settings)` +
+  module-level `app` for uvicorn; CORS for localhost:5173; frontend/dist
+  mounted at `/` when present.
+- [x] API routes: `/api/health`, `/api/workflows`, `/api/workflows/{type}`,
+  `/api/workflows/{type}/preflight`, `/api/workflows/{type}/runs`,
+  `/api/runs`, `/api/runs/{id}`, `/api/runs/{id}/review-actions`,
+  `/api/runs/{id}/artifacts`, `/api/runs/{id}/artifacts/{file_name}`,
+  `/api/runs/{id}/audit`. Zero workflow logic reimplemented; all execution
+  through `app.workflow_registry.run_workflow`.
+- [x] `ApiSettings` defaults to the SAME paths as Streamlit (shared run
+  history, audit, exports).
+- [x] `RunDetail` always rehydrated from the ledger (single code path for
+  live POST response and post-restart GET -- cannot drift).
+- [x] API tests: `tests/api/` -- 26 tests covering all endpoints, preflight,
+  fail-closed JE, review actions, audit, traversal safety, restart simulation.
+- [x] `frontend/` React/Vite/TS console: Vite 6 + React 18 + react-router-dom 6.
+  Plain CSS with design tokens. No UI framework, no axios, no state library.
+- [x] Frontend routes: `/` (Home), `/run` + `/run/:workflowType` (4-step wizard),
+  `/runs/:runId` (Review Run), `/history`, `/about`.
+- [x] Key components: AppShell (health gate, HealthContext, nav, llm_mode badge),
+  TrustBoundary (AI container, exact label, violet dashed treatment),
+  PreflightResultView, FindingCard, SourceRowTable, FileDropField, Stepper,
+  ToastProvider, StatusPill/SeverityBadge/ValidationBadge/RunStatusPill/
+  ReviewStatusChip, Collapsible, EmptyState/LoadingState/ErrorState.
+- [x] Frontend no-finance-math invariant enforced: Decimal fields typed as
+  `string`; arithmetic sweep clean (only `formatFileSize` for local file bytes).
+- [x] AI content only inside TrustBoundary; `ai: null` renders a plain note card.
+- [x] Review-status transition bug found and fixed in integration pass
+  (`apply_review_status_transition` in `api/services/runs.py`; pure bookkeeping).
+- [x] Frontend tests: 4 test files / 19 tests (vitest + @testing-library/react).
+  typecheck clean; lint clean; build succeeded (228 kB JS, 20 kB CSS).
+- [x] Full live E2E validated (2026-06-11): 8 workflows; ap_duplicate_review
+  sample -> 15 findings, 10 artifacts, validation passed; mark_reviewed ->
+  pending->in_review; restart rehydration correct; frontend/dist served by API
+  process (GET / -> 200 text/html); 83 regression tests passed.
+- [x] Final test count: **712 passed** (705 pre-existing + 7 new API tests after
+  integration fix; frontend vitest 19 separate).
+
 ## Architecture decision log
 Major decisions recorded in `docs/decisions.md` as implemented.
