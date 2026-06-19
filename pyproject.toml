@@ -26,3 +26,10 @@ packages = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q --basetemp=.pytest_tmp"
+# Narrowly silence the one known StarletteDeprecationWarning emitted at import
+# of fastapi.testclient (httpx vs httpx2). StarletteDeprecationWarning subclasses
+# UserWarning, so it is matched by its exact message + the UserWarning base
+# category + the emitting module - no other warning is suppressed.
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning:fastapi.testclient",
+]

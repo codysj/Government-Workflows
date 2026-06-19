@@ -197,6 +197,45 @@ def test_review_status_transitions(client, ap_run):
             == "rejected")
 
 
+def test_review_status_transition_all_rules(client):
+    """Full transition matrix on a FRESH run (independent of the shared run).
+
+    approve->approved; engagement does NOT downgrade an approved run;
+    add_note is status-neutral; reject->rejected (latest decision wins);
+    mark_reviewed on a pending run -> in_review.
+    """
+    # A dedicated run so this test owns the run's status lifecycle.
+    run = client.post(
+        "/api/workflows/ap_duplicate_review/runs",
+        data={"use_sample": "true", "actor": "tester"},
+    ).json()
+    run_id = run["run_id"]
+
+    def act(action, **kw):
+        return client.post(
+            f"/api/runs/{run_id}/review-actions",
+            json={"action": action, "actor": "tester", **kw},
+        ).json()["human_review_status"]
+
+    # mark_reviewed moves pending -> in_review.
+    assert act("mark_reviewed") == "in_review"
+    # approve_draft is a terminal decision.
+    assert act("approve_draft") == "approved"
+    # Engagement actions never downgrade an approved run.
+    assert act("mark_reviewed") == "approved"
+    assert act("mark_resolved") == "approved"
+    assert act("needs_follow_up") == "approved"
+    # add_note is status-neutral.
+    assert act("add_note", note="context") == "approved"
+    # A later explicit decision wins (latest decision).
+    assert act("reject_ai_explanation") == "rejected"
+    # Engagement still cannot downgrade the terminal rejected status.
+    assert act("mark_reviewed") == "rejected"
+    # The run detail reflects the final status.
+    assert (client.get(f"/api/runs/{run_id}").json()["human_review_status"]
+            == "rejected")
+
+
 def test_review_action_unknown_action_422(client, ap_run):
     r = client.post(
         f"/api/runs/{ap_run['run_id']}/review-actions",

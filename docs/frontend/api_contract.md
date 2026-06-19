@@ -260,11 +260,17 @@ Request: `{"action": str, "actor": str, "note": str|null, "finding_id": str|null
 - Recorded via the existing `record_human_review_action`, so the ledger row
   and the `human_review_action` audit event always stay in sync.
 - Recording an action also updates the run-level `human_review_status`
-  deterministically (pure bookkeeping, no financial logic):
+  deterministically (pure bookkeeping, no financial logic). The action->status
+  policy lives in one shared helper, `app.workflow_registry.
+  apply_review_status_transition`, used by BOTH this API and the Streamlit UI,
+  so every surface advances status identically. The write is a single atomic,
+  concurrency-safe ledger update (no read-modify-write race), so an interleaved
+  engagement action can never overwrite a terminal `approved`/`rejected`:
   - `approve_draft` -> `approved`; `reject_ai_explanation` -> `rejected`
-    (explicit decisions; the latest decision wins).
+    (explicit decisions; an unconditional update, so the latest decision wins).
   - `mark_reviewed` / `mark_resolved` / `needs_follow_up` move a `pending`
-    run to `in_review` but never downgrade an `approved`/`rejected` run.
+    run to `in_review` but never downgrade an `approved`/`rejected` run
+    (a guarded `WHERE human_review_status = 'pending'` update).
   - `add_note` never changes the status.
 
 `200 {"human_review_status": str, "review_actions": [ReviewActionInfo]}` -

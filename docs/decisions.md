@@ -1164,3 +1164,124 @@ This mapping lives entirely in the API layer; `record_human_review_action`
 remains the single recording path so the audit log stays in sync. No core or
 app module was changed. The fix is documented in `docs/frontend/api_contract.md`
 under POST /api/runs/{run_id}/review-actions.
+
+## Active-task pass GW-1..GW-5 (2026-06-12)
+
+Five small, well-scoped tasks accumulated from the FastAPI + React migration were
+closed in a single pass. All five are additive or corrective; no deterministic
+workflow logic was changed.
+
+### GW-2 -- Unified human-review-status transition helper
+
+`apply_review_status_transition(ledger, run_id, action) -> str` was relocated
+from `api/services/runs.py` into `app/workflow_registry.py`, the module already
+imported by both the API and Streamlit. The constants `_REVIEW_STATUS_DECISIONS`
+(`approve_draft` -> `approved`, `reject_ai_explanation` -> `rejected`) and
+`_REVIEW_ENGAGEMENT_ACTIONS` (`mark_reviewed`, `mark_resolved`,
+`needs_follow_up`) moved with it. `api/services/runs.py` now re-exports the
+function with a single alias line so the existing route import is unchanged.
+
+The Streamlit `_render_review_controls` (~line 831 of `app/streamlit_app.py`)
+previously called `record_human_review_action` but never advanced
+`human_review_status`. It now also calls `apply_review_status_transition` and
+surfaces the resulting status in the success toast. This was the GW-2 bug: the
+same action taken in Streamlit and through the API now produces the same
+`human_review_status` outcome, and the policy that governs which action maps to
+which status lives in exactly one place.
+
+Decision: the action->status mapping stays in `app/workflow_registry.py` (shared
+app layer) rather than being pulled further down into `src/core/`. Core owns the
+ledger mechanics (what is persisted); the mapping from a UI action string to a
+status value is a policy that belongs one level up, where both surfaces already
+meet. This keeps `src/core/` free of any knowledge of the action vocabulary.
+
+### GW-3 -- Concurrency-safe guarded ledger update
+
+Added one additive method to `src/core/run_ledger.py`:
+`apply_human_review_status(run_id, new_status, *, expected_current=None) ->
+Optional[str]`. It has two modes:
+
+- **Unconditional** (`expected_current=None`): a single `UPDATE runs SET
+  human_review_status=? WHERE run_id=?` statement (one round-trip; used for
+  explicit decisions where the latest write wins).
+- **Guarded** (`expected_current` provided): `UPDATE ... WHERE run_id=? AND
+  human_review_status=?` (the update is a no-op if the current value has
+  already moved). Returns the value that actually persisted (re-selected on the
+  same connection); returns `None` when the run does not exist.
+
+The shared `apply_review_status_transition` was rewritten on top of this
+primitive: decisions use the unconditional mode; engagement actions use the
+guarded mode with `expected_current="pending"`, so a concurrent engagement call
+can never overwrite a terminal status that was set between its read and its
+write. The old `get_run` then `update_run_status` read-modify-write is gone.
+
+Decision: the guarded update belongs in the ledger layer because it requires
+atomicity within a single database connection -- it cannot be made safe from
+the caller side. The guarded mode is strictly additive; all existing methods
+and all callers of `update_run_status` are unchanged.
+
+### GW-4 -- Targeted pytest filterwarnings for Starlette TestClient
+
+`StarletteDeprecationWarning` ("Using `httpx` with `starlette.testclient` is
+deprecated") subclasses `UserWarning`, not `DeprecationWarning`. Added a narrow
+entry to `[tool.pytest.ini_options]` in `pyproject.toml`:
+
+    filterwarnings = [
+        "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning:fastapi.testclient",
+    ]
+
+The filter matches by exact message prefix, `UserWarning` base category, and the
+emitting module (`fastapi.testclient`). No other warning is suppressed. Verified:
+`pytest tests/api` reports zero warnings under the configured settings; running
+with `-W default` (which discards configured filters) re-surfaces the warning as
+expected, confirming the filter is doing real work and not masking anything
+structural.
+
+Decision: filter rather than resolve because the resolution path (installing
+`httpx2`) risks transitive dependency churn and the warning is advisory only.
+The narrow filter is documented with a comment in `pyproject.toml` explaining the
+`UserWarning` subclass and the filter rationale.
+
+### GW-5 -- frontend/dist build-artifact policy
+
+`frontend/dist` is a build artifact produced by `npm run build` (runs `tsc -b`
+then Vite). It must not be committed as source code. It is gitignored by the
+frontend-local rule (`frontend/.gitignore` line 2: `dist`) and also by the root
+`.gitignore`. `api/main.py` mounts it at `/` only when the directory exists
+(line 65: `if settings.frontend_dist.is_dir():`), so a fresh clone with no
+`dist/` present starts fine in API-only mode -- the API and all its routes are
+fully functional without the static mount.
+
+The reproduction sequence for a cold clone is: `cd frontend && npm install &&
+npm run build` (produces `frontend/dist`), then start `uvicorn api.main:app` to
+get the single-server mode where the API serves the built bundle. Dev mode
+(separate Vite dev server) does not require `dist/` at all.
+
+This policy and the reproduction commands were added to `README.md` in a
+dedicated subsection. The root `.gitignore` retained the existing `dist/` rule
+with an added inline comment. No `api/main.py` changes were needed.
+
+### GW-1 -- Frontend sample-data flows confirmed metadata-driven; regression tests added
+
+An audit of `frontend/src/pages/RunWizardPage.tsx` confirmed the wizard is fully
+metadata-driven: `activateSample()` pre-fills all text inputs from
+`selected.text_inputs[].example`; the sample description renders from
+`selected.sample_description` with a generic fallback string (not a
+workflow-specific one); the "Use this example" span reads `input.example` from
+the API prop. No workflow-specific hardcoded example value exists anywhere in the
+component.
+
+Five regression tests were added to `frontend/src/pages/RunWizardPage.test.tsx`
+in a new `"GW-1: metadata-driven sample / example flow"` describe block. The
+fixture uses deliberately unique strings (a synthetic sample description and
+example query that do not match any production default) so the tests fail if the
+component ignores live metadata. Tests assert: (1) `sample_description` from the
+fixture is shown; (2) the example text appears in the helper span; (3) "Use
+sample data" pre-fills the text input from the fixture example; (4) "Use sample
+data" enables the "Check files" button with no file uploaded; (5) "Use this
+example" fills the input from fixture metadata. The four existing gating tests
+are untouched.
+
+Frontend validation after the test additions: `npm run typecheck` clean,
+`npm run lint` clean, `npm run test` 24/24 passed (was 19), `npm run build`
+clean.

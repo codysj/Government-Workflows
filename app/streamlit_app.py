@@ -833,7 +833,13 @@ def _render_review_controls(ledger, audit, run_id, findings, actor) -> None:
                             actor=actor, finding_id=fid,
                             note=note or None,
                         )
-                        st.success(f"Recorded: {action_label}")
+                        # Advance the run-level human_review_status exactly like
+                        # the API does (single shared, atomic transition helper).
+                        new_status = wfr.apply_review_status_transition(
+                            ledger, run_id, action)
+                        st.success(
+                            f"Recorded: {action_label} "
+                            f"(review status: {new_status})")
 
 
 def _download_artifact(a: dict, suffix: str = "") -> None:

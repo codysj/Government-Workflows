@@ -418,6 +418,44 @@ and the frontend:
 REM Open http://127.0.0.1:8000
 ```
 
+### Build-artifact policy for frontend/dist
+
+`frontend/dist/` is a **build artifact** produced by `npm run build`. It is
+gitignored and must never be committed. A fresh clone will not contain it.
+To reproduce the served UI from a clean clone:
+
+```bat
+cd frontend
+npm install
+npm run build
+cd ..
+.venv\Scripts\python.exe -m uvicorn api.main:app --port 8000
+REM Open http://127.0.0.1:8000 -- the API serves both the React console and the
+REM API endpoints from the single uvicorn process.
+```
+
+`npm run build` compiles TypeScript (`tsc -b`) then runs the Vite bundler,
+writing the output to `frontend/dist/`. When `api/main.py` starts and
+`frontend/dist/` is a directory, it mounts that directory at `/` using
+FastAPI's `StaticFiles` (html=True, so the SPA index fallback works). The
+`/api/*` routes are registered first, so they always take priority over the
+static mount.
+
+**The API runs fine with no dist present.** The static mount is guarded by
+a directory check (`if settings.frontend_dist.is_dir()`), so starting the
+API without running `npm run build` is not an error -- you simply get the
+API only, reachable at `http://127.0.0.1:8000/api/...`. This is the normal
+state in development (use the Vite dev server instead, see the section above)
+and in CI (tests use the API directly with no frontend build step).
+
+**Summary of modes:**
+
+| Mode | How to start | URL |
+| --- | --- | --- |
+| API only (no build) | `uvicorn api.main:app --port 8000` | `http://127.0.0.1:8000/api/...` |
+| Dev (hot-reload) | `npm run dev` in `frontend/` + API on 8000 | `http://localhost:5173` (proxies /api to 8000) |
+| Single-server (prod-like) | `npm install && npm run build` then API | `http://127.0.0.1:8000` |
+
 ### CLI
 
 List the available workflows, then run any of them on the bundled synthetic

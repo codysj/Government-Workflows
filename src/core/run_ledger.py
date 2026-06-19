@@ -219,6 +219,60 @@ class RunLedger:
             )
             conn.commit()
 
+    def apply_human_review_status(
+        self,
+        run_id: str,
+        new_status: str,
+        *,
+        expected_current: Optional[str] = None,
+    ) -> Optional[str]:
+        """Atomically set a run's ``human_review_status`` and return the result.
+
+        This is an ADDITIVE, concurrency-safe primitive (it does NOT modify or
+        replace ``update_run_status``). The write and the read-back happen on a
+        single connection so the returned value reflects what actually persisted.
+
+        Two modes:
+
+        - Unconditional (``expected_current=None``): a single-statement
+          ``UPDATE ... SET human_review_status=? WHERE run_id=?``. Use this for
+          explicit decisions where the latest decision must always win
+          (e.g. approve/reject).
+        - Guarded (``expected_current`` given): a single-statement
+          ``UPDATE ... SET human_review_status=? WHERE run_id=? AND
+          human_review_status=?``. The update only lands if the row is still in
+          the expected state, so a concurrent decision can never be overwritten
+          (e.g. an engagement action may move ``pending``->``in_review`` only and
+          never clobber an already-``approved``/``rejected`` run). When the guard
+          does not hold the write is a no-op.
+
+        Returns the run's ``human_review_status`` after the operation (re-selected
+        within the same connection), or ``None`` if the run does not exist. Only
+        the review status is touched; ``status``/``summary``/``retention`` are
+        left unchanged.
+        """
+        with self._connect() as conn:
+            if expected_current is None:
+                conn.execute(
+                    "UPDATE runs SET human_review_status = ? "
+                    "WHERE run_id = ?",
+                    (new_status, run_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE runs SET human_review_status = ? "
+                    "WHERE run_id = ? AND human_review_status = ?",
+                    (new_status, run_id, expected_current),
+                )
+            conn.commit()
+            row = conn.execute(
+                "SELECT human_review_status FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row["human_review_status"]
+
     def set_retention(self, run_id: str, retention_category: str) -> None:
         """Update only the records-retention category for a run."""
         with self._connect() as conn:

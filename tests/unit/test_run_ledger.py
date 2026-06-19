@@ -153,6 +153,135 @@ def test_get_run_missing_returns_none(tmp_path):
     assert ledger.get_run("nope") is None
 
 
+# --------------------------------------------------------------------------- #
+# Atomic human-review status primitive (GW-3, additive)
+# --------------------------------------------------------------------------- #
+def test_apply_human_review_status_unconditional(tmp_path):
+    """An unconditional update always wins and returns the persisted value."""
+    ledger = RunLedger(str(tmp_path / "ledger.db"))
+    ledger.create_run(_make_run())  # starts pending
+
+    assert ledger.apply_human_review_status("run-1", "approved") == "approved"
+    assert ledger.get_run("run-1")["human_review_status"] == "approved"
+    # A later unconditional decision overwrites the prior one (latest wins).
+    assert ledger.apply_human_review_status("run-1", "rejected") == "rejected"
+    assert ledger.get_run("run-1")["human_review_status"] == "rejected"
+
+
+def test_apply_human_review_status_guard_holds(tmp_path):
+    """A guarded update only lands when the row is in the expected state."""
+    ledger = RunLedger(str(tmp_path / "ledger.db"))
+    ledger.create_run(_make_run())  # pending
+
+    # Guard matches -> the update lands.
+    result = ledger.apply_human_review_status(
+        "run-1", "in_review", expected_current="pending")
+    assert result == "in_review"
+    assert ledger.get_run("run-1")["human_review_status"] == "in_review"
+
+
+def test_apply_human_review_status_guard_blocks_downgrade(tmp_path):
+    """A guarded engagement update can never overwrite a terminal status."""
+    ledger = RunLedger(str(tmp_path / "ledger.db"))
+    ledger.create_run(_make_run())
+    ledger.apply_human_review_status("run-1", "approved")  # terminal
+
+    # Engagement action expects pending; guard fails -> no-op, status preserved.
+    result = ledger.apply_human_review_status(
+        "run-1", "in_review", expected_current="pending")
+    assert result == "approved"
+    assert ledger.get_run("run-1")["human_review_status"] == "approved"
+
+
+def test_apply_human_review_status_unknown_run_returns_none(tmp_path):
+    ledger = RunLedger(str(tmp_path / "ledger.db"))
+    assert ledger.apply_human_review_status("nope", "approved") is None
+
+
+def test_apply_human_review_status_leaves_other_columns_unchanged(tmp_path):
+    """Only human_review_status is touched; status/summary/retention stay."""
+    ledger = RunLedger(str(tmp_path / "ledger.db"))
+    ledger.create_run(_make_run())
+    ledger.update_run_status(
+        "run-1", "completed", summary={"matched": 9},
+        retention_category="draft_working")
+
+    ledger.apply_human_review_status("run-1", "approved")
+    run = ledger.get_run("run-1")
+    assert run["human_review_status"] == "approved"
+    assert run["status"] == "completed"
+    assert run["summary"] == {"matched": 9}
+    assert run["retention_category"] == "draft_working"
+
+
+def test_update_run_status_still_works_unchanged(tmp_path):
+    """The pre-existing update_run_status path is unaffected by the new method."""
+    ledger = RunLedger(str(tmp_path / "ledger.db"))
+    ledger.create_run(_make_run())
+    ledger.update_run_status("run-1", "completed", "in_review", {"matched": 3})
+    run = ledger.get_run("run-1")
+    assert run["status"] == "completed"
+    assert run["human_review_status"] == "in_review"
+    assert run["summary"] == {"matched": 3}
+
+
+def test_review_transition_concurrency_no_downgrade(tmp_path):
+    """Interleaved decision + engagement transitions never downgrade a terminal.
+
+    Deterministic (no sleeps): a decision (approve) followed by an engagement
+    action (mark_reviewed) must leave the run approved, regardless of order,
+    because the engagement transition is guarded on the expected pending state.
+    """
+    from app.workflow_registry import apply_review_status_transition
+
+    ledger = RunLedger(str(tmp_path / "ledger.db"))
+    ledger.create_run(_make_run())
+
+    # Decision lands first, engagement second: engagement must not downgrade.
+    assert apply_review_status_transition(ledger, "run-1", "approve_draft") == (
+        "approved")
+    assert apply_review_status_transition(ledger, "run-1", "mark_reviewed") == (
+        "approved")
+    assert ledger.get_run("run-1")["human_review_status"] == "approved"
+
+    # Fresh run: engagement first (pending->in_review), then a decision wins.
+    ledger.create_run(_make_run("run-2"))
+    assert apply_review_status_transition(ledger, "run-2", "mark_reviewed") == (
+        "in_review")
+    assert apply_review_status_transition(
+        ledger, "run-2", "reject_ai_explanation") == "rejected"
+    assert ledger.get_run("run-2")["human_review_status"] == "rejected"
+
+
+def test_review_transition_concurrency_threaded(tmp_path):
+    """Two threads racing a decision vs an engagement leave a terminal status."""
+    from app.workflow_registry import apply_review_status_transition
+
+    db = str(tmp_path / "ledger.db")
+    ledger = RunLedger(db)
+    ledger.create_run(_make_run())
+    ledger.apply_human_review_status("run-1", "approved")  # already terminal
+
+    errors: list[str] = []
+
+    def engage():
+        try:
+            for _ in range(50):
+                apply_review_status_transition(ledger, "run-1", "mark_reviewed")
+        except Exception as exc:  # pragma: no cover
+            errors.append(f"{type(exc).__name__}: {exc}")
+
+    threads = [threading.Thread(target=engage) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    # No interleaving of guarded engagement updates can clobber the decision.
+    assert ledger.get_run("run-1")["human_review_status"] == "approved"
+
+
 def test_persists_across_instances(tmp_path):
     """A new RunLedger on the same file sees prior data (real persistence)."""
     db = str(tmp_path / "ledger.db")

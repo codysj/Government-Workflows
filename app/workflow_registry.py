@@ -1148,3 +1148,59 @@ def record_human_review_action(
         audit.human_review_action(
             run_id, actor, action=action, finding_id=finding_id, note=note)
     return hra.action_id
+
+
+# --------------------------------------------------------------------------- #
+# Run-level human-review status transitions (single source of truth)
+# --------------------------------------------------------------------------- #
+# Recording an action is the source of truth (record_human_review_action);
+# this policy only keeps the run row's coarse human_review_status in step with
+# the action history so every UI (Streamlit + the API) reflects that a human
+# engaged with the run.
+#   - approve_draft / reject_ai_explanation are explicit decisions and always
+#     set the terminal status (latest decision wins).
+#   - mark_reviewed / mark_resolved / needs_follow_up move a pending run to
+#     in_review but never downgrade an approved/rejected run.
+#   - add_note records context only and never changes status.
+#   - unknown actions are no-ops on status.
+# This is the ONE place that owns the action->status policy; both the API
+# (api/services/runs.py re-exports it) and Streamlit call it.
+_REVIEW_STATUS_DECISIONS = {
+    "approve_draft": "approved",
+    "reject_ai_explanation": "rejected",
+}
+_REVIEW_ENGAGEMENT_ACTIONS = (
+    "mark_reviewed", "mark_resolved", "needs_follow_up")
+
+
+def apply_review_status_transition(
+    ledger: RunLedger, run_id: str, action: str
+) -> str:
+    """Advance a run's human_review_status for the given action, atomically.
+
+    The action->status mapping (the POLICY) lives here; the atomic write
+    PRIMITIVE lives in ``RunLedger.apply_human_review_status``. There is no
+    get_run-then-update read-modify-write, so two interleaved transitions can
+    never race: a decision is an unconditional single-statement update (latest
+    decision wins), and an engagement action is a guarded conditional update
+    that only promotes pending->in_review and can never overwrite an already
+    terminal approved/rejected status.
+
+    Returns the (possibly unchanged) status that actually persisted. Pure
+    bookkeeping over the existing ledger seam - no financial logic.
+    """
+    if action in _REVIEW_STATUS_DECISIONS:
+        # Explicit decision: latest decision wins, unconditionally.
+        result = ledger.apply_human_review_status(
+            run_id, _REVIEW_STATUS_DECISIONS[action])
+    elif action in _REVIEW_ENGAGEMENT_ACTIONS:
+        # Engagement: promote pending->in_review only; never downgrade a
+        # terminal status. The guard makes this safe under concurrency.
+        result = ledger.apply_human_review_status(
+            run_id, "in_review", expected_current="pending")
+    else:
+        # add_note and any unknown action are status-neutral: read back the
+        # current value without writing.
+        run = ledger.get_run(run_id) or {}
+        result = run.get("human_review_status", "pending") or "pending"
+    return result or "pending"

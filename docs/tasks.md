@@ -41,83 +41,6 @@ Tool. This file is meant to be read and updated by both humans and LLM agents.
 These are loose ends from the FastAPI + React migration and known minor defects.
 They are small, well-understood, and should be cleared before new ambitions.
 
-### GW-1 — Wire frontend sample-data flows to live backend metadata
-- **Status:** in_progress
-- **Priority:** P0
-- **Area:** frontend
-- **Why:** The wizard's "Use sample data" / "Use this example" paths were
-  validated only against test fixtures, not against the real backend
-  `sample_description` and `text_inputs[].example` values returned by
-  `GET /api/workflows/{type}`. Demo flows must drive off live metadata.
-- **Acceptance:** Selecting "Use sample data" in the wizard for every workflow
-  populates inputs from the backend response and completes a run; the
-  transaction_search example query is shown as the textarea placeholder from
-  the API, not hardcoded. A vitest test asserts the wizard reads `example` /
-  `sample_description` from a live-shaped `WorkflowInfo`.
-- **Files:** `frontend/src/pages/RunWizardPage.tsx`,
-  `frontend/src/api/client.ts`, `frontend/src/types/api.ts`
-
-### GW-2 — Unify human-review status behavior across Streamlit and API
-- **Status:** not_started
-- **Priority:** P1
-- **Area:** streamlit
-- **Why:** Review actions posted through the API advance the run-level
-  `human_review_status` (via `apply_review_status_transition` in
-  `api/services/runs.py`), but the same action recorded through Streamlit
-  (`app/workflow_registry.record_human_review_action`, called ~line 831 of
-  `app/streamlit_app.py`) does not. Same data, two behaviors.
-- **Acceptance:** A review action taken in Streamlit results in the same
-  `human_review_status` transition as the API path. Prefer extracting the
-  transition mapping into a shared, non-financial helper both surfaces call so
-  the rule lives in one place. No change to deterministic findings or
-  validation. Existing tests stay green.
-- **Files:** `app/streamlit_app.py`, `app/workflow_registry.py`,
-  `api/services/runs.py`
-
-### GW-3 — Make review-action status transition concurrency-safe
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** backend
-- **Why:** `apply_review_status_transition` is a non-transactional
-  read-modify-write (`get_run` then `update_run_status`). Two concurrent
-  review-action POSTs for the same run could interleave and let an engagement
-  action (`mark_reviewed`) overwrite a just-written terminal state
-  (`approved`/`rejected`). Harmless for the current single-user local demo;
-  a latent bug for any multi-user future.
-- **Acceptance:** The status transition is atomic (e.g. a single guarded ledger
-  update, or a transaction that re-reads under lock). A test simulating two
-  interleaved actions never downgrades a terminal status.
-- **Files:** `api/services/runs.py`, `src/core/run_ledger.py` (read-only
-  reference; do not change core behavior without a documented reason)
-
-### GW-4 — Silence the Starlette TestClient deprecation warning
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** backend
-- **Why:** The full suite emits one `StarletteDeprecationWarning`
-  ("Using httpx with starlette.testclient is deprecated; install httpx2
-  instead") from `fastapi.testclient`. Harmless today; becomes churn on a
-  future Starlette/FastAPI upgrade.
-- **Acceptance:** The warning is resolved or explicitly filtered (documented in
-  `pyproject.toml` pytest config) so the suite runs clean. No behavior change.
-- **Files:** `pyproject.toml`, `tests/api/conftest.py`
-
-### GW-5 — Decide and document the `frontend/dist` build-artifact policy
-- **Status:** not_started
-- **Priority:** P1
-- **Area:** infra
-- **Why:** `api/main.py` mounts `frontend/dist` at `/` when present (one-server
-  deploy), but `dist/` is a build output. It must not be committed as source,
-  yet the "single server serves the UI" instructions assume it exists. Need an
-  explicit build-then-serve step and a gitignore decision so a fresh clone is
-  reproducible.
-- **Acceptance:** `frontend/dist` is gitignored; README documents
-  `cd frontend && npm install && npm run build` as the step that produces the
-  bundle the API serves; a fresh clone can reproduce the served UI from
-  documented commands.
-- **Files:** `frontend/.gitignore` (or root `.gitignore`), `README.md`,
-  `api/main.py` (reference only)
-
 ---
 
 ## Backlog — next steps / ambitions not yet scoped or started
@@ -280,6 +203,87 @@ once that is done.
 ## Recently completed
 
 Kept for context. Newest first. Move finished tasks here with a `Done:` line.
+
+### GW-5 — Decide and document the `frontend/dist` build-artifact policy
+- **Status:** done
+- **Priority:** P1
+- **Area:** infra
+- **Why:** `api/main.py` mounts `frontend/dist` at `/` when present (one-server
+  deploy), but `dist/` is a build output. It must not be committed as source,
+  yet the "single server serves the UI" instructions assume it exists. Need an
+  explicit build-then-serve step and a gitignore decision so a fresh clone is
+  reproducible.
+- **Acceptance:** `frontend/dist` is gitignored; README documents
+  `cd frontend && npm install && npm run build` as the step that produces the
+  bundle the API serves; a fresh clone can reproduce the served UI from
+  documented commands.
+- **Files:** `frontend/.gitignore` (or root `.gitignore`), `README.md`,
+  `api/main.py` (reference only)
+- **Done:** 2026-06-12 - `frontend/dist` confirmed gitignored by `frontend/.gitignore:2`; README subsection added with cold-clone reproduction sequence and mode table; `api/main.py` static-mount guard (`is_dir()`) documented.
+
+### GW-4 — Silence the Starlette TestClient deprecation warning
+- **Status:** done
+- **Priority:** P2
+- **Area:** backend
+- **Why:** The full suite emits one `StarletteDeprecationWarning`
+  ("Using httpx with starlette.testclient is deprecated; install httpx2
+  instead") from `fastapi.testclient`. Harmless today; becomes churn on a
+  future Starlette/FastAPI upgrade.
+- **Acceptance:** The warning is resolved or explicitly filtered (documented in
+  `pyproject.toml` pytest config) so the suite runs clean. No behavior change.
+- **Files:** `pyproject.toml`, `tests/api/conftest.py`
+- **Done:** 2026-06-12 - Added targeted `filterwarnings` entry to `pyproject.toml` matching the exact message, `UserWarning` category, and `fastapi.testclient` module; `pytest tests/api` runs with zero Starlette deprecation warnings.
+
+### GW-3 — Make review-action status transition concurrency-safe
+- **Status:** done
+- **Priority:** P2
+- **Area:** backend
+- **Why:** `apply_review_status_transition` is a non-transactional
+  read-modify-write (`get_run` then `update_run_status`). Two concurrent
+  review-action POSTs for the same run could interleave and let an engagement
+  action (`mark_reviewed`) overwrite a just-written terminal state
+  (`approved`/`rejected`). Harmless for the current single-user local demo;
+  a latent bug for any multi-user future.
+- **Acceptance:** The status transition is atomic (e.g. a single guarded ledger
+  update, or a transaction that re-reads under lock). A test simulating two
+  interleaved actions never downgrades a terminal status.
+- **Files:** `api/services/runs.py`, `src/core/run_ledger.py`
+- **Done:** 2026-06-12 - Added `apply_human_review_status` to `RunLedger` (unconditional + guarded modes); rewrote shared transition helper to use guarded update; 5 unit tests + 2 concurrency tests added.
+
+### GW-2 — Unify human-review status behavior across Streamlit and API
+- **Status:** done
+- **Priority:** P1
+- **Area:** streamlit
+- **Why:** Review actions posted through the API advance the run-level
+  `human_review_status` (via `apply_review_status_transition` in
+  `api/services/runs.py`), but the same action recorded through Streamlit
+  (`app/workflow_registry.record_human_review_action`, called ~line 831 of
+  `app/streamlit_app.py`) does not. Same data, two behaviors.
+- **Acceptance:** A review action taken in Streamlit results in the same
+  `human_review_status` transition as the API path. Prefer extracting the
+  transition mapping into a shared, non-financial helper both surfaces call so
+  the rule lives in one place. No change to deterministic findings or
+  validation. Existing tests stay green.
+- **Files:** `app/streamlit_app.py`, `app/workflow_registry.py`,
+  `api/services/runs.py`
+- **Done:** 2026-06-12 - Moved `apply_review_status_transition` + constants into `app/workflow_registry.py`; API re-exports via alias; Streamlit `_render_review_controls` now calls the shared helper and surfaces new status in success toast.
+
+### GW-1 — Wire frontend sample-data flows to live backend metadata
+- **Status:** done
+- **Priority:** P0
+- **Area:** frontend
+- **Why:** The wizard's "Use sample data" / "Use this example" paths were
+  validated only against test fixtures, not against the real backend
+  `sample_description` and `text_inputs[].example` values returned by
+  `GET /api/workflows/{type}`. Demo flows must drive off live metadata.
+- **Acceptance:** Selecting "Use sample data" in the wizard for every workflow
+  populates inputs from the backend response and completes a run; the
+  transaction_search example query is shown as the textarea placeholder from
+  the API, not hardcoded. A vitest test asserts the wizard reads `example` /
+  `sample_description` from a live-shaped `WorkflowInfo`.
+- **Files:** `frontend/src/pages/RunWizardPage.tsx`,
+  `frontend/src/api/client.ts`, `frontend/src/types/api.ts`
+- **Done:** 2026-06-12 - Audit confirmed component is fully metadata-driven with no hardcoded workflow examples; 5 regression vitest tests added asserting fixture-unique strings drive the UI; 24/24 tests pass.
 
 ### GW-0 — FastAPI seam + React/Vite workflow console
 - **Status:** done

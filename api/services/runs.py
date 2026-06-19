@@ -33,45 +33,11 @@ from api.schemas.models import (
 
 ALLOWED_REVIEW_ACTIONS = [key for key, _ in wfr.HUMAN_REVIEW_ACTIONS]
 
-# Deterministic run-level review status transitions. Recording an action is
-# the source of truth (record_human_review_action); this mapping only keeps
-# the run row's coarse human_review_status in step with the action history so
-# every UI (and GET /api/runs) reflects that a human engaged with the run.
-#   - approve_draft / reject_ai_explanation are explicit decisions and always
-#     set the terminal status (latest decision wins).
-#   - mark_reviewed / mark_resolved / needs_follow_up move a pending run to
-#     in_review but never downgrade an approved/rejected run.
-#   - add_note records context only and never changes status.
-_REVIEW_STATUS_DECISIONS = {
-    "approve_draft": "approved",
-    "reject_ai_explanation": "rejected",
-}
-_REVIEW_ENGAGEMENT_ACTIONS = (
-    "mark_reviewed", "mark_resolved", "needs_follow_up")
-
-
-def apply_review_status_transition(
-    ledger: RunLedger, run_id: str, action: str
-) -> str:
-    """Update the run's human_review_status for the given action.
-
-    Returns the (possibly unchanged) status. Pure bookkeeping over the
-    existing ledger seam - no financial logic.
-    """
-    run = ledger.get_run(run_id) or {}
-    current = run.get("human_review_status", "pending") or "pending"
-    new_status = current
-    if action in _REVIEW_STATUS_DECISIONS:
-        new_status = _REVIEW_STATUS_DECISIONS[action]
-    elif action in _REVIEW_ENGAGEMENT_ACTIONS and current == "pending":
-        new_status = "in_review"
-    if new_status != current:
-        ledger.update_run_status(
-            run_id,
-            run.get("status", "completed"),
-            human_review_status=new_status,
-        )
-    return new_status
+# The run-level review status transition policy lives in app.workflow_registry
+# (the single shared home used by BOTH this API and Streamlit). Re-exported here
+# so existing callers (api/routes/runs.py imports it from api.services.runs)
+# keep working without change. It is now atomic + concurrency-safe.
+apply_review_status_transition = wfr.apply_review_status_transition
 
 _MEDIA_TYPES = {
     ".csv": "text/csv",
