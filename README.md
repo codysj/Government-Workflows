@@ -475,7 +475,86 @@ Other flags: repeatable `--input key=value` (instead of `--sample`),
 `--config <json-file-or-inline>` for tolerances/thresholds, and `--mock`
 (default) / `--real`. The mock provider is the offline default and needs no key.
 
-### Legacy Streamlit app
+### Workflow console (React) -- easy launch
+
+The easiest way to open the console for non-technical users (requires that
+`frontend/dist/` has been built at least once and the `.venv` exists):
+
+```bat
+REM Double-click, or run from a terminal:
+scripts\launch_console.cmd
+```
+
+The launcher (`scripts/launch_console.cmd` -> `scripts/launch_console.py`):
+
+1. Checks that `.venv` exists and that `frontend/dist/index.html` is present
+   (offers to build via `npm run build` when npm is on the PATH).
+2. Starts uvicorn on `http://127.0.0.1:8765` (serving the built bundle + API).
+3. Polls `/api/health` until the server is ready, then opens the default browser.
+4. Shuts down the server cleanly on Ctrl+C.
+
+Optional flags (pass after the `.cmd` name or when calling `launch_console.py`
+directly):
+
+```bat
+scripts\launch_console.cmd --port 9000         REM use a different port
+scripts\launch_console.cmd --no-browser        REM skip the auto-open step
+```
+
+Build prerequisite (one-time after a fresh clone or any frontend change):
+
+```bat
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+#### Console screens
+
+The React console (`http://127.0.0.1:8765` via the launcher, or
+`http://127.0.0.1:8000` when started manually) includes:
+
+| Screen | Nav label | What it shows |
+| --- | --- | --- |
+| Home | Home | Workflow picker and status strip |
+| Run wizard | Run a workflow | Four-step guided wizard (upload -> file check -> run -> review) |
+| Review Run | (reached from wizard) | Findings, AI trust boundary, artifacts, audit trail |
+| History | History | All past runs with status and link to Review Run |
+| Settings | Settings | Read-only display of local settings from `app_settings.json` (city name, default actor, AI provider/mode, tolerances, export dir, role, retention category) |
+| AI usage | AI usage | Cross-run table of every AI interaction: workflow, model, prompt version, validation status, draft/final state, source rows cited -- newest first |
+| Redaction assist | Redaction assist | Paste text, scan for PII patterns (SSN, email, phone, credit card, long numbers), see masked previews and redacted output; nothing stored |
+| Scheduled runs | Scheduled runs | Read-only list of local schedules (cadence, next due, last run, active); create/trigger via Streamlit for now |
+| About | About and safety | Safety model and invariants |
+
+#### Wizard advanced options (GW-10)
+
+On the inputs step, an "Advanced options" section (collapsed by default) lets
+you paste an optional config JSON (custom tolerances/thresholds) and review
+any suggested column mappings surfaced by the preflight check. Both are posted
+to the existing `config` and `column_mappings` multipart fields the API
+already accepts.
+
+#### Browser-level end-to-end tests (optional)
+
+```bat
+cd frontend
+npx playwright test
+```
+
+Three Playwright tests drive the full guided loop (home -> workflow selection
+-> sample data -> preflight gate -> run -> Review Run page) plus history
+navigation. Chromium is required (`npx playwright install chromium`). Optional
+in CI -- the suite is documented in `docs/frontend/e2e.md`.
+
+### Legacy Streamlit app (dev / admin only)
+
+The Streamlit app is now the **legacy and development-only** interface.
+The React console (above) is the primary UI. The Streamlit app is retained
+because it shares the same ledger/audit/export directory as the API (a run
+started in either surface appears in the other), and because it provides
+developer-accessible surfaces not yet in the console (Export Center, AI diff,
+role views). It may be removed in a future release.
 
 ```bat
 streamlit run app/streamlit_app.py
@@ -524,7 +603,9 @@ data only:
 
 A 2–3 minute end-to-end walkthrough on synthetic data only:
 
-1. **Start the app:** `streamlit run app/streamlit_app.py`.
+1. **Start the app.** Preferred: run `scripts\launch_console.cmd` (opens the
+   React console at `http://127.0.0.1:8765`). Developer alternative:
+   `streamlit run app/streamlit_app.py` (legacy/dev-only Streamlit UI).
 2. **Home / About → Safety:** read what the tool does and does not do (no
    chatbot, deterministic calculations, AI is advisory and source-linked).
 3. **Run Workflow → Bank reconciliation:** check *Use example files (load
@@ -623,11 +704,12 @@ To run only the API tests:
 .venv\Scripts\python.exe -m pytest tests/api -p no:cacheprovider --basetemp=.pytest_tmp_api
 ```
 
-The full suite is **712 tests** (all passing), including the preflight /
+The full suite is **747 tests** (all passing), including the preflight /
 capability layer, the per-workflow messy-data fixtures, the four new Tyler-era
 workflow unit test suites, integration tests for the CLI/app registry/eval
-harness, the Tyler normalizer and readiness tests, and the 26 API endpoint
-tests (`tests/api/`).
+harness, the Tyler normalizer and readiness tests, and the 38 API endpoint
+tests (`tests/api/`, covering health, workflows, runs, settings, AI usage,
+redaction, and schedules).
 
 The evaluation harness produces measured per-workflow metrics:
 
@@ -642,9 +724,12 @@ cd frontend
 npm test
 ```
 
-Runs 19 tests across 4 test files (client, TrustBoundary, RunWizardPage,
-ReviewRunPage). Also available: `npm run typecheck` (tsc strict) and
-`npm run lint` (eslint flat config with typescript-eslint).
+Runs 36 tests across 8 test files (client, TrustBoundary, RunWizardPage,
+ReviewRunPage, plus the four new pages: SettingsPage, AiUsagePage,
+RedactionPage, SchedulesPage). Also available: `npm run typecheck` (tsc strict)
+and `npm run lint` (eslint flat config with typescript-eslint).
+
+For browser-level end-to-end tests see the Playwright section above.
 
 ### Scripted end-to-end demo loop (API)
 

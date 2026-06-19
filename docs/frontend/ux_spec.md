@@ -28,7 +28,15 @@ Nav items (top to bottom), with route and icon name (lucide-react):
 | Home | `/` | `home` | Home |
 | Run a workflow | `/run` | `play` | Run wizard |
 | History | `/history` | `history` | Run history |
+| Scheduled runs | `/schedules` | `archive` | Scheduled runs (read-only, GW-11) |
+| AI usage | `/ai-usage` | `sparkles` | AI usage log (read-only, GW-9) |
+| Redaction assist | `/redaction` | `shield-check` | Redaction assist (GW-11) |
+| Settings | `/settings` | `table` | Settings (read-only, GW-8) |
 | About and safety | `/about` | `shield` | About/Safety |
+
+The four secondary pages (Scheduled runs, AI usage, Redaction assist, Settings) sit between
+the core flow (Home/Run/History) and About. All are read-only except Redaction assist, which
+is a stateless local scan that stores nothing. Settings is display-only this batch (no PUT).
 
 Review Run is route `/runs/:runId` (reached from the wizard finish, History, and Home's
 recent-runs list; it is not a nav item - it always belongs to a specific run).
@@ -196,6 +204,26 @@ Optional context (collapsed `<details>`-style section, label "Optional context (
 - All `required:false` uploads and any optional text fields, same components at compact
   size. Top line inside: "Skipping these is fine - checks that need them are skipped and
   noted in your results."
+
+Advanced options (GW-10) - collapsed `Collapsible` disclosure, heading "Advanced options",
+closed by default so it never clutters the default flow (progressive disclosure). It is
+ALWAYS present on the inputs step (it does not depend on optional inputs existing). Opening
+it reveals:
+- A muted lead line: "Optional. Most runs do not need anything here - the defaults from your
+  local settings are used unless you override them."
+- Configuration (JSON): a labeled `<textarea>` (monospace) for a JSON object of workflow
+  tolerances/thresholds. Placeholder shows an example shape. Left blank, nothing is sent and
+  the configured defaults apply. When non-empty, its trimmed value is posted as the multipart
+  `config` field that the preflight and run endpoints already accept. Editing it invalidates
+  any completed file check (the check re-runs with the new config).
+- Column mappings: shown ONLY when the file check surfaced suggested mappings
+  (`PreflightResponse.suggested_mappings`, best-effort - absent today, treated as progressive
+  enhancement). For each suggested column, a `<select>` whose first option keeps the backend's
+  suggestion ("Use suggested ({column})" or "Not mapped") and whose remaining options are the
+  available columns. Chosen overrides are serialized to a JSON string and posted as the
+  multipart `column_mappings` field. Empty selections are omitted; if nothing is chosen the
+  field is not sent.
+- No finance math here - the frontend only forwards the strings the user types/picks.
 
 Freeform specifics: render its structured text fields as provided by `text_inputs[]`
 (task type, desired output, relevant context) plus two required checkboxes with exact

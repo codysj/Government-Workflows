@@ -185,6 +185,65 @@ describe("GW-1: metadata-driven sample / example flow", () => {
   });
 });
 
+describe("GW-10: advanced options (progressive disclosure)", () => {
+  it("keeps advanced options collapsed by default", async () => {
+    renderWizard(makePreflight());
+    const card = await screen.findByRole("button", {
+      name: /Duplicate payment review/,
+    });
+    fireEvent.click(card);
+    // The disclosure toggle is present...
+    const toggle = screen.getByRole("button", { name: /Advanced options/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // ...and the config textarea is not visible until opened.
+    expect(
+      screen.queryByRole("textbox", { name: /Configuration \(JSON\)/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("posts the config field when the advanced JSON is filled", async () => {
+    const { calls } = installFetchMock([
+      {
+        match: /\/api\/workflows$/,
+        respond: () => ({ body: { workflows: [makeWorkflow()] } }),
+      },
+      {
+        match: /\/api\/workflows\/ap_duplicate_review\/preflight$/,
+        method: "POST",
+        respond: () => ({ body: makePreflight() }),
+      },
+    ]);
+    render(
+      <MemoryRouter initialEntries={["/run"]}>
+        <ToastProvider>
+          <RunWizardPage />
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    const card = await screen.findByRole("button", {
+      name: /Duplicate payment review/,
+    });
+    fireEvent.click(card);
+    fireEvent.click(screen.getByRole("button", { name: "Use sample data" }));
+
+    // Open advanced options and fill the config JSON.
+    fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: /Configuration \(JSON\)/ }),
+      { target: { value: '{"variance_threshold_pct":"15"}' } },
+    );
+
+    // Trigger the preflight POST (carries the same form data builder).
+    fireEvent.click(screen.getByRole("button", { name: "Check files" }));
+    await screen.findByText("PASS");
+
+    const preflightCall = calls.find((c) => /preflight/.test(c.url));
+    const form = preflightCall?.init?.body as FormData;
+    expect(form.get("config")).toBe('{"variance_threshold_pct":"15"}');
+  });
+});
+
 describe("run wizard gating", () => {
   it("a failed file check blocks the Run button", async () => {
     renderWizard(FAIL_PREFLIGHT);

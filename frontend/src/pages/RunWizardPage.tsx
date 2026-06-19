@@ -7,7 +7,11 @@ import {
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, getWorkflows, runPreflight, startRun } from "../api/client";
-import type { PreflightResponse, WorkflowInfo } from "../types/api";
+import type {
+  PreflightResponse,
+  SuggestedMapping,
+  WorkflowInfo,
+} from "../types/api";
 import { Collapsible } from "../components/Collapsible";
 import { ErrorState } from "../components/ErrorState";
 import { FileDropField } from "../components/FileDropField";
@@ -54,6 +58,13 @@ export function RunWizardPage() {
   const [preflight, setPreflight] = useState<PreflightState>({ phase: "idle" });
   const [run, setRun] = useState<RunState>({ phase: "idle" });
 
+  // GW-10 advanced options (progressive disclosure - collapsed by default).
+  const [configJson, setConfigJson] = useState("");
+  // input_key -> { semantic -> chosen column }. Only sent when non-empty.
+  const [columnMappings, setColumnMappings] = useState<
+    Record<string, Record<string, string>>
+  >({});
+
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const preselectedRef = useRef(false);
 
@@ -80,6 +91,8 @@ export function RunWizardPage() {
     setUseSample(false);
     setFreeformNoRealData(false);
     setFreeformDraftOk(false);
+    setConfigJson("");
+    setColumnMappings({});
     setPreflight({ phase: "idle" });
     setRun({ phase: "idle" });
     setStep(2);
@@ -142,6 +155,13 @@ export function RunWizardPage() {
       const value = texts[input.key];
       if (value && value.trim() !== "") form.append(input.key, value);
     }
+    // GW-10 advanced options. The backend run/preflight endpoints already
+    // accept optional `config` (JSON object string) and `column_mappings`
+    // (JSON string) multipart fields - we forward them only when provided.
+    const trimmedConfig = configJson.trim();
+    if (trimmedConfig !== "") form.append("config", trimmedConfig);
+    const filledMappings = collectMappings(columnMappings);
+    if (filledMappings) form.append("column_mappings", filledMappings);
     if (withActor) {
       const actor = localStorage.getItem(ACTOR_STORAGE_KEY);
       if (actor && actor.trim() !== "") form.append("actor", actor);
@@ -185,7 +205,20 @@ export function RunWizardPage() {
           setPreflight({ phase: "system_error" });
         }
       });
-  }, [selected, files, texts, useSample, announce]);
+  }, [selected, files, texts, useSample, configJson, columnMappings, announce]);
+
+  const setMapping = (inputKey: string, semantic: string, column: string) => {
+    setColumnMappings((current) => {
+      const next = { ...current };
+      const forInput = { ...(next[inputKey] ?? {}) };
+      if (column === "") delete forInput[semantic];
+      else forInput[semantic] = column;
+      if (Object.keys(forInput).length === 0) delete next[inputKey];
+      else next[inputKey] = forInput;
+      return next;
+    });
+    invalidatePreflight();
+  };
 
   // Entering step 3 with no result kicks off the check.
   useEffect(() => {
@@ -384,6 +417,21 @@ export function RunWizardPage() {
               </>
             );
           })()}
+
+          <AdvancedOptions
+            configJson={configJson}
+            onConfigChange={(value) => {
+              setConfigJson(value);
+              invalidatePreflight();
+            }}
+            suggestedMappings={
+              preflight.phase === "done"
+                ? preflight.result.suggested_mappings ?? []
+                : []
+            }
+            columnMappings={columnMappings}
+            onMappingChange={setMapping}
+          />
 
           {isFreeform ? (
             <div className="freeform-confirm">
@@ -588,6 +636,109 @@ export function RunWizardPage() {
       ) : null}
     </div>
   );
+}
+
+/**
+ * GW-10: collapsed-by-default advanced options on the inputs step. Holds an
+ * optional config JSON textarea and, when the file check surfaces suggested
+ * column mappings, a simple per-column mapping picker. Keeps the default flow
+ * uncluttered (progressive disclosure).
+ */
+function AdvancedOptions({
+  configJson,
+  onConfigChange,
+  suggestedMappings,
+  columnMappings,
+  onMappingChange,
+}: {
+  configJson: string;
+  onConfigChange: (value: string) => void;
+  suggestedMappings: SuggestedMapping[];
+  columnMappings: Record<string, Record<string, string>>;
+  onMappingChange: (inputKey: string, semantic: string, column: string) => void;
+}) {
+  return (
+    <Collapsible header="Advanced options" headingLevel="h3">
+      <p className="muted">
+        Optional. Most runs do not need anything here - the defaults from your
+        local settings are used unless you override them.
+      </p>
+
+      <div className="advanced-config">
+        <label>
+          Configuration (JSON)
+          <textarea
+            className="advanced-config-textarea"
+            value={configJson}
+            onChange={(e) => onConfigChange(e.target.value)}
+            rows={5}
+            placeholder='e.g. {"variance_threshold_pct": "10"}'
+            spellCheck={false}
+          />
+        </label>
+        <span className="upload-help">
+          A JSON object of workflow tolerances or thresholds. Leave blank to use
+          the configured defaults.
+        </span>
+      </div>
+
+      {suggestedMappings.length > 0 ? (
+        <div className="advanced-mappings">
+          <h4>Column mappings</h4>
+          <p className="upload-help">
+            The file check could not match these columns automatically. Pick the
+            right column for each, or leave as is.
+          </p>
+          {suggestedMappings.map((mapping) => {
+            const current =
+              columnMappings[mapping.input_key]?.[mapping.semantic] ?? "";
+            return (
+              <label
+                key={`${mapping.input_key}-${mapping.semantic}`}
+                className="mapping-row"
+              >
+                {mapping.label}
+                <select
+                  value={current}
+                  onChange={(e) =>
+                    onMappingChange(
+                      mapping.input_key,
+                      mapping.semantic,
+                      e.target.value,
+                    )
+                  }
+                >
+                  <option value="">
+                    {mapping.suggested_column
+                      ? `Use suggested (${mapping.suggested_column})`
+                      : "Not mapped"}
+                  </option>
+                  {mapping.available_columns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
+    </Collapsible>
+  );
+}
+
+/** Serialize chosen column mappings to a JSON string, or null when none chosen. */
+function collectMappings(
+  mappings: Record<string, Record<string, string>>,
+): string | null {
+  const cleaned: Record<string, Record<string, string>> = {};
+  for (const [inputKey, semantics] of Object.entries(mappings)) {
+    const filled = Object.entries(semantics).filter(([, col]) => col !== "");
+    if (filled.length > 0) cleaned[inputKey] = Object.fromEntries(filled);
+  }
+  if (Object.keys(cleaned).length === 0) return null;
+  return JSON.stringify(cleaned);
 }
 
 function TextInputField({

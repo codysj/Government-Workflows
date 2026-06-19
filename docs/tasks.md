@@ -29,7 +29,7 @@ Tool. This file is meant to be read and updated by both humans and LLM agents.
 8. **Do not invent scope.** Only add tasks that are real and traceable to code,
    a review finding, or an explicit product decision.
 
-**Next ID:** `GW-17`
+**Next ID:** `GW-25`
 
 **Status legend:** `[ ]` not started/scoped &nbsp; `[~]` in progress &nbsp;
 `[!]` blocked &nbsp; `[x]` done
@@ -48,99 +48,6 @@ They are small, well-understood, and should be cleared before new ambitions.
 Larger or lower-certainty work. Each needs scoping (acceptance criteria,
 file plan) before implementation — move to *Active* and set `Status: scoped`
 once that is done.
-
-### GW-6 — Packaging for non-technical users (one double-click launch)
-- **Status:** not_started
-- **Priority:** P1
-- **Area:** infra
-- **Why:** Target users are non-technical municipal finance staff on Windows.
-  "Run uvicorn, then npm" is not acceptable for them. Streamlit's one advantage
-  was single-command launch.
-- **Acceptance:** A documented, reproducible way to start the API (serving the
-  built React bundle) and open a browser without a terminal — e.g. a
-  PyInstaller launcher `.exe` or a Tauri desktop shell wrapping the static
-  build + a Python sidecar. Local-first; no network required; mock LLM default.
-- **Files:** TBD (new `packaging/` or `scripts/`)
-
-### GW-7 — Reach parity, then retire the Streamlit app
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** Streamlit is intentionally retained as the legacy/dev interface until
-  the React console covers the full demo loop and the nice-to-have surfaces.
-  Keeping two UIs long-term is maintenance drag.
-- **Acceptance:** The React console covers every workflow staff actually use
-  (incl. items below as needed); a documented decision in `docs/decisions.md`
-  marks Streamlit deprecated; `app/` is removed or clearly labeled
-  dev-only. Tests and CLI unaffected.
-- **Files:** `app/`, `docs/decisions.md`, `README.md`
-- **Blocked by:** GW-1, plus the nice-to-have screens below as scoped
-
-### GW-8 — Settings screen in the React console
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** Streamlit exposes local settings (city name, default actor,
-  tolerances, export dir, retention category) from `app_settings.json`. The new
-  console has no equivalent. A read/update settings endpoint pair would be
-  needed (only if consistent with MVP scope — no auth, local-first).
-- **Acceptance:** Scoped first: define whether settings are read-only display or
-  editable, and the API surface. Then a Settings page reads (and optionally
-  writes) the same local settings without breaking Streamlit. Never writes
-  secrets; never changes the mock-by-default LLM posture silently.
-- **Files:** `api/routes/`, `api/services/settings.py`, `frontend/src/pages/`
-
-### GW-9 — AI Usage / Audit Log screen in the React console
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** Streamlit surfaces an AI usage log and per-run audit events; the
-  console currently shows per-run audit on the Review page but has no
-  cross-run AI usage view. Useful for the auditability story.
-- **Acceptance:** Scoped first. A page lists AI usage / audit records the core
-  already produces (`src/core/ai_usage_log.py`, `AuditLog`), read through a new
-  API route. Read-only. Plain language.
-- **Files:** `api/routes/`, `frontend/src/pages/`
-
-### GW-10 — Column-mapping and optional config inputs in the wizard
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** Out of the core demo loop and absent from `docs/frontend/ux_spec.md`
-  beyond summary rendering. The backend already accepts `config` and
-  `column_mappings`; the wizard does not collect them, so messy-file mapping and
-  custom thresholds are not reachable from the new UI.
-- **Acceptance:** Scoped first (needs a ux_spec section). The wizard optionally
-  collects a config JSON and human-approved column mappings, posts them through
-  the existing API multipart fields, and surfaces preflight's suggested
-  mappings. Progressive disclosure — hidden unless the user opts in.
-- **Files:** `docs/frontend/ux_spec.md`, `frontend/src/pages/RunWizardPage.tsx`,
-  `api/routes/runs.py` (reference)
-
-### GW-11 — Redaction Assist and Scheduled Runs surfaces
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** Both exist in the core (`src/core/redaction.py`,
-  `src/core/scheduler.py`) and Streamlit but are not in the console. Listed as
-  nice-to-have in the migration brief; deliberately deferred to protect the
-  core loop.
-- **Acceptance:** Scoped first per feature. Each gets an API route over the
-  existing core module and a console page, read/trigger only, local-first.
-- **Files:** `api/routes/`, `frontend/src/pages/`
-
-### GW-12 — Browser-level end-to-end tests for the console
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** Frontend coverage is unit/component-level (vitest). The full guided
-  loop (choose -> inputs -> preflight gate -> run -> review -> export) is only
-  verified via the API e2e script, not through the rendered UI.
-- **Acceptance:** A Playwright (or equivalent) test drives the wizard against a
-  live API on sample data and asserts the review screen renders findings, the
-  AI trust boundary, validation status, and a downloadable artifact. Documented
-  run command. Optional in CI.
-- **Files:** `frontend/` (new `e2e/`), `docs/frontend/`
 
 ### GW-13 — Count-based runs-list query for history performance
 - **Status:** not_started
@@ -198,11 +105,209 @@ once that is done.
   version; README setup updated to use it; existing install path still works.
 - **Files:** `pyproject.toml`, new lock/requirements file, `README.md`
 
+### GW-17 — POST /api/schedules + trigger endpoint (create and run scheduled runs)
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** backend
+- **Why:** GET /api/schedules only lists; the roadmap wants users to create
+  schedules and launch a due run. Needs a create endpoint (over
+  `ScheduleStore.add` / `make_schedule`) and a trigger that kicks the existing
+  run flow + `ScheduleStore.mark_run`. Deferred from the read-only GW-11 batch.
+- **Acceptance:** POST /api/schedules creates a schedule and returns the new
+  ScheduleInfo. POST /api/schedules/{id}/run triggers the workflow on sample
+  data, advances next_due, and returns a RunDetail. Tests cover both. Frontend
+  schedules page can create and trigger.
+- **Files:** `api/routes/schedules.py`, `api/schemas/models.py`,
+  `api/services/schedules.py`, `api/main.py`
+
+### GW-18 — GET /api/schedules/due for due-now reminders
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** backend
+- **Why:** `ScheduleStore.due(as_of)` already computes which active schedules
+  are due on or before a date; surfacing it would let the console show "due now"
+  reminders without the frontend reimplementing the date logic.
+- **Acceptance:** GET /api/schedules/due?as_of=YYYY-MM-DD returns the subset of
+  schedules whose next_due <= as_of. as_of defaults to today. Test covers it.
+- **Files:** `api/routes/schedules.py`, `api/schemas/models.py`
+
+### GW-19 — Reload schedule_store per-request or add a refresh hook
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** backend
+- **Why:** `schedule_store` is loaded once at `create_app`, so schedules written
+  after startup (e.g. via Streamlit) do not appear in GET /api/schedules until
+  the API restarts. A lightweight per-request reload or a refresh endpoint
+  would make the listing live once GW-17 (create/trigger) lands.
+- **Acceptance:** The schedules listing reflects schedules added after API
+  startup without a restart. Either per-request reload (if cheap) or a
+  POST /api/schedules/refresh that re-reads the JSON store.
+- **Files:** `api/main.py`, `api/services/schedules.py`
+- **Blocked by:** GW-17 (only urgent once write endpoints land)
+
+### GW-20 — Surface suggested column mappings in the API PreflightResponse
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** backend
+- **Why:** `src/core/preflight.py` computes `column_mappings` but the API seam
+  does not expose them in PreflightResponse. The GW-10 wizard mapping UI is
+  therefore never rendered (it is gated on `suggested_mappings?: SuggestedMapping[]`
+  which the backend never sends). Core already does the work; only the seam
+  needs updating.
+- **Acceptance:** PreflightResponse gains a `suggested_mappings` field populated
+  from the core preflight result. The wizard mapping UI renders when the field
+  is non-empty. Test covers the field in the preflight response.
+- **Files:** `api/schemas/models.py`, `api/services/runs.py` (preflight call),
+  `frontend/src/types/api.ts`, `frontend/src/pages/RunWizardPage.tsx`
+
+### GW-21 — Add create/trigger UI for scheduled runs in the console
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** The GW-11 schedules page is read-only. Once GW-17 lands a backend
+  create/trigger endpoint, the console should surface it so staff can create
+  schedules and run them without opening Streamlit.
+- **Acceptance:** A form on the Scheduled Runs page creates a new schedule
+  (workflow, cadence, label). A "Run now" button on a due schedule triggers it
+  and links to the resulting run. Blocked by GW-17.
+- **Files:** `frontend/src/pages/SchedulesPage.tsx`, `frontend/src/api/client.ts`,
+  `frontend/src/types/api.ts`
+- **Blocked by:** GW-17
+
+### GW-22 — Add e2e smoke tests for the four new console pages
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** The new pages (settings, ai-usage, redaction, schedules) have vitest
+  unit coverage but no Playwright e2e flow. A navigation smoke test would
+  confirm each page loads and renders key elements against the live API.
+- **Acceptance:** Four Playwright tests (one per page) navigate to the page via
+  the nav link and assert at least one key element (e.g. table heading, banner
+  text). Runs in the existing `npx playwright test` suite.
+- **Files:** `frontend/e2e/core-loop.spec.ts` (extend) or a new spec file
+
+### GW-23 — Add a webbrowser smoke check for the launcher
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** infra
+- **Why:** `scripts/launch_console.py`'s `webbrowser.open()` call is the one
+  launcher branch never exercised in automated tests. A monkeypatched unit test
+  would close the gap without spawning a real browser.
+- **Acceptance:** A test in `tests/` patches `webbrowser.open` and asserts it
+  is called with the expected URL when `--no-browser` is not set. The existing
+  `wait_for_health` / `stop_server` helpers can be reused to avoid a full
+  subprocess.
+- **Files:** `scripts/launch_console.py`, `tests/` (new test file)
+
+### GW-24 — Wire frontend/test-results and playwright-report into CI (or confirm ignored)
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** infra
+- **Why:** Playwright writes `frontend/test-results/` and
+  `frontend/playwright-report/` on each run. These are gitignored but CI should
+  either upload them as artifacts on failure or confirm the ignore so they never
+  land in commits.
+- **Acceptance:** A CI step uploads `frontend/test-results/` as a build artifact
+  on failure, or the gitignore is confirmed sufficient and this task is closed
+  as "no action needed". Documented.
+- **Files:** `.github/workflows/` (or CI config), `frontend/.gitignore`
+
 ---
 
 ## Recently completed
 
 Kept for context. Newest first. Move finished tasks here with a `Done:` line.
+
+### GW-12 — Browser-level end-to-end tests for the console
+- **Status:** done
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** Frontend coverage is unit/component-level (vitest). The full guided
+  loop (choose -> inputs -> preflight gate -> run -> review -> export) is only
+  verified via the API e2e script, not through the rendered UI.
+- **Acceptance:** A Playwright (or equivalent) test drives the wizard against a
+  live API on sample data and asserts the review screen renders findings, the
+  AI trust boundary, validation status, and a downloadable artifact. Documented
+  run command. Optional in CI.
+- **Files:** `frontend/playwright.config.ts`, `frontend/e2e/core-loop.spec.ts`,
+  `frontend/package.json`, `frontend/tsconfig.json`, `frontend/vite.config.ts`,
+  `docs/frontend/e2e.md`
+- **Done:** 2026-06-19 - Three Playwright tests pass (home loads, core loop with FindingsSection/TrustBoundary/AI-safety-check/artifact link, history nav); chromium installed; suite optional in CI; vitest/tsc exclusions wired.
+
+### GW-11 — Redaction Assist and Scheduled Runs surfaces
+- **Status:** done
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** Both exist in the core (`src/core/redaction.py`,
+  `src/core/scheduler.py`) and Streamlit but are not in the console.
+- **Acceptance:** Each gets an API route over the existing core module and a
+  console page, read/trigger only, local-first.
+- **Files:** `api/routes/redaction.py`, `api/routes/schedules.py`,
+  `api/services/redaction.py`, `api/services/schedules.py`,
+  `api/schemas/models.py`, `frontend/src/pages/RedactionPage.tsx`,
+  `frontend/src/pages/SchedulesPage.tsx`, `tests/api/test_redaction.py`,
+  `tests/api/test_schedules.py`
+- **Done:** 2026-06-19 - POST /api/redaction/scan (stateless, masked previews only, 422 on empty) and GET /api/schedules (read-only list) delivered; Redaction and Scheduled Runs console pages live. Create/trigger deferred to GW-17/GW-21.
+
+### GW-10 — Column-mapping and optional config inputs in the wizard
+- **Status:** done
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** The backend already accepts `config` and `column_mappings`; the
+  wizard did not collect them, so custom thresholds and messy-file mapping were
+  not reachable from the new UI.
+- **Acceptance:** The wizard optionally collects a config JSON and human-approved
+  column mappings, posts them through the existing API multipart fields, and
+  surfaces preflight's suggested mappings. Progressive disclosure.
+- **Files:** `frontend/src/pages/RunWizardPage.tsx`, `docs/frontend/ux_spec.md`
+- **Done:** 2026-06-19 - "Advanced options" collapsible added (config JSON textarea always present; mapping select rendered when backend sends suggested_mappings). Mapping UI gated on optional API field not yet sent by backend -- degrades gracefully. Config textarea fully wired. GW-20 tracks the API-side gap.
+
+### GW-9 — AI Usage / Audit Log screen in the React console
+- **Status:** done
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** The console had no cross-run AI usage view.
+- **Acceptance:** A page lists AI usage records from `src/core/ai_usage_log.py`
+  via a new API route. Read-only.
+- **Files:** `api/routes/ai_usage.py`, `api/services/ai_usage.py`,
+  `api/schemas/models.py`, `frontend/src/pages/AiUsagePage.tsx`,
+  `tests/api/test_ai_usage.py`
+- **Done:** 2026-06-19 - GET /api/ai-usage returns newest-first rows (run_id, workflow, model, prompt version, validation status, draft status, source rows cited); AiUsagePage live in console nav.
+
+### GW-8 — Settings screen in the React console
+- **Status:** done
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** The console had no equivalent to Streamlit's settings display.
+- **Acceptance:** A Settings page reads (display-only) the same local settings
+  without breaking Streamlit. Tolerances shown as strings (no arithmetic).
+- **Files:** `api/routes/settings.py`, `api/services/settings.py`,
+  `api/services/settings_view.py`, `api/schemas/models.py`,
+  `frontend/src/pages/SettingsPage.tsx`, `tests/api/test_settings.py`
+- **Done:** 2026-06-19 - GET /api/settings returns all AppSettings fields; tolerances are strings; editable=false; PUT returns 405; SettingsPage live in console nav.
+
+### GW-7 — Reach parity, then retire the Streamlit app
+- **Status:** done
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** Keeping two UIs long-term is maintenance drag; the React console now
+  covers the core demo loop and the nice-to-have surfaces.
+- **Acceptance:** A documented decision marks Streamlit deprecated; `app/` is
+  clearly labeled dev-only. Tests and CLI unaffected.
+- **Files:** `app/streamlit_app.py`, `docs/decisions.md`, `README.md`
+- **Done:** 2026-06-19 - Prominent st.warning legacy/dev-only banner added to app/streamlit_app.py main(); decisions.md section appended; README updated with console screens, launcher, e2e, and legacy-Streamlit note. app/ retained (API depends on app.workflow_registry); removal deferred to a future refactor batch. 18/18 app import tests still pass.
+
+### GW-6 — Packaging for non-technical users (one double-click launch)
+- **Status:** done
+- **Priority:** P1
+- **Area:** infra
+- **Why:** Target users are non-technical municipal finance staff on Windows.
+  "Run uvicorn, then npm" is not acceptable for them.
+- **Acceptance:** A documented, reproducible way to start the API (serving the
+  built React bundle) and open a browser without a terminal.
+- **Files:** `scripts/launch_console.py`, `scripts/launch_console.cmd`,
+  `scripts/README.md`
+- **Done:** 2026-06-19 - scripts/launch_console.cmd (double-click) + scripts/launch_console.py (stdlib-only: checks dist, starts uvicorn on :8765, polls /api/health, opens browser, clean shutdown) + scripts/README.md delivered. PyInstaller .exe documented but not built (CI friction). Launcher verified: /api/health 200, clean Ctrl+C shutdown.
 
 ### GW-5 — Decide and document the `frontend/dist` build-artifact policy
 - **Status:** done

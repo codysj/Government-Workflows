@@ -1354,6 +1354,21 @@ PAGE_RENDERERS = {
 def main() -> None:
     st.set_page_config(page_title="Municipal Finance AI Workflow Tool",
                        layout="wide")
+    # --------------------------------------------------------------------------
+    # LEGACY / DEV-ONLY NOTICE
+    # The React console (frontend/) is now the primary UI, served by the FastAPI
+    # layer (api/).  Start it with:  scripts\launch_console.cmd
+    # This Streamlit app is retained for development and admin inspection only.
+    # It shares the same ledger, audit log, and export directory as the console.
+    # It may be removed in a future release once the React console reaches full
+    # feature parity.
+    # --------------------------------------------------------------------------
+    st.warning(
+        "LEGACY / DEV-ONLY -- The React console is now the primary user "
+        "interface (see scripts/launch_console.cmd or scripts/launch_console.py). "
+        "This Streamlit app is retained for development and admin use only and "
+        "may be removed in a future release."
+    )
     settings = get_settings()
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to", PAGES)

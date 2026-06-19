@@ -21,6 +21,7 @@ def api_settings(tmp_path_factory) -> ApiSettings:
         audit_dir=root / "audit",
         export_dir=root / "exports",
         upload_dir=root / "uploads",
+        schedules_path=root / "schedules.json",  # tmp store, not repo runs/
         frontend_dist=root / "no_frontend_dist",  # absent -> no static mount
         default_actor="api_test_actor",
         llm_mode="mock",

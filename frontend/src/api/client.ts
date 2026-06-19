@@ -1,13 +1,20 @@
 import type {
+  AiUsageList,
+  AiUsageRow,
   AuditEvent,
   AuditResponse,
   HealthResponse,
   PreflightResponse,
+  RedactionScanRequest,
+  RedactionScanResult,
   ReviewActionRequest,
   ReviewActionResponse,
   RunDetail,
   RunListItem,
   RunsResponse,
+  ScheduleInfo,
+  ScheduleList,
+  SettingsInfo,
   WorkflowInfo,
   WorkflowsResponse,
 } from "../types/api";
@@ -120,4 +127,32 @@ export async function getAudit(runId: string): Promise<AuditEvent[]> {
 /** Build the download URL for a run artifact (served as a file by the backend). */
 export function artifactUrl(runId: string, fileName: string): string {
   return `${BASE}/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(fileName)}`;
+}
+
+/** GW-8: read-only local settings snapshot. */
+export function getSettings(): Promise<SettingsInfo> {
+  return request<SettingsInfo>("/settings");
+}
+
+/** GW-9: cross-run AI-usage log, newest first. */
+export async function getAiUsage(): Promise<AiUsageRow[]> {
+  const data = await request<AiUsageList>("/ai-usage");
+  return data.rows;
+}
+
+/** GW-11: stateless redaction scan. Stores nothing on the server. */
+export function scanRedaction(
+  body: RedactionScanRequest,
+): Promise<RedactionScanResult> {
+  return request<RedactionScanResult>("/redaction/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** GW-11: read-only listing of configured recurring runs. */
+export async function getSchedules(): Promise<ScheduleInfo[]> {
+  const data = await request<ScheduleList>("/schedules");
+  return data.schedules;
 }

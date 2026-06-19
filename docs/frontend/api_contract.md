@@ -308,6 +308,109 @@ trail (`run_created`, `file_uploaded`, `file_parsed`,
 
 ---
 
+## GET /api/settings (GW-8)
+
+Read-only mirror of `app_settings.json` (the same settings the deterministic
+core uses). The API never writes app settings this batch.
+
+`200 SettingsInfo`:
+
+```
+{
+  "city_name": str,
+  "default_actor": str,
+  "llm_provider": str,
+  "mock_mode": bool,
+  "date_tolerance_days": int,
+  "amount_tolerance": str,            // numeric tolerance as a string
+  "variance_threshold_pct": str,      // numeric tolerance as a string
+  "variance_dollar_threshold": str,   // numeric tolerance as a string
+  "export_dir": str,
+  "role": str,
+  "default_retention_category": str,
+  "editable": false                   // always false this batch
+}
+```
+
+Numeric tolerances are serialized as strings so the frontend displays them
+verbatim and never does arithmetic on amounts. There is NO PUT/PATCH; the
+endpoint is purely read-only.
+
+## GET /api/ai-usage (GW-9)
+
+Cross-run record of every LLM interaction (newest first). Built from
+`src.core.ai_usage_log.ai_usage_log_rows(ledger)`. Empty list on a fresh
+ledger. For per-run audit detail use `GET /api/runs/{run_id}/audit` instead.
+
+`200 {"rows": [AiUsageRow]}` where each `AiUsageRow`:
+
+```
+{
+  "run_id": str | null,
+  "workflow_type": str | null,
+  "created_at": str | null,              // ISO-8601 string
+  "model_provider": str | null,
+  "model_name": str | null,
+  "prompt_template_version": str | null,
+  "validation_status": str | null,
+  "ai_draft_status": str | null,
+  "referenced_source_row_count": int
+}
+```
+
+## POST /api/redaction/scan (GW-11)
+
+Stateless PII scan/redaction assist over `src.core.redaction`. Stores
+NOTHING (no run, no audit, no artifact). Only masked previews are returned;
+raw sensitive matches are never echoed back.
+
+Request `RedactionScanRequest`:
+
+```
+{ "text": str, "extra_patterns": { <name>: <regex str> } | null }
+```
+
+`200 RedactionScanResult`:
+
+```
+{
+  "findings": [
+    { "category": str,         // pattern type: ssn|email|phone|credit_card|long_number|<extra>
+      "masked_preview": str,   // e.g. "***-**-6789"
+      "start": int,            // char offset into the submitted text
+      "end": int }
+  ],
+  "redacted_text": str,        // text with each match swapped for [REDACTED:TYPE]
+  "finding_count": int
+}
+```
+
+`422` when `text` is empty or whitespace-only.
+
+## GET /api/schedules (GW-11)
+
+Read-only listing of configured recurring runs from the same
+`runs/schedules.json` store the Streamlit app uses. Creating or triggering
+scheduled runs is NOT implemented this batch (deferred follow-up).
+
+`200 {"schedules": [ScheduleInfo]}` where each `ScheduleInfo`:
+
+```
+{
+  "schedule_id": str,
+  "workflow_type": str,
+  "cadence": str,            // monthly|quarterly|before_agenda|custom
+  "label": str,
+  "interval_days": int,
+  "next_due": str,           // ISO date (YYYY-MM-DD)
+  "active": bool,
+  "created_at": str,         // ISO-8601 datetime
+  "last_run_at": str | null  // ISO-8601 datetime or null
+}
+```
+
+---
+
 ## Deviations from the v1 contract draft
 
 None in shape. Two clarifications:
@@ -321,10 +424,12 @@ None in shape. Two clarifications:
 
 ## Test surface
 
-`tests/api/` (26 tests) covers every endpoint, the sample/preflight/run
-flows, artifact integrity (sha256), traversal safety, fail-closed JE prep,
-review actions (including the full status-transition matrix), audit events,
-and a restart-simulation rehydration test.
+`tests/api/` covers every endpoint, the sample/preflight/run flows, artifact
+integrity (sha256), traversal safety, fail-closed JE prep, review actions
+(including the full status-transition matrix), audit events, a
+restart-simulation rehydration test, plus the GW-8/9/11 read-only surfaces
+(settings mirror, cross-run AI usage log, stateless redaction scan, and
+schedule listing).
 Run them with:
 
 ```

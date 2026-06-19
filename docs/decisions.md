@@ -1285,3 +1285,138 @@ are untouched.
 Frontend validation after the test additions: `npm run typecheck` clean,
 `npm run lint` clean, `npm run test` 24/24 passed (was 19), `npm run build`
 clean.
+
+## Backlog pass GW-6..GW-12 (2026-06-19)
+
+Seven tasks from the backlog were closed in this pass. All changes are additive
+or corrective; no deterministic workflow logic, core modules, or frozen paths
+were changed.
+
+### GW-8, GW-9, GW-11 -- New read-only console screens over existing core
+
+Four new console screens and their backing API endpoints were added, each
+calling an existing `src/core` function directly with no new business logic.
+
+- **Settings (GW-8, GET /api/settings):** reads `AppSettings.load()` and
+  returns all fields as strings/bools. The three tolerance fields
+  (`amount_tolerance`, `variance_threshold_pct`, `variance_dollar_threshold`)
+  are typed as strings in both the API response model and the TypeScript
+  contract so the frontend cannot do arithmetic on them. `editable` is always
+  `false`; no PUT/PATCH endpoint exists (405). This is deliberate: settings
+  are local JSON on disk and the console is read-only at this stage.
+
+- **AI usage (GW-9, GET /api/ai-usage):** calls `ai_usage_log_rows(ledger)`
+  and reverses the result for newest-first order (the ledger stores
+  oldest-first). The page is explicitly labeled read-only and advisory; each
+  row links to the Review Run page for the associated run ID when present.
+  Empty on a fresh ledger (header-only, no crash).
+
+- **Redaction assist (GW-11, POST /api/redaction/scan):** calls
+  `redact_text(...)` (not `scan_text`) so findings and redacted output come
+  from one core call. Only masked previews are returned; raw matches are never
+  echoed in the response. 422 on empty or whitespace-only text. Stateless:
+  nothing is stored. The console page carries an explicit "nothing is stored"
+  note consistent with the Streamlit prototype warning.
+
+- **Scheduled runs (GW-11, GET /api/schedules):** calls `ScheduleStore.list()`
+  on a store whose path (`ApiSettings.schedules_path`) defaults to the same
+  `runs/schedules.json` Streamlit writes. Read-only: no create/trigger endpoint
+  in this pass. The console page notes that creating or triggering schedules is
+  available via the Streamlit admin surface. `schedule_store` is initialized
+  once at `create_app` time; a future pass should add a per-request reload or
+  refresh endpoint so newly created schedules appear without an API restart.
+
+**Decision: read-only for settings and schedules this batch.** Settings are a
+local JSON file with no validation or conflict-resolution story; a write
+endpoint would need to handle concurrent writes and schema migration. Schedules
+write requires `ScheduleStore.add` + `make_schedule` + a trigger path through
+`run_workflow` -- all real work left for a dedicated batch once the create/
+trigger UI is designed. Making the read path available now satisfies the
+auditability story without prematurely committing to a write contract.
+
+### GW-10 -- Column mapping and config inputs in the wizard
+
+The wizard gained a collapsed "Advanced options" section on the inputs step
+with: (a) a config JSON textarea (posted to the existing `config` multipart
+field) and (b) a column-mapping `<select>` UI rendered only when the preflight
+response surfaces a `suggested_mappings` optional field. Editing either
+invalidates a completed file check.
+
+**The API preflight response does not currently expose suggested column
+mappings.** Core computes them (`src/core/preflight.py`) but the API seam does
+not surface them in `PreflightResponse`. The wizard's mapping UI is gated on
+`suggested_mappings?: SuggestedMapping[]` -- an optional field the backend does
+not send today -- so it degrades to just the config textarea, which is the
+always-available advanced option. Wiring the core result into the API response
+model is the correct follow-up (see GW backlog).
+
+### GW-6 -- Easy-launch packaging (scripts/)
+
+Three files under `scripts/` provide the Windows double-click launch path:
+`launch_console.py` (pure stdlib: checks dist, starts uvicorn on port 8765,
+polls `/api/health`, opens browser, blocks until Ctrl+C, shuts down cleanly),
+`launch_console.cmd` (double-clickable wrapper; uses `%~dp0..` so it works
+from any location, checks `.venv`, passes `%*` through for flags), and
+`scripts/README.md` (setup steps, flags, optional PyInstaller note).
+
+**Why a PyInstaller .exe was documented but not built.** A frozen binary would
+bundle Python + all packages into a single portable executable, which is
+attractive for genuine non-technical deployment. However, building it requires
+a clean `pip install pyinstaller` step, hidden-import flags for pydantic/
+pandas, and a signing or allow-listing step for Windows Defender -- each of
+which adds environment-specific friction that cannot be verified in a headless
+build. The `.cmd` + `.venv` approach is reproducible with the existing
+`pyproject.toml` toolchain and is documented in `scripts/README.md` as a
+fallback for anyone who wants to attempt the frozen build.
+
+### GW-12 -- Playwright e2e tests (optional in CI)
+
+A three-test Playwright suite (`frontend/e2e/core-loop.spec.ts`) drives the
+full guided loop: home loads, core loop (workflow -> sample data -> preflight
+gate -> run -> Review Run with FindingsSection / TrustBoundary AI label / AI
+safety check / artifact download link), history navigation. All navigation uses
+in-page link clicks rather than direct URL navigation because FastAPI's
+`StaticFiles` mount returns 404 for SPA paths that have no physical file in
+`dist/` and no matching API route.
+
+**Playwright browsers:** Chromium was installed and the suite ran 3/3 green
+(26.5s) on the development machine. The suite is optional in CI because
+installing browsers in headless CI adds build time; the `e2e` npm script is
+separate from `test` (vitest) so it is never accidentally included in the main
+test run. Documented in `docs/frontend/e2e.md`.
+
+**`vitest` / `tsc` exclusion:** `frontend/vite.config.ts` excludes `e2e/**`
+from vitest collection (Playwright's `test()` is incompatible with vitest's
+`test()`) and `frontend/tsconfig.json` excludes `e2e/` from the project
+typecheck so the Playwright spec's `@playwright/test` import does not cause
+tsc errors.
+
+### GW-7 -- Streamlit marked legacy/dev-only; NOT removed
+
+`app/streamlit_app.py` received a prominent `st.warning(...)` banner at the
+top of `main()` stating that the React console is now the primary UI and this
+app is retained for development and admin use only. The banner is inside
+`main()` so importing the module is side-effect-free and all existing tests
+(`tests/unit/test_app_imports.py`, 18 passing including `AppTest` page render
+smoke tests) remain green.
+
+**Why `app/` is retained and not removed.** The API layer imports
+`app.workflow_registry` directly for the `run_workflow` adapter (the run
+endpoint calls `wfr.run_workflow`). Removing `app/` would break the API and
+all 38 API tests. The correct follow-up is to extract the
+workflow-registry adapter into `api/services/` or `src/core/workflow_runner.py`
+and then drop the `app/` dependency -- a non-trivial refactor left for a
+dedicated batch. For now the module is retained as shared infrastructure; only
+`streamlit_app.py` carries the legacy label.
+
+### What was intentionally NOT built in this pass
+
+- No schedule create/trigger endpoint (GET /api/schedules read-only; a POST
+  endpoint requires designing the create/trigger flow and wiring `mark_run`).
+- No settings write endpoint (no PUT/PATCH /api/settings; read-only by design).
+- No suggested-column-mapping surfacing in the API preflight response (core
+  computes them; the API seam was not extended this batch).
+- No schedule_store per-request reload (store is loaded once at create_app;
+  fine for read-only listing; needed once write endpoints land).
+- No PyInstaller frozen binary (documented as optional in scripts/README.md).
+- No `app/` removal (blocked by API dependency on app.workflow_registry).

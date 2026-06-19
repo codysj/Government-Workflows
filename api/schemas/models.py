@@ -209,3 +209,102 @@ class AuditEventInfo(BaseModel):
 
 class AuditEventList(BaseModel):
     events: list[AuditEventInfo] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Settings (GW-8) - READ-ONLY mirror of app_settings.json
+# --------------------------------------------------------------------------- #
+class SettingsInfo(BaseModel):
+    """Read-only view of the app settings the deterministic core uses.
+
+    Decimal-like numeric tolerances are serialized as strings so the frontend
+    displays them verbatim and never does arithmetic on amounts. ``editable``
+    is always False this batch (the API never writes app_settings.json).
+    """
+
+    city_name: str
+    default_actor: str
+    llm_provider: str
+    mock_mode: bool
+    date_tolerance_days: int
+    amount_tolerance: str
+    variance_threshold_pct: str
+    variance_dollar_threshold: str
+    export_dir: str
+    role: str
+    default_retention_category: str
+    editable: bool = False
+
+
+# --------------------------------------------------------------------------- #
+# AI usage log (GW-9) - cross-run record of every LLM interaction
+# --------------------------------------------------------------------------- #
+class AiUsageRow(BaseModel):
+    """One LLM interaction row from src.core.ai_usage_log.ai_usage_log_rows.
+
+    Fields mirror the dict keys that function returns exactly. ``created_at`` is
+    an ISO-8601 string as persisted by the ledger.
+    """
+
+    run_id: Optional[str] = None
+    workflow_type: Optional[str] = None
+    created_at: Optional[str] = None
+    model_provider: Optional[str] = None
+    model_name: Optional[str] = None
+    prompt_template_version: Optional[str] = None
+    validation_status: Optional[str] = None
+    ai_draft_status: Optional[str] = None
+    referenced_source_row_count: int = 0
+
+
+class AiUsageList(BaseModel):
+    rows: list[AiUsageRow] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Redaction assist (GW-11) - stateless PII scan
+# --------------------------------------------------------------------------- #
+class RedactionScanRequest(BaseModel):
+    text: str
+    extra_patterns: Optional[dict[str, str]] = None
+
+
+class RedactionFindingInfo(BaseModel):
+    """A masked PII finding. Only the masked preview is ever returned; raw
+    sensitive text is never echoed back to the caller."""
+
+    category: str
+    masked_preview: str
+    start: int
+    end: int
+
+
+class RedactionScanResult(BaseModel):
+    findings: list[RedactionFindingInfo] = Field(default_factory=list)
+    redacted_text: str
+    finding_count: int
+
+
+# --------------------------------------------------------------------------- #
+# Schedules (GW-11) - read-only listing of configured recurring runs
+# --------------------------------------------------------------------------- #
+class ScheduleInfo(BaseModel):
+    """Read-only mirror of a src.core.scheduler.Schedule record.
+
+    Dates/datetimes are ISO-8601 strings. This batch only LISTS schedules;
+    creating or triggering scheduled runs is deferred.
+    """
+
+    schedule_id: str
+    workflow_type: str
+    cadence: str
+    label: str
+    interval_days: int
+    next_due: str
+    active: bool
+    created_at: str
+    last_run_at: Optional[str] = None
+
+
+class ScheduleList(BaseModel):
+    schedules: list[ScheduleInfo] = Field(default_factory=list)

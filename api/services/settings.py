@@ -40,6 +40,8 @@ class ApiSettings:
     audit_dir: Path = REPO_ROOT / "runs" / "audit"
     export_dir: Path = REPO_ROOT / "runs" / "exports"
     upload_dir: Path = REPO_ROOT / "runs" / "uploads"
+    # Same JSON store the Streamlit app uses (runs/schedules.json).
+    schedules_path: Path = REPO_ROOT / "runs" / "schedules.json"
     frontend_dist: Path = REPO_ROOT / "frontend" / "dist"
     default_actor: str = "finance_staff"
     default_retention_category: str = "draft_working"
@@ -62,4 +64,5 @@ class ApiSettings:
         self.audit_dir = Path(self.audit_dir)
         self.export_dir = Path(self.export_dir)
         self.upload_dir = Path(self.upload_dir)
+        self.schedules_path = Path(self.schedules_path)
         self.frontend_dist = Path(self.frontend_dist)

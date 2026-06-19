@@ -14,5 +14,7 @@ export default defineConfig({
     setupFiles: "./src/test/setup.ts",
     // jsdom startup on Windows is slow enough to trip the 5s default.
     testTimeout: 30000,
+    // Exclude Playwright e2e tests from the vitest run.
+    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"],
   },
 });

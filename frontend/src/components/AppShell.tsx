@@ -23,6 +23,10 @@ const NAV_ITEMS: Array<{ label: string; to: string; icon: IconName }> = [
   { label: "Home", to: "/", icon: "home" },
   { label: "Run a workflow", to: "/run", icon: "play" },
   { label: "History", to: "/history", icon: "history" },
+  { label: "Scheduled runs", to: "/schedules", icon: "archive" },
+  { label: "AI usage", to: "/ai-usage", icon: "sparkles" },
+  { label: "Redaction assist", to: "/redaction", icon: "shield-check" },
+  { label: "Settings", to: "/settings", icon: "table" },
   { label: "About and safety", to: "/about", icon: "shield" },
 ];
 

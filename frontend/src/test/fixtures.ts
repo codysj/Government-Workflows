@@ -1,8 +1,59 @@
 import type {
+  AiUsageRow,
   PreflightResponse,
   RunDetail,
+  ScheduleInfo,
+  SettingsInfo,
   WorkflowInfo,
 } from "../types/api";
+
+export function makeSettings(overrides: Partial<SettingsInfo> = {}): SettingsInfo {
+  return {
+    city_name: "Springfield",
+    default_actor: "finance_staff",
+    llm_provider: "mock",
+    mock_mode: true,
+    date_tolerance_days: 3,
+    amount_tolerance: "0.01",
+    variance_threshold_pct: "10",
+    variance_dollar_threshold: "5000",
+    export_dir: "C:/exports",
+    role: "finance_staff",
+    default_retention_category: "draft_working",
+    editable: false,
+    ...overrides,
+  };
+}
+
+export function makeAiUsageRow(overrides: Partial<AiUsageRow> = {}): AiUsageRow {
+  return {
+    run_id: "run123",
+    workflow_type: "ap_duplicate_review",
+    created_at: "2026-06-12T09:14:00",
+    model_provider: "mock",
+    model_name: "mock-model",
+    prompt_template_version: "v1",
+    validation_status: "passed",
+    ai_draft_status: "pending",
+    referenced_source_row_count: 2,
+    ...overrides,
+  };
+}
+
+export function makeSchedule(overrides: Partial<ScheduleInfo> = {}): ScheduleInfo {
+  return {
+    schedule_id: "sch-1",
+    workflow_type: "budget_variance",
+    cadence: "monthly",
+    label: "Monthly budget variance",
+    interval_days: 30,
+    next_due: "2026-07-01",
+    active: true,
+    created_at: "2026-06-01T08:00:00",
+    last_run_at: "2026-06-01T08:05:00",
+    ...overrides,
+  };
+}
 
 export function makeWorkflow(overrides: Partial<WorkflowInfo> = {}): WorkflowInfo {
   return {

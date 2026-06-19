@@ -1396,3 +1396,84 @@ textarea {
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-3);
 }
+
+/* Info banner (neutral/blue tint) - used by AI usage, schedules, redaction. */
+.banner-info {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  background: var(--blue-100);
+  border: 1px solid var(--blue-100);
+  color: var(--blue-800);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0;
+}
+
+.banner-info p {
+  margin: 0;
+}
+
+/* Settings table: label column de-emphasized, narrow. */
+.settings-table th[scope="row"] {
+  width: 16rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+/* GW-11 redaction assist */
+.redaction-input-label {
+  display: block;
+  margin: var(--space-4) 0 var(--space-2);
+  font-weight: 600;
+}
+
+.redaction-textarea,
+.advanced-config-textarea {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  resize: vertical;
+}
+
+.redaction-results {
+  margin-top: var(--space-5);
+}
+
+.redaction-output {
+  background: var(--slate-50);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* GW-10 wizard advanced options */
+.advanced-config {
+  margin: var(--space-3) 0;
+}
+
+.advanced-config label {
+  display: block;
+  font-weight: 600;
+}
+
+.advanced-mappings {
+  margin-top: var(--space-4);
+}
+
+.mapping-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+  font-weight: 600;
+}
