@@ -20,6 +20,7 @@ import { PreflightResultView } from "../components/PreflightResultView";
 import { Stepper, type StepInfo } from "../components/Stepper";
 import { useToast } from "../components/ToastProvider";
 import { WorkflowCard } from "../components/WorkflowCard";
+import { sentenceCase } from "../lib/format";
 import { CATEGORY_HEADINGS } from "../lib/labels";
 
 const ACTOR_STORAGE_KEY = "mfawt_reviewer_name";
@@ -686,34 +687,38 @@ function AdvancedOptions({
         <div className="advanced-mappings">
           <h4>Column mappings</h4>
           <p className="upload-help">
-            The file check could not match these columns automatically. Pick the
-            right column for each, or leave as is.
+            The file check matched these columns for you. Override any of them by
+            picking a different column, or leave them as suggested.
           </p>
           {suggestedMappings.map((mapping) => {
             const current =
-              columnMappings[mapping.input_key]?.[mapping.semantic] ?? "";
+              columnMappings[mapping.input_key]?.[mapping.semantic_name] ?? "";
+            // The default option echoes what the engine resolved so the reviewer
+            // can see the auto-match without changing anything.
+            const suggestedLabel = mapping.mapped_column
+              ? `Use suggested (${mapping.mapped_column})`
+              : "Not matched";
             return (
               <label
-                key={`${mapping.input_key}-${mapping.semantic}`}
+                key={`${mapping.input_key}-${mapping.semantic_name}`}
                 className="mapping-row"
               >
-                {mapping.label}
+                {sentenceCase(mapping.semantic_name)}
+                {mapping.source === "unmapped" ? (
+                  <span className="muted"> (needs a column)</span>
+                ) : null}
                 <select
                   value={current}
                   onChange={(e) =>
                     onMappingChange(
                       mapping.input_key,
-                      mapping.semantic,
+                      mapping.semantic_name,
                       e.target.value,
                     )
                   }
                 >
-                  <option value="">
-                    {mapping.suggested_column
-                      ? `Use suggested (${mapping.suggested_column})`
-                      : "Not mapped"}
-                  </option>
-                  {mapping.available_columns.map((column) => (
+                  <option value="">{suggestedLabel}</option>
+                  {mapping.candidates.map((column) => (
                     <option key={column} value={column}>
                       {column}
                     </option>

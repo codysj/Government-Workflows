@@ -18,8 +18,8 @@ export function HomePage() {
   const load = useCallback(() => {
     setState("loading");
     listRuns(5)
-      .then((data) => {
-        setRuns(data);
+      .then((page) => {
+        setRuns(page.runs);
         setState("ok");
       })
       .catch(() => setState("error"));

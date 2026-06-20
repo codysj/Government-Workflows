@@ -1477,3 +1477,55 @@ textarea {
   margin: var(--space-2) 0;
   font-weight: 600;
 }
+
+/* GW-17: schedule create form */
+.schedule-create {
+  margin: var(--space-4) 0;
+}
+
+.schedule-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+}
+
+.schedule-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.schedule-form-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-basis: 100%;
+}
+
+/* Small inline button for in-row actions (e.g. Run now). */
+.btn-small {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+/* Plain inline error text (lighter than the bordered error card). */
+.inline-error-text {
+  color: var(--red-800);
+  font-size: var(--text-sm);
+  margin: var(--space-2) 0 0;
+}
+
+/* GW-13: history pager footer */
+.history-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.history-count {
+  margin: 0;
+}

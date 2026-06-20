@@ -128,6 +128,29 @@ def build_inputs(
     return inputs, (use_sample or uploaded_any)
 
 
+def build_sample_inputs(workflow_type: str) -> dict[str, Any]:
+    """Build the core ``inputs`` dict from a workflow's BUNDLED sample files.
+
+    This is the no-form analogue of the ``use_sample=true`` branch of
+    :func:`build_inputs`, reused by the schedule manual-trigger endpoint so a
+    scheduled run goes through the exact same sample resolution as an
+    interactive sample run. Raises ``KeyError`` for an unknown workflow type
+    (callers map that to 404) and ``InputError`` when the workflow ships no
+    sample inputs to run.
+    """
+    descriptor = wfr.get_descriptor(workflow_type)  # KeyError -> 404 upstream
+    inputs: dict[str, Any] = {}
+    for key, rel in descriptor.example_files.items():
+        inputs[key] = str(wfr.example_path(rel))
+    if workflow_type == "transaction_search":
+        inputs["query"] = wfr.TRANSACTION_SEARCH_EXAMPLE_QUERY
+    if not inputs:
+        raise InputError(
+            f"Workflow '{workflow_type}' has no bundled sample inputs, so it "
+            "cannot be triggered on a schedule without uploaded files.")
+    return inputs
+
+
 def validate_required_inputs(workflow_type: str, inputs: dict[str, Any]) -> None:
     """Plain-language 422s for missing required inputs (run endpoint only).
 

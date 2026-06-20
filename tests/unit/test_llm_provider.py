@@ -110,3 +110,109 @@ def test_get_provider_real_mode_needs_key(monkeypatch):
     assert isinstance(p, RealLLMProvider)
     with pytest.raises(RuntimeError):
         p.generate_text_response("x")
+
+
+def test_get_provider_real_mode_returns_real_provider(monkeypatch):
+    monkeypatch.setenv("LLM_MODE", "real")
+    assert isinstance(get_provider(), RealLLMProvider)
+    # use_mock=False bypasses env entirely.
+    monkeypatch.delenv("LLM_MODE", raising=False)
+    assert isinstance(get_provider(use_mock=False), RealLLMProvider)
+
+
+def test_real_provider_with_key_and_fake_transport_parses_dict(monkeypatch):
+    """WITH a key + an injected fake transport: correctly-parsed dict, NO network."""
+    monkeypatch.setenv("LLM_API_KEY", "test-key-123")
+
+    captured: dict = {}
+
+    def fake_transport(request: dict) -> str:
+        # Prove the request was built from env key + configured model, and that
+        # the prompt flowed through. No network is touched.
+        captured.update(request)
+        return json.dumps(
+            {
+                "summary": "Real-path summary.",
+                "categorized_exceptions": [
+                    {
+                        "category": "unmatched_bank",
+                        "description": "Unmatched bank item.",
+                        "referenced_source_rows": ["bank:3"],
+                    }
+                ],
+                "referenced_source_rows": ["bank:3"],
+                "suggested_review_steps": ["Confirm against source rows."],
+                "draft_memo": "DRAFT memo for human review.",
+            }
+        )
+
+    rp = RealLLMProvider(
+        "openai", "gpt-test", api_key_env="LLM_API_KEY", transport=fake_transport
+    )
+    prompt = _prompt_with_findings()
+    out = rp.generate_structured_response(prompt)
+
+    # Same dict shape the mock returns -> downstream validation works unchanged.
+    for key in (
+        "summary",
+        "categorized_exceptions",
+        "referenced_source_rows",
+        "suggested_review_steps",
+        "draft_memo",
+    ):
+        assert key in out
+    assert out["summary"] == "Real-path summary."
+    assert out["referenced_source_rows"] == ["bank:3"]
+
+    # Request was built from env key + configured model + the prompt.
+    assert captured["api_key"] == "test-key-123"
+    assert captured["model"] == "gpt-test"
+    assert captured["prompt"] == prompt
+
+
+def test_real_provider_text_response_with_fake_transport(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    rp = RealLLMProvider(
+        "openai",
+        "gpt-test",
+        transport=lambda req: json.dumps({"summary": "Just a summary."}),
+    )
+    assert rp.generate_text_response("prompt") == "Just a summary."
+
+
+def test_real_provider_tolerates_code_fenced_json(monkeypatch):
+    """Models often wrap JSON in prose / Markdown fences; the parser tolerates it."""
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    fenced = (
+        "Here is the analysis you requested:\n```json\n"
+        + json.dumps({"summary": "Fenced.", "referenced_source_rows": ["bank:3"]})
+        + "\n```\nLet me know if you need more."
+    )
+    rp = RealLLMProvider("openai", "gpt-test", transport=lambda req: fenced)
+    out = rp.generate_structured_response("p")
+    assert out["summary"] == "Fenced."
+    assert out["referenced_source_rows"] == ["bank:3"]
+    # Missing keys are filled with empty defaults (no fabricated data).
+    assert out["categorized_exceptions"] == []
+    assert out["draft_memo"] == ""
+
+
+def test_real_provider_invents_nothing_on_non_json(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    rp = RealLLMProvider("openai", "gpt-test", transport=lambda req: "no json here")
+    with pytest.raises(ValueError):
+        rp.generate_structured_response("p")
+    # text path falls back to the raw completion rather than fabricating fields.
+    assert rp.generate_text_response("p") == "no json here"
+
+
+def test_real_provider_does_not_call_transport_without_key(monkeypatch):
+    """No key -> raises BEFORE any transport/network call."""
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    def boom(request: dict) -> str:  # pragma: no cover - must never run
+        raise AssertionError("transport must not be called without a key")
+
+    rp = RealLLMProvider("openai", "gpt-test", transport=boom)
+    with pytest.raises(RuntimeError):
+        rp.generate_structured_response("p")

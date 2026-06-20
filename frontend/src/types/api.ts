@@ -60,12 +60,19 @@ export interface PreflightFinding {
   blocks_run: boolean;
 }
 
+// GW-20: one column-mapping suggestion from the deterministic preflight engine
+// (mirrors src.core.schemas.ColumnMapping). Advisory only - it reports what the
+// engine resolved (or could not) for a required/optional semantic column so the
+// wizard can offer a column picker. `mapped_column` is the chosen column (or
+// null when unmapped); `source` is auto/human/unmapped; `candidates` are the
+// ranked column names the engine considered.
 export interface SuggestedMapping {
   input_key: string;
-  semantic: string;
-  label: string;
-  suggested_column: string | null;
-  available_columns: string[];
+  semantic_name: string;
+  mapped_column: string | null;
+  confidence: number;
+  source: "auto" | "human" | "unmapped" | string;
+  candidates: string[];
 }
 
 export interface PreflightResponse {
@@ -75,10 +82,8 @@ export interface PreflightResponse {
   findings: PreflightFinding[];
   supported_checks: string[];
   next_steps: string[];
-  // Optional - present only if the backend chooses to surface column-mapping
-  // hints. The contract today does not include this, so the wizard treats it
-  // as best-effort progressive enhancement.
-  suggested_mappings?: SuggestedMapping[];
+  // GW-20: always present (empty array when the engine surfaced no mappings).
+  suggested_mappings: SuggestedMapping[];
 }
 
 export type RunStatus = "completed" | "failed_preflight" | "failed";
@@ -95,8 +100,22 @@ export interface RunListItem {
   artifact_count: number;
 }
 
+// GW-13: a page of run history. `runs` is the current page (kept first for
+// backward compatibility); `total` is the full ledger count; `limit`/`offset`
+// echo the applied page window. `total` is a display-only count - never a
+// finance value, never used in arithmetic on amounts.
 export interface RunsResponse {
   runs: RunListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface RunPage {
+  runs: RunListItem[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface SourceRowRef {
@@ -263,4 +282,16 @@ export interface ScheduleInfo {
 
 export interface ScheduleList {
   schedules: ScheduleInfo[];
+}
+
+// GW-17: create a recurring run. `start` defaults to today on the server when
+// omitted; `interval_days` drives custom/before_agenda cadences (ignored for
+// monthly/quarterly which step by calendar month). Creating a schedule does NOT
+// run anything - it only records the recurrence.
+export interface ScheduleCreateRequest {
+  workflow_type: string;
+  label: string;
+  cadence: string;
+  start?: string | null;
+  interval_days?: number | null;
 }

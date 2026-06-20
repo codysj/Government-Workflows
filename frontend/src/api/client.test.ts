@@ -31,12 +31,27 @@ describe("api client", () => {
     expect(result[0].workflow_type).toBe("ap_duplicate_review");
   });
 
-  it("listRuns passes the limit query parameter", async () => {
+  it("listRuns passes the limit and offset query parameters (GW-13)", async () => {
     const { calls } = installFetchMock([
-      { match: /\/api\/runs\?limit=5$/, respond: () => ({ body: { runs: [] } }) },
+      {
+        match: /\/api\/runs\?/,
+        respond: () => ({ body: { runs: [], total: 0, limit: 5, offset: 0 } }),
+      },
     ]);
-    await listRuns(5);
-    expect(calls[0].url).toBe("/api/runs?limit=5");
+    const page = await listRuns(5);
+    expect(calls[0].url).toBe("/api/runs?limit=5&offset=0");
+    expect(page).toEqual({ runs: [], total: 0, limit: 5, offset: 0 });
+  });
+
+  it("listRuns forwards a non-zero offset (GW-13)", async () => {
+    const { calls } = installFetchMock([
+      {
+        match: /\/api\/runs\?/,
+        respond: () => ({ body: { runs: [], total: 80, limit: 50, offset: 50 } }),
+      },
+    ]);
+    await listRuns(50, 50);
+    expect(calls[0].url).toBe("/api/runs?limit=50&offset=50");
   });
 
   it("getRun encodes the run id in the path", async () => {

@@ -40,8 +40,11 @@ def _require_run(ledger, run_id: str) -> dict:
 def list_runs(
     request: Request,
     limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> RunList:
-    return RunList(runs=build_run_list(request.app.state.ledger, limit))
+    items, total = build_run_list(
+        request.app.state.ledger, limit, offset)
+    return RunList(runs=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/runs/{run_id}", response_model=RunDetail)

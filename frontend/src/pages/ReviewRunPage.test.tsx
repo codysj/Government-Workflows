@@ -157,6 +157,7 @@ describe("Review Run page", () => {
           ],
           supported_checks: [],
           next_steps: ["Add an amount column, then check again."],
+          suggested_mappings: [],
         },
       }),
     );

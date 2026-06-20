@@ -4,6 +4,7 @@ import type {
   RunDetail,
   ScheduleInfo,
   SettingsInfo,
+  SuggestedMapping,
   WorkflowInfo,
 } from "../types/api";
 
@@ -102,6 +103,21 @@ export function makePreflight(
     findings: [],
     supported_checks: ["duplicate_invoice_number", "near_date"],
     next_steps: [],
+    suggested_mappings: [],
+    ...overrides,
+  };
+}
+
+export function makeSuggestedMapping(
+  overrides: Partial<SuggestedMapping> = {},
+): SuggestedMapping {
+  return {
+    input_key: "ap_invoices",
+    semantic_name: "amount",
+    mapped_column: "invoice_amount",
+    confidence: 0.92,
+    source: "auto",
+    candidates: ["invoice_amount", "amount_usd", "total"],
     ...overrides,
   };
 }

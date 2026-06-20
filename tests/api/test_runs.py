@@ -266,6 +266,36 @@ def test_runs_list_reflects_created_runs(client, ap_run):
     assert row["artifact_count"] == len(ap_run["artifacts"])
 
 
+def test_runs_list_pagination_fields(client, ap_run):
+    """GW-13: RunList gains total/limit/offset; default shape still has runs."""
+    # Ensure at least two runs exist for a meaningful page.
+    client.post(
+        "/api/workflows/ap_duplicate_review/runs",
+        data={"use_sample": "true", "actor": "tester"},
+    )
+    full = client.get("/api/runs", params={"limit": 500}).json()
+    assert set(full) >= {"runs", "total", "limit", "offset"}
+    total = full["total"]
+    assert total == len(full["runs"])
+    assert total >= 2
+
+    # offset paginates: a 1-row window at offset 0 then offset 1 differ.
+    page0 = client.get("/api/runs", params={"limit": 1, "offset": 0}).json()
+    page1 = client.get("/api/runs", params={"limit": 1, "offset": 1}).json()
+    assert page0["total"] == total and page1["total"] == total
+    assert page0["limit"] == 1 and page0["offset"] == 0
+    assert page1["offset"] == 1
+    assert len(page0["runs"]) == 1 and len(page1["runs"]) == 1
+    assert page0["runs"][0]["run_id"] != page1["runs"][0]["run_id"]
+
+
+def test_runs_list_default_call_backward_compatible(client, ap_run):
+    """The default call still returns a runs list (additive fields only)."""
+    body = client.get("/api/runs").json()
+    assert isinstance(body["runs"], list)
+    assert body["runs"]  # at least the shared ap_run is present
+
+
 def test_audit_events_present(client, ap_run):
     r = client.get(f"/api/runs/{ap_run['run_id']}/audit")
     assert r.status_code == 200

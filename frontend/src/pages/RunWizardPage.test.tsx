@@ -7,6 +7,8 @@ import { installFetchMock } from "../test/mockFetch";
 import {
   FAIL_PREFLIGHT,
   makePreflight,
+  makeRunDetail,
+  makeSuggestedMapping,
   makeWorkflow,
   PARTIAL_PREFLIGHT,
 } from "../test/fixtures";
@@ -241,6 +243,96 @@ describe("GW-10: advanced options (progressive disclosure)", () => {
     const preflightCall = calls.find((c) => /preflight/.test(c.url));
     const form = preflightCall?.init?.body as FormData;
     expect(form.get("config")).toBe('{"variance_threshold_pct":"15"}');
+  });
+});
+
+describe("GW-20: suggested column mappings", () => {
+  function renderWithMappingPreflight() {
+    const preflight = makePreflight({
+      status: "partial",
+      suggested_mappings: [
+        makeSuggestedMapping({
+          input_key: "ap_invoices",
+          semantic_name: "amount",
+          mapped_column: "invoice_amount",
+          candidates: ["invoice_amount", "amount_usd", "total"],
+        }),
+      ],
+    });
+    const { calls } = installFetchMock([
+      {
+        match: /\/api\/workflows$/,
+        respond: () => ({ body: { workflows: [makeWorkflow()] } }),
+      },
+      {
+        match: /\/api\/workflows\/ap_duplicate_review\/preflight$/,
+        method: "POST",
+        respond: () => ({ body: preflight }),
+      },
+      {
+        match: /\/api\/workflows\/ap_duplicate_review\/runs$/,
+        method: "POST",
+        respond: () => ({ body: makeRunDetail() }),
+      },
+    ]);
+    render(
+      <MemoryRouter initialEntries={["/run"]}>
+        <ToastProvider>
+          <RunWizardPage />
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+    return { calls };
+  }
+
+  it("renders mapping selectors after preflight returns suggested_mappings", async () => {
+    renderWithMappingPreflight();
+    await advanceToFileCheck();
+    await screen.findByText("PARTIAL");
+    // Back to inputs so the (now-populated) advanced mapping UI is reachable.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Advanced options/ }));
+    // The mapping section and a candidate-column selector are present.
+    expect(screen.getByText("Column mappings")).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /Amount/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "amount_usd" }),
+    ).toBeInTheDocument();
+  });
+
+  it("posts the chosen column_mappings on run", async () => {
+    const { calls } = renderWithMappingPreflight();
+    await advanceToFileCheck();
+    await screen.findByText("PARTIAL");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Advanced options/ }));
+
+    // Override the suggested column with a different candidate.
+    fireEvent.change(screen.getByRole("combobox", { name: /Amount/ }), {
+      target: { value: "amount_usd" },
+    });
+
+    // Re-run the file check (mapping change invalidated it), then run.
+    fireEvent.click(screen.getByRole("button", { name: "Check files" }));
+    await screen.findByText("PARTIAL");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Run anyway (flagged items will be noted)",
+      }),
+    );
+
+    await waitFor(() => {
+      const runCall = calls.find((c) => /\/runs$/.test(c.url));
+      expect(runCall).toBeTruthy();
+      const form = runCall?.init?.body as FormData;
+      const mappings = form.get("column_mappings");
+      expect(mappings).toBeTruthy();
+      expect(JSON.parse(mappings as string)).toEqual({
+        ap_invoices: { amount: "amount_usd" },
+      });
+    });
   });
 });
 

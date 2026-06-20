@@ -7,6 +7,10 @@ name = "municipal-finance-ai"
 version = "0.1.0"
 description = "Local-first AI workflow tool for small municipal finance departments."
 requires-python = ">=3.11"
+# Abstract direct dependencies (source of truth for what this project requires).
+# For a fully reproducible install with exact pinned transitive versions, use:
+#   pip install -r requirements.txt
+# That file was generated via `pip freeze` from the known-good Python 3.14 venv.
 dependencies = [
     "pandas",
     "pydantic>=2",

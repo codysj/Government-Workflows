@@ -28,15 +28,17 @@ Nav items (top to bottom), with route and icon name (lucide-react):
 | Home | `/` | `home` | Home |
 | Run a workflow | `/run` | `play` | Run wizard |
 | History | `/history` | `history` | Run history |
-| Scheduled runs | `/schedules` | `archive` | Scheduled runs (read-only, GW-11) |
+| Scheduled runs | `/schedules` | `archive` | Scheduled runs (list + create + run-now, GW-11/17/18/19) |
 | AI usage | `/ai-usage` | `sparkles` | AI usage log (read-only, GW-9) |
 | Redaction assist | `/redaction` | `shield-check` | Redaction assist (GW-11) |
 | Settings | `/settings` | `table` | Settings (read-only, GW-8) |
 | About and safety | `/about` | `shield` | About/Safety |
 
 The four secondary pages (Scheduled runs, AI usage, Redaction assist, Settings) sit between
-the core flow (Home/Run/History) and About. All are read-only except Redaction assist, which
-is a stateless local scan that stores nothing. Settings is display-only this batch (no PUT).
+the core flow (Home/Run/History) and About. AI usage and Settings are read-only (Settings is
+display-only this batch - no PUT). Redaction assist is a stateless local scan that stores
+nothing. Scheduled runs is interactive (GW-17): it can create a schedule and trigger a manual
+"Run now", but those actions only call existing local endpoints - no finance logic lives here.
 
 Review Run is route `/runs/:runId` (reached from the wizard finish, History, and Home's
 recent-runs list; it is not a nav item - it always belongs to a specific run).
@@ -216,13 +218,20 @@ it reveals:
   the configured defaults apply. When non-empty, its trimmed value is posted as the multipart
   `config` field that the preflight and run endpoints already accept. Editing it invalidates
   any completed file check (the check re-runs with the new config).
-- Column mappings: shown ONLY when the file check surfaced suggested mappings
-  (`PreflightResponse.suggested_mappings`, best-effort - absent today, treated as progressive
-  enhancement). For each suggested column, a `<select>` whose first option keeps the backend's
-  suggestion ("Use suggested ({column})" or "Not mapped") and whose remaining options are the
-  available columns. Chosen overrides are serialized to a JSON string and posted as the
-  multipart `column_mappings` field. Empty selections are omitted; if nothing is chosen the
-  field is not sent.
+- Column mappings (GW-20): shown ONLY when the file check surfaced suggested mappings
+  (`PreflightResponse.suggested_mappings`, a list the backend now always includes - empty when
+  the deterministic preflight engine resolved nothing to surface). Each entry mirrors
+  `src.core.schemas.ColumnMapping`: `input_key`, `semantic_name`, `mapped_column` (the chosen
+  column or null), `confidence`, `source` (`auto`/`human`/`unmapped`), and `candidates` (ranked
+  column names). For each entry, render a `<select>` labeled by the sentence-cased
+  `semantic_name` (with a "(needs a column)" hint when `source` is `unmapped`). Its first option
+  keeps the engine's match ("Use suggested ({mapped_column})" or "Not matched" when null); the
+  remaining options are the `candidates`. Chosen overrides are serialized to a JSON string and
+  posted as the multipart `column_mappings` field that the preflight and run endpoints already
+  accept; the value is shaped `{ input_key: { semantic_name: column } }`. Empty selections are
+  omitted; if nothing is chosen the field is not sent. Changing a mapping invalidates a
+  completed file check (it re-runs with the new mapping). This is display + forwarding only -
+  the frontend never decides which column is "right"; the deterministic engine does.
 - No finance math here - the frontend only forwards the strings the user types/picks.
 
 Freeform specifics: render its structured text fields as provided by `text_inputs[]`
@@ -477,7 +486,9 @@ sections.
 
 ## 7. History (`/history`)
 
-- Fetch `GET /api/runs?limit=100`.
+- Fetch `GET /api/runs?limit=50&offset=0` (GW-13). The response is a page:
+  `{ runs, total, limit, offset }`. `runs` is the page; `total` is the full ledger count
+  (a display-only integer - never a finance value, never used in arithmetic on amounts).
 - Heading "History"; sub "Every run recorded on this computer, newest first."
 - Filter row (client-side filtering of the delivered list only): workflow select (All +
   titles present), status select (All / Completed / File check failed / Failed), review
@@ -493,7 +504,55 @@ sections.
 - Empty state: icon `inbox`, "No runs yet. Run your first workflow on sample data - no files
   needed.", button "Run a workflow".
 - Filtered-to-zero state: "No runs match these filters." + "Clear filters" link.
-- Loading: skeleton table (6 rows). Failure: system error card + Retry.
+- Pager footer (GW-13): a muted count line plus a "Load more" button.
+  - Count line: with no active filter, "Showing {loaded} of {total}" where `loaded` is the
+    number of rows fetched so far and `total` comes from the page response. With a filter
+    active, "Showing {filtered} of {loaded} loaded ({total} total)" so the reviewer can tell
+    client-side filtering from server-side paging.
+  - "Load more" is shown only while `loaded < total`. Clicking it fetches the next page at
+    `offset = loaded` (the count already fetched) and APPENDS the rows; the button shows
+    "Loading..." and is disabled in flight. On a load-more failure, keep the rows already
+    shown and render an inline retry line "More runs did not load. Try Load more again."
+    (the page does not fall back to the full-page error state once initial data is present).
+- Loading (initial): skeleton table (6 rows). Initial failure: system error card + Retry.
+
+---
+
+## 7a. Scheduled runs (`/schedules`)
+
+Configured recurring runs on this computer. Local-first; creating a schedule records a
+recurrence only - it never runs anything on its own. The listing live-reflects schedules
+written after the API started (GW-19), so a newly created schedule appears on refresh without
+an API restart.
+
+- Heading "Scheduled runs"; sub "Recurring runs configured on this computer."
+- Info banner (exact intent): schedules are reminders only; creating one does not run anything;
+  use "Run now" to run a workflow on its bundled sample data right away; everything stays on
+  this computer.
+- Create form (GW-17), card "Create a scheduled run", `POST /api/schedules` with
+  `ScheduleCreateRequest` `{ workflow_type, label, cadence, start?, interval_days? }`:
+  - Workflow: `<select>` populated from `GET /api/workflows` (option label = `title`,
+    value = `workflow_type`); the first workflow auto-selects. A catalog-load failure is
+    non-fatal - the list still renders and the picker notes none are available.
+  - Label: free text, required (trimmed).
+  - Cadence: `<select>` of Monthly / Quarterly / Before agenda / Custom. Choosing Custom
+    reveals a required numeric "Interval (days)" field; `interval_days` is sent only for
+    custom (null otherwise). `start` is omitted, so the backend defaults it to today.
+  - Submit "Create schedule" stays disabled until a workflow + non-empty label exist (and an
+    interval, for custom). On success: clear the form, toast that the schedule was created and
+    will not run on its own, and refresh the list. On 422: show the backend's plain-language
+    detail inline (role="alert").
+- List table: columns Label, Workflow, Cadence, Next due (`next_due`, date), Last run
+  (`last_run_at` or "Never"), Active ("Active"/"Paused"), and a Run action.
+  - Run action (GW-17): per-row "Run now" button -> `POST /api/schedules/{id}/run`. While a
+    trigger is in flight, that row's button reads "Starting..." and all Run-now buttons are
+    disabled (only one trigger at a time). On success, navigate to `/runs/{run_id}` of the
+    returned run (with the standard "Run complete" toast when completed). On error, re-enable
+    and toast the backend detail.
+- Empty state: icon `history`, "No scheduled runs", "No recurring runs are configured yet.
+  Create one above - it will appear here." Loading: skeleton (5 rows). Failure: error card +
+  Retry. (The due-schedules endpoint `GET /api/schedules/due?as_of` (GW-18) is available in the
+  client as `getDueSchedules` for future reminder surfaces; it is not yet shown on this page.)
 
 ---
 

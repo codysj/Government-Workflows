@@ -1420,3 +1420,208 @@ dedicated batch. For now the module is retained as shared infrastructure; only
   fine for read-only listing; needed once write endpoints land).
 - No PyInstaller frozen binary (documented as optional in scripts/README.md).
 - No `app/` removal (blocked by API dependency on app.workflow_registry).
+
+## Backlog pass GW-13..GW-20 (2026-06-19)
+
+Eight backlog tasks were closed in a single pass. All changes are in the API
+seam (`api/`), the LLM provider module (`src/llm/provider.py`), the frontend
+(`frontend/`), infrastructure (`requirements.txt`, `pyproject.toml`), and
+documentation (`docs/`). No frozen paths (core workflow logic, `src/workflows/`,
+`src/ingest/`, `src/normalize/`, `src/core/`, `cli/`, `data/`,
+`app_settings.json`, `app/`) were modified.
+
+### GW-13 -- Runs list pagination (additive RunList fields)
+
+`GET /api/runs` gained an optional `offset` query parameter (default 0) in
+addition to the existing `limit` (default 50, range 1-500). The `RunList`
+response model gained three additive fields: `total` (total run count),
+`limit`, and `offset`. The existing `runs` array is unchanged. `build_run_list`
+in `api/services/runs.py` now returns `(items, total)`: `total` is
+`len(ledger.list_runs())` (all runs, unfiltered); `items` is
+`all_rows[offset:offset+limit]`. No change to `src/core/run_ledger.py`; the
+service does the slicing entirely in the API layer. Default `GET /api/runs`
+remains backward-compatible (same `runs` key; new keys are additive).
+
+Decision: slicing in the service layer (not the ledger) avoids touching frozen
+core code. The total reflects all runs; there is no server-side filter yet, so
+clients that filter client-side show "X of N loaded (M total)" rather than
+a misleading filtered total.
+
+### GW-14 -- Real LLM provider (opt-in, injectable transport, no live call in-repo)
+
+`RealLLMProvider` in `src/llm/provider.py` was rewritten from a
+`NotImplementedError` stub into a working, injectable provider. Key decisions:
+
+- **Injectable transport seam.** A `Transport = Callable[[dict], str]` type
+  alias is the testability boundary. Production uses `_default_httpx_transport`
+  (local `import httpx`, OpenAI-compatible `/chat/completions` POST). Tests
+  inject a fake transport; no network call is ever made by the test suite.
+
+- **Fail-closed on missing key.** `_require_key()` reads the env var named by
+  `api_key_env` (default `LLM_API_KEY`) and raises a clear `RuntimeError` with
+  opt-in instructions BEFORE any transport or network call. The system never
+  fabricates output when the key is absent.
+
+- **Same canonical dict shape.** `generate_structured_response` parses the
+  model completion into the same five-key dict the mock returns (`summary`,
+  `categorized_exceptions`, `referenced_source_rows`, `suggested_review_steps`,
+  `draft_memo`). Missing keys are filled with empty defaults; extra model keys
+  are preserved. All existing validation/source-citation guardrails apply
+  unchanged.
+
+- **Mock remains the default.** `get_provider()` still returns `MockLLMProvider`
+  unless `LLM_MODE=real` or `use_mock=False`. No live provider call is exercised
+  in any in-repo test or the default suite.
+
+- **Anthropic Messages API** requires a custom `transport=` callable (different
+  wire format: `x-api-key` header, `anthropic-version`, `content[].text`
+  response). A named preset is a documented follow-up.
+
+Only `src/llm/provider.py` and `tests/unit/test_llm_provider.py` were edited
+(the only files the GW-14 agent was authorized to touch).
+
+### GW-15 -- Tyler/Munis assumptions register (documented-only; real-template validation still pending)
+
+`docs/tyler_assumptions.md` was created as a field-by-field assumptions and
+verification register for all eight `TYLER_DATASET_TYPES`. It covers fixture
+headers, snake-cased forms, canonical targets, alias resolution, required/optional
+status, and a "Verified?" column. Public-source corroboration (Munis v10.5 JE
+guide, Franklin County OH training snippets) confirmed a small subset of field
+labels; the majority of assumptions remain UNVERIFIED against real export files.
+
+Key unresolved items documented: JE upload template column order (operationally
+critical; partially corroborated only), the GL sign convention (`amount = debit -
+credit`), "Description/Vendor" as a combined GL column, "Invoice Amount" vs
+"Invoice Net Amount" ambiguity, and an internal inconsistency between
+`TYLER_MUNIS_STYLE` preset and `TYLER_DATASET_TYPES` canonical names for org and
+object dimensions.
+
+The document also includes a 10-item verification checklist with exact questions
+for a Tyler/Munis contact. No frozen code paths were changed; this is a
+documentation-only deliverable. Real-template validation still requires external
+input (a city's actual Munis export files or a Tyler contact confirmation).
+
+Cross-link: `README.md` Limitations section now points to
+`docs/tyler_assumptions.md`.
+
+### GW-16 -- Pinned dependency set (requirements.txt)
+
+`requirements.txt` at the repo root pins all 58 packages in the transitive
+dependency graph at exact `==version` from the Python 3.14 environment.
+Generated via `pip freeze`. `pyproject.toml` gained a comment block pointing
+to `requirements.txt` for reproducible installs; the abstract dependency list
+in `[project].dependencies` is unchanged.
+
+Decision: `pip freeze` output rather than a dedicated lock tool (Poetry,
+pip-tools) to keep the workflow simple and the existing toolchain unchanged.
+The existing `pip install -e .` abstract path still works for developers who
+want latest-compatible resolution. `requirements.txt` is for
+byte-for-byte reproducibility across machines. Dry-run verification:
+all 58 packages already satisfied at exact versions; `pip check` reported no
+broken requirements.
+
+### GW-17 -- Schedule create + trigger endpoints
+
+Two new endpoints in `api/routes/schedules.py`:
+
+- **POST /api/schedules** -> 201 `ScheduleInfo`. Body: `ScheduleCreateRequest`
+  (workflow_type, label, cadence, start [YYYY-MM-DD, defaults today],
+  interval_days). Validates: workflow_type against `wfr.WORKFLOW_MODULES`,
+  non-empty label, cadence is a `CadenceType`, start is a valid date,
+  interval_days positive when cadence is custom. Plain-language 422s on
+  validation failure. Creates via `make_schedule` + `ScheduleStore.add`.
+
+- **POST /api/schedules/{id}/run** -> 200 `RunDetail`. Resolves sample inputs
+  for the schedule's workflow_type via `build_sample_inputs()` (a new no-form
+  analogue of `build_inputs` use_sample branch), executes the same
+  `execute_run(ledger, audit, export_dir)` flow used by the main run endpoint,
+  then calls `ScheduleStore.mark_run(id, utc_now(), advance=True)` which sets
+  `last_run_at` and advances `next_due` by the schedule's interval. Returns
+  `build_run_detail`. 404 on unknown schedule; 422 when workflow has no sample
+  inputs; 500 on unexpected run failure (run is already marked failed + audited
+  before the 500 is raised).
+
+Decision: the trigger runs on bundled sample inputs because `Schedule` (in
+`src/core/scheduler.py`) stores no file references. Associating a stable input
+source with a schedule is a documented follow-up.
+
+### GW-18 -- GET /api/schedules/due
+
+`GET /api/schedules/due?as_of=YYYY-MM-DD` returns `{"schedules": [...]}` from
+`ScheduleStore.due(as_of)` -- schedules whose `next_due <= as_of` and
+`active=True`. `as_of` defaults to `date.today()` in the route; a malformed
+date returns 422. Implementation is a thin wrapper over the existing
+`ScheduleStore.due` method; no new business logic.
+
+### GW-19 -- Per-request ScheduleStore reload (live listing)
+
+All schedule endpoints (GET /api/schedules, GET /api/schedules/due, POST
+/api/schedules, POST /api/schedules/{id}/run) now build a fresh
+`ScheduleStore(settings.schedules_path)` per request via a `load_store(path)`
+helper, rather than reading `app.state.schedule_store` (which was loaded once
+at startup). This means schedules created by Streamlit, the CLI, another
+process, or POST /api/schedules are immediately visible in GET /api/schedules
+without an API restart.
+
+The `app.state.schedule_store` in `api/main.py` is now unused by routes but
+was left in place (harmless; no other code references it; removal is a cleanup
+follow-up). Per-request `ScheduleStore` construction is cheap (reads a small
+JSON file); there is no connection pool concern.
+
+### GW-20 -- Preflight suggested_mappings in the API response
+
+`PreflightResponse` in `api/schemas/models.py` gained a `suggested_mappings:
+List[SuggestedMapping]` field (empty list when none). `SuggestedMapping`
+mirrors `src.core.schemas.ColumnMapping` with fields: `input_key`, `semantic_name`,
+`mapped_column` (str | null), `confidence` (float), `source`
+("auto"|"human"|"unmapped"), `candidates` (list of str).
+
+`preflight_response_from_dict` in `api/services/runs.py` populates the field
+from the core report dict's `"column_mappings"` list, so the data flows through
+both `POST /workflows/{type}/preflight` AND through `RunDetail.preflight`. No
+change to `src/core/preflight.py` (frozen); only the seam serialization was
+extended.
+
+Decision: the `SuggestedMapping` shape was corrected relative to the GW-10
+placeholder: `source` is `"auto"|"human"|"unmapped"` (not a bool), and
+`candidates` is a string list (not a dict). The frontend type was updated to
+match.
+
+### Frontend wiring (GW-13/17/18/19/20)
+
+The React/Vite/TS console was updated to consume all five backend changes. No
+finance arithmetic was added to the frontend (display formatting only).
+
+- **GW-20 mapping UI:** `SuggestedMapping` type corrected; `RunWizardPage.tsx`
+  mapping `<select>` rows use `semantic_name` (sentence-cased label),
+  `mapped_column` (first option "Use suggested ({col})" or "Not matched"), and
+  `candidates` list. Overrides serialize to `column_mappings` multipart field.
+- **GW-17/19 schedules:** `SchedulesPage.tsx` gained a create form and "Run now"
+  buttons. Create POSTs `ScheduleCreateRequest`; Run now POSTs to
+  `/api/schedules/{id}/run` and navigates to `/runs/{run_id}`.
+- **GW-13 history paging:** `HistoryPage.tsx` fetches offset-based pages of 50,
+  displays "Showing N of TOTAL" (total from API, display-only), and provides a
+  "Load more" button that fetches the next offset.
+- **GW-18:** `getDueSchedules(asOf?)` added to `api/client.ts`; not yet surfaced
+  in the UI (a due-reminder banner is a documented follow-up).
+
+New/changed client functions in `frontend/src/api/client.ts`:
+- `listRuns(limit, offset)` -- was `Promise<RunListItem[]>`, now
+  `Promise<RunPage>` (adds total/limit/offset). Breaking for callers; `HomePage`
+  updated.
+- `createSchedule(body)` -- new, POST /api/schedules.
+- `runSchedule(scheduleId)` -- new, POST /api/schedules/{id}/run.
+- `getDueSchedules(asOf?)` -- new, GET /api/schedules/due?as_of.
+
+### What was intentionally NOT built in this pass
+
+- No due-reminder banner in the console (getDueSchedules is wired but not yet
+  shown; documented follow-up).
+- No pause/activate or delete controls for schedules (ScheduleStore supports
+  update/remove; not exposed in this batch).
+- No server-side filtering for the history endpoint (client-side only; noted
+  as a follow-up once datasets grow).
+- No Anthropic Messages API transport preset (requires a custom callable today;
+  documented follow-up for src/llm/provider.py).
+- No removal of app.state.schedule_store (unused but harmless; cleanup follow-up).
+- No real-provider live call in any test or default suite path.

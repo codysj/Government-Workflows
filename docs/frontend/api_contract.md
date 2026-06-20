@@ -120,12 +120,32 @@ Responses:
                 "message": "...", "affected_input": "report_table",
                 "blocks_run": true}],
   "supported_checks": ["subtotal_consistency", "..."],
-  "next_steps": ["..."]
+  "next_steps": ["..."],
+  "suggested_mappings": [
+    {"input_key": "report_table", "semantic_name": "amount",
+     "mapped_column": "amount", "confidence": 0.97, "source": "auto",
+     "candidates": ["amount", "balance"]}
+  ]
 }
 ```
 
   `status` is `pass` | `partial` | `fail`. `blocks_run: true` findings force
   `fail` (the run endpoint would refuse to execute the workflow/LLM).
+- `suggested_mappings` (GW-20) mirrors the deterministic core column-mapping
+  result (`src.core.schemas.ColumnMapping`), one entry per required/optional
+  semantic column the engine considered. Advisory display only; the frontend
+  never computes finance values from it. Fields:
+  - `input_key`: which uploaded input the column lives in.
+  - `semantic_name`: the semantic role the engine was resolving (e.g.
+    `amount`, `date`, `section`).
+  - `mapped_column`: the chosen concrete column, or `null` when unmapped.
+  - `confidence`: float 0..1 score from the engine.
+  - `source`: `auto` (confident auto-map) | `human` (approved mapping) |
+    `unmapped` (no confident/unambiguous match).
+  - `candidates`: ranked candidate column names.
+  Empty list when the workflow has no column-mapping step or no present inputs.
+  The same `PreflightResponse` (including `suggested_mappings`) is embedded in
+  `RunDetail.preflight`.
 - `404` unknown workflow.
 - `422 {"detail": ...}` when neither files nor `use_sample=true` were
   provided, or when `config` is not a valid JSON object string.
@@ -229,17 +249,33 @@ Notes for the frontend (trust boundaries):
   survive (by design) is the in-memory `result_tables`, which is never part
   of the API.
 
-## GET /api/runs?limit=N
+## GET /api/runs?limit=N&offset=M
 
-`200 {"runs": [RunListItem]}` newest first. `limit` defaults to 50
-(1..500).
+`200 {"runs": [RunListItem], "total": int, "limit": int, "offset": int}`
+newest first. `limit` defaults to 50 (1..500); `offset` defaults to 0
+(>= 0). The default call (`GET /api/runs`) is unchanged for prior callers:
+`runs` is still present and is the page; `total`/`limit`/`offset` are
+additive.
+
+- `total` is the full number of runs in the ledger (NOT just this page) -
+  use it to drive pagination controls.
+- `limit` / `offset` echo the page window actually applied.
+- The page is the `[offset : offset+limit]` slice of the newest-first run
+  list. An `offset` past the end yields `runs: []` with `total` still set.
 
 ```json
-{"run_id": "...", "workflow_type": "ap_duplicate_review",
- "workflow_title": "AP duplicate / suspicious payment review",
- "created_at": "...", "status": "completed",
- "human_review_status": "pending", "validation_passed": true,
- "finding_count": 15, "artifact_count": 7}
+{
+  "runs": [
+    {"run_id": "...", "workflow_type": "ap_duplicate_review",
+     "workflow_title": "AP duplicate / suspicious payment review",
+     "created_at": "...", "status": "completed",
+     "human_review_status": "pending", "validation_passed": true,
+     "finding_count": 15, "artifact_count": 7}
+  ],
+  "total": 137,
+  "limit": 50,
+  "offset": 0
+}
 ```
 
 `validation_passed`: `true` when validation passed, `false` when it produced
@@ -387,11 +423,10 @@ Request `RedactionScanRequest`:
 
 `422` when `text` is empty or whitespace-only.
 
-## GET /api/schedules (GW-11)
+## GET /api/schedules
 
-Read-only listing of configured recurring runs from the same
-`runs/schedules.json` store the Streamlit app uses. Creating or triggering
-scheduled runs is NOT implemented this batch (deferred follow-up).
+Listing of configured recurring runs from the same `runs/schedules.json`
+store the Streamlit app uses.
 
 `200 {"schedules": [ScheduleInfo]}` where each `ScheduleInfo`:
 
@@ -408,6 +443,59 @@ scheduled runs is NOT implemented this batch (deferred follow-up).
   "last_run_at": str | null  // ISO-8601 datetime or null
 }
 ```
+
+**Live listing (GW-19):** every schedule read endpoint (`GET /api/schedules`,
+`GET /api/schedules/due`) builds a fresh `ScheduleStore` from the JSON path per
+request, so schedules written AFTER the API started - by Streamlit, by another
+process, or by `POST /api/schedules` below - are reflected immediately WITHOUT
+an API restart. The store file is tiny; re-reading per request is cheap.
+
+## GET /api/schedules/due?as_of=YYYY-MM-DD (GW-18)
+
+Active schedules due on or before `as_of`, ordered by `next_due`. `as_of`
+defaults to the server's today when omitted (this is a reminder query, not a
+recorded finding). Inactive schedules are never returned.
+
+`200 {"schedules": [ScheduleInfo]}` | `422` when `as_of` is not `YYYY-MM-DD`.
+
+## POST /api/schedules (GW-17)
+
+Create a recurring run. JSON body `ScheduleCreateRequest`:
+
+```
+{
+  "workflow_type": str,        // must be a known workflow type
+  "label": str,                // non-empty
+  "cadence": str,              // monthly|quarterly|before_agenda|custom
+  "start": str | null,         // first due date YYYY-MM-DD; defaults to today
+  "interval_days": int | null  // step for custom/before_agenda; ignored for
+                               // monthly/quarterly (which step by month)
+}
+```
+
+`201 ScheduleInfo` (the created schedule, listable immediately). `422` for an
+unknown `workflow_type`, an empty `label`, an unknown `cadence`, a malformed
+`start` date, or a non-positive `interval_days` - each with a plain-language
+`detail`.
+
+## POST /api/schedules/{schedule_id}/run (GW-17)
+
+Manually trigger a scheduled run. Resolves that workflow's bundled SAMPLE
+inputs and runs them through the SAME shared pipeline as
+`POST /api/workflows/{type}/runs`, then records the run against the schedule:
+`last_run_at` is set and `next_due` advances by the cadence. Returns the
+resulting `RunDetail`.
+
+- `200 RunDetail` (the completed run; same shape and rehydration guarantees as
+  any other run).
+- `404` for an unknown `schedule_id`.
+- `422` if the schedule's `workflow_type` is unknown or ships no sample inputs.
+- `500` only for an unexpected run failure (the run is marked failed + audited
+  first), mirroring the run endpoint.
+
+This endpoint is a MANUAL trigger only - there is no background daemon, cron,
+or thread. It uses the workflow's sample inputs (the schedule store carries no
+uploaded files), matching the local-only MVP design of the scheduler core.
 
 ---
 
@@ -429,7 +517,9 @@ integrity (sha256), traversal safety, fail-closed JE prep, review actions
 (including the full status-transition matrix), audit events, a
 restart-simulation rehydration test, plus the GW-8/9/11 read-only surfaces
 (settings mirror, cross-run AI usage log, stateless redaction scan, and
-schedule listing).
+schedule listing). GW-13 runs pagination (`total`/`limit`/`offset`), GW-20
+preflight `suggested_mappings`, and the GW-17/18/19 schedule create, manual
+trigger, due-query, and live-listing flows are covered as well.
 Run them with:
 
 ```

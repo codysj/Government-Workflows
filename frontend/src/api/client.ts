@@ -10,8 +10,9 @@ import type {
   ReviewActionRequest,
   ReviewActionResponse,
   RunDetail,
-  RunListItem,
+  RunPage,
   RunsResponse,
+  ScheduleCreateRequest,
   ScheduleInfo,
   ScheduleList,
   SettingsInfo,
@@ -94,9 +95,24 @@ export function startRun(workflowType: string, form: FormData): Promise<RunDetai
   });
 }
 
-export async function listRuns(limit: number): Promise<RunListItem[]> {
-  const data = await request<RunsResponse>(`/runs?limit=${encodeURIComponent(limit)}`);
-  return data.runs;
+/**
+ * GW-13: fetch one page of run history. Returns the page rows plus the full
+ * ledger `total` and the applied `limit`/`offset` so the caller can show
+ * "Showing N of TOTAL" and load more. `total` is a display-only count.
+ */
+export async function listRuns(
+  limit: number,
+  offset = 0,
+): Promise<RunPage> {
+  const data = await request<RunsResponse>(
+    `/runs?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
+  );
+  return {
+    runs: data.runs,
+    total: data.total,
+    limit: data.limit,
+    offset: data.offset,
+  };
 }
 
 export function getRun(runId: string): Promise<RunDetail> {
@@ -151,8 +167,39 @@ export function scanRedaction(
   });
 }
 
-/** GW-11: read-only listing of configured recurring runs. */
+/** GW-11/GW-19: listing of configured recurring runs (live-reflects new writes). */
 export async function getSchedules(): Promise<ScheduleInfo[]> {
   const data = await request<ScheduleList>("/schedules");
+  return data.schedules;
+}
+
+/** GW-17: create a recurring run. Returns the new schedule. Does NOT run it. */
+export function createSchedule(
+  body: ScheduleCreateRequest,
+): Promise<ScheduleInfo> {
+  return request<ScheduleInfo>("/schedules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * GW-17: manually trigger a scheduled run now. Runs the workflow's bundled
+ * sample inputs through the standard pipeline and returns the resulting run.
+ */
+export function runSchedule(scheduleId: string): Promise<RunDetail> {
+  return request<RunDetail>(
+    `/schedules/${encodeURIComponent(scheduleId)}/run`,
+    { method: "POST" },
+  );
+}
+
+/** GW-18: active schedules due on or before `asOf` (defaults to today server-side). */
+export async function getDueSchedules(
+  asOf?: string,
+): Promise<ScheduleInfo[]> {
+  const query = asOf ? `?as_of=${encodeURIComponent(asOf)}` : "";
+  const data = await request<ScheduleList>(`/schedules/due${query}`);
   return data.schedules;
 }

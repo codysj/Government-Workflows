@@ -62,6 +62,35 @@ default path, runs with no API key and no internet, and derives its output only
 from the deterministic findings. Prompt templates are versioned in
 `src/llm/prompts.py`.
 
+## LLM provider: mock by default, real opt-in
+
+The mock LLM provider (`MockLLMProvider` in `src/llm/provider.py`) is the
+default. It is deterministic, derives output only from the deterministic
+findings in the prompt, requires no API key and no internet, and exercises
+the same guardrails as any other provider. All tests run on the mock path.
+
+A real provider is available opt-in by setting environment variables:
+
+```bat
+set LLM_MODE=real
+set LLM_API_KEY=<your-key>
+REM Optional overrides:
+set LLM_BASE_URL=https://api.openai.com/v1/chat/completions
+set LLM_MODEL=gpt-4o
+set LLM_PROVIDER=openai
+```
+
+Without `LLM_MODE=real` (or when `LLM_API_KEY` is unset) the system
+silently uses the mock -- the real provider raises a clear `RuntimeError`
+before making any network call rather than fabricating output. The real
+provider uses an OpenAI-compatible `/chat/completions` endpoint by default;
+a different wire format can be supplied via a custom `transport=` callable
+passed to `RealLLMProvider`. All existing validation/source-citation
+guardrails apply to the real provider path identically to the mock path.
+
+The real provider is never exercised by the default test suite and is not
+required for any demo.
+
 ## Supported workflows
 
 | Workflow | What it does (deterministic) | What the AI does |
@@ -331,18 +360,41 @@ and no provider-specific code.
 ## Setup
 
 The project uses a local virtual environment at `.venv\Scripts\python.exe`
-(Windows). To create it and install the dependencies:
+(Windows). Node v24+ and npm are required for the React frontend. The tool
+runs fully offline by default; the mock LLM provider requires no API key and
+no internet.
+
+### Reproducible install (exact pinned versions)
+
+Supported Python: 3.14
+
+```bat
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+`requirements.txt` at the repo root pins the exact `==version` for every
+package in the transitive dependency graph, frozen from the known-good
+Python 3.14 environment. Regenerate after any dependency change with:
+
+```bat
+.venv\Scripts\python.exe -m pip freeze > requirements.txt
+```
+
+### Abstract install (resolves latest compatible versions)
 
 ```bat
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install --upgrade pip
-.venv\Scripts\python.exe -m pip install pandas pydantic openpyxl streamlit pytest fastapi uvicorn httpx python-multipart
+.venv\Scripts\python.exe -m pip install -e .
 ```
 
+`pyproject.toml` `[project].dependencies` is the source of truth for direct
+dependencies. Use this path when you want pip to resolve the latest
+compatible transitive set. Use `requirements.txt` for byte-for-byte
+reproducibility across machines.
+
 Use `.venv\Scripts\python.exe` for all Python and pytest invocations below.
-Built and tested on Python 3.12+. Node v24+ and npm are required for the
-React frontend. The tool runs fully offline by default (the mock LLM
-provider requires no API key and no internet).
 
 ### Troubleshooting: `Unable to import required dependency numpy`
 
@@ -518,22 +570,26 @@ The React console (`http://127.0.0.1:8765` via the launcher, or
 | Screen | Nav label | What it shows |
 | --- | --- | --- |
 | Home | Home | Workflow picker and status strip |
-| Run wizard | Run a workflow | Four-step guided wizard (upload -> file check -> run -> review) |
+| Run wizard | Run a workflow | Four-step guided wizard (upload -> file check -> run -> review); Advanced options section exposes config JSON and suggested column mappings from preflight |
 | Review Run | (reached from wizard) | Findings, AI trust boundary, artifacts, audit trail |
-| History | History | All past runs with status and link to Review Run |
+| History | History | All past runs with status and link to Review Run; offset-based pagination (50 per page, Load more button, total count display) |
 | Settings | Settings | Read-only display of local settings from `app_settings.json` (city name, default actor, AI provider/mode, tolerances, export dir, role, retention category) |
 | AI usage | AI usage | Cross-run table of every AI interaction: workflow, model, prompt version, validation status, draft/final state, source rows cited -- newest first |
 | Redaction assist | Redaction assist | Paste text, scan for PII patterns (SSN, email, phone, credit card, long numbers), see masked previews and redacted output; nothing stored |
-| Scheduled runs | Scheduled runs | Read-only list of local schedules (cadence, next due, last run, active); create/trigger via Streamlit for now |
+| Scheduled runs | Scheduled runs | Live list of local schedules (cadence, next due, last run, active); create a new schedule via a form (workflow, label, cadence, optional interval); "Run now" on any schedule triggers it on sample data and navigates to the result |
 | About | About and safety | Safety model and invariants |
 
-#### Wizard advanced options (GW-10)
+#### Wizard advanced options (GW-10 / GW-20)
 
 On the inputs step, an "Advanced options" section (collapsed by default) lets
 you paste an optional config JSON (custom tolerances/thresholds) and review
 any suggested column mappings surfaced by the preflight check. Both are posted
 to the existing `config` and `column_mappings` multipart fields the API
-already accepts.
+already accepts. The API now returns suggested mappings in the preflight
+response (`suggested_mappings` field, populated from the core preflight
+engine), so the mapping UI renders when the backend sends non-empty mappings.
+Each mapping row shows the semantic column name, a "Use suggested" / "Not
+matched" dropdown, and the detected candidates.
 
 #### Browser-level end-to-end tests (optional)
 
@@ -596,8 +652,12 @@ data only:
   patterns. A demonstration prototype, **not** a compliance/public-records tool.
 - **Scheduled runs** — local, manual-trigger recurring schedules
   (`src/core/scheduler.py`, monthly / quarterly / before-agenda / custom cadence).
-  No daemon or cron — schedules are recorded and surfaced as due; the user clicks
-  to run.
+  No daemon or cron -- schedules are recorded and surfaced as due; the user clicks
+  to run. The React console supports creating schedules and triggering them directly
+  (POST /api/schedules, POST /api/schedules/{id}/run). The due-check endpoint
+  (GET /api/schedules/due?as_of=YYYY-MM-DD) surfaces which schedules are due on a
+  given date. Schedule listings reflect writes made after API startup without a
+  restart (per-request store reload).
 
 ## Demo path
 
@@ -660,10 +720,12 @@ A 2–3 minute end-to-end walkthrough on synthetic data only:
    Review Run, Workflow History, and inside `review_packet.md` / `run_manifest.json`.
 8. **Download a PDF summary:** on Review Run (or Export Center), click **Download
    PDF summary** to get a text-only PDF of the review packet.
-9. **Scheduled runs:** open the **Scheduled runs** page, add a schedule
-   (workflow + cadence: monthly / quarterly / before-agenda / custom), then click
-   **Run now** on a due schedule to run it on the synthetic example files and
-   advance its next-due date.
+9. **Scheduled runs:** open the **Scheduled runs** page. Use the "Create a
+   scheduled run" form (workflow, label, cadence: monthly / quarterly /
+   before-agenda / custom; custom shows an interval-days field) to create a
+   schedule. The list refreshes immediately (no restart needed). Click **Run
+   now** on any schedule to run it on the bundled synthetic sample data, advance
+   its next-due date, and navigate to the resulting run review page.
 10. **Redaction assist (prototype):** open the **Redaction assist** page (note the
     synthetic-only PROTOTYPE warning), paste or seed text, and **Scan / redact**
     to see PII spans replaced with `[REDACTED:<TYPE>]` plus a findings table and
@@ -704,12 +766,13 @@ To run only the API tests:
 .venv\Scripts\python.exe -m pytest tests/api -p no:cacheprovider --basetemp=.pytest_tmp_api
 ```
 
-The full suite is **747 tests** (all passing), including the preflight /
+The full suite is **758 tests** (all passing), including the preflight /
 capability layer, the per-workflow messy-data fixtures, the four new Tyler-era
 workflow unit test suites, integration tests for the CLI/app registry/eval
-harness, the Tyler normalizer and readiness tests, and the 38 API endpoint
-tests (`tests/api/`, covering health, workflows, runs, settings, AI usage,
-redaction, and schedules).
+harness, the Tyler normalizer and readiness tests, and the API endpoint
+tests (`tests/api/`, covering health, workflows, runs pagination, settings, AI
+usage, redaction, schedules create/trigger/due, and preflight suggested
+mappings).
 
 The evaluation harness produces measured per-workflow metrics:
 
@@ -724,10 +787,10 @@ cd frontend
 npm test
 ```
 
-Runs 36 tests across 8 test files (client, TrustBoundary, RunWizardPage,
-ReviewRunPage, plus the four new pages: SettingsPage, AiUsagePage,
-RedactionPage, SchedulesPage). Also available: `npm run typecheck` (tsc strict)
-and `npm run lint` (eslint flat config with typescript-eslint).
+Runs 45 tests across 9 test files (client, TrustBoundary, RunWizardPage,
+ReviewRunPage, SettingsPage, AiUsagePage, RedactionPage, SchedulesPage, and
+HistoryPage). Also available: `npm run typecheck` (tsc strict) and
+`npm run lint` (eslint flat config with typescript-eslint).
 
 For browser-level end-to-end tests see the Playwright section above.
 
@@ -799,10 +862,13 @@ not bugs; they are scope boundaries of the current MVP.
   There is no HTTPS, no rate limiting, and no secret management.
 - **Tyler column aliases are illustrative.** The real Munis export column
   names, date/amount locale formats, and XLSX title-block layouts need to be
-  validated against a live system before use on real data.
+  validated against a live system before use on real data. See
+  `docs/tyler_assumptions.md` for a field-by-field assumptions register and
+  a verification checklist with questions to take to a Tyler/Munis contact.
 - **JE upload template is synthetic.** The Munis JE import column order and
   header spellings should be confirmed with the city's Tyler contact before
-  using je_upload_prep on a real system.
+  using je_upload_prep on a real system. The JE template header order has only
+  partial external corroboration (noted in `docs/tyler_assumptions.md`).
 - **PDF export is text-only.** The pure-stdlib PDF writer (`src/core/pdf_export.py`)
   produces a fixed-font text PDF with no formatting, images, or markdown
   rendering. A rich PDF would require a third-party library.

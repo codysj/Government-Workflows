@@ -77,6 +77,24 @@ class PreflightFindingInfo(BaseModel):
     blocks_run: bool = False
 
 
+class SuggestedMapping(BaseModel):
+    """One column-mapping suggestion mirroring src.core.schemas.ColumnMapping.
+
+    Advisory only: it surfaces what the deterministic preflight engine resolved
+    (or could not resolve) for a required/optional semantic column so the UI can
+    show suggested column matches. ``mapped_column`` is the chosen column (or
+    null when unmapped); ``confidence`` is the engine's score; ``source`` is one
+    of auto/human/unmapped; ``candidates`` are the ranked column names.
+    """
+
+    input_key: str
+    semantic_name: str
+    mapped_column: Optional[str] = None
+    confidence: float = 0.0
+    source: str = "unmapped"
+    candidates: list[str] = Field(default_factory=list)
+
+
 class PreflightResponse(BaseModel):
     status: Literal["pass", "partial", "fail"]
     llm_allowed: bool
@@ -84,6 +102,7 @@ class PreflightResponse(BaseModel):
     findings: list[PreflightFindingInfo] = Field(default_factory=list)
     supported_checks: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
+    suggested_mappings: list[SuggestedMapping] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -102,7 +121,17 @@ class RunListItem(BaseModel):
 
 
 class RunList(BaseModel):
+    """A page of run history.
+
+    ``runs`` is the page (backward-compatible: the only field prior callers
+    relied on). ``total`` is the full count of runs in the ledger; ``limit`` and
+    ``offset`` echo the page window actually applied.
+    """
+
     runs: list[RunListItem] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 0
+    offset: int = 0
 
 
 class SourceRowInfo(BaseModel):
@@ -286,13 +315,13 @@ class RedactionScanResult(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Schedules (GW-11) - read-only listing of configured recurring runs
+# Schedules - configured recurring runs (list, create, due, manual trigger)
 # --------------------------------------------------------------------------- #
 class ScheduleInfo(BaseModel):
-    """Read-only mirror of a src.core.scheduler.Schedule record.
+    """Mirror of a src.core.scheduler.Schedule record.
 
-    Dates/datetimes are ISO-8601 strings. This batch only LISTS schedules;
-    creating or triggering scheduled runs is deferred.
+    Dates/datetimes are ISO-8601 strings. ``next_due`` is a plain ``YYYY-MM-DD``
+    date; ``created_at`` / ``last_run_at`` are full ISO datetimes.
     """
 
     schedule_id: str
@@ -308,3 +337,19 @@ class ScheduleInfo(BaseModel):
 
 class ScheduleList(BaseModel):
     schedules: list[ScheduleInfo] = Field(default_factory=list)
+
+
+class ScheduleCreateRequest(BaseModel):
+    """Create a recurring run.
+
+    ``cadence`` is one of monthly/quarterly/before_agenda/custom. ``start`` is
+    the first due date (``YYYY-MM-DD``); when omitted it defaults to today on the
+    server. ``interval_days`` drives the custom/before_agenda step (ignored for
+    monthly/quarterly which step by calendar month).
+    """
+
+    workflow_type: str
+    label: str
+    cadence: str
+    start: Optional[str] = None
+    interval_days: Optional[int] = None

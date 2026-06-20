@@ -28,10 +28,17 @@ const REVIEW_FILTERS: Array<{ value: string; label: string }> = [
   { value: "rejected", label: "Rejected" },
 ];
 
+// GW-13: how many runs we ask for per page.
+const PAGE_SIZE = 50;
+
 export function HistoryPage() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<RunListItem[] | null>(null);
+  // `total` is the full ledger count reported by the backend (display-only).
+  const [total, setTotal] = useState(0);
   const [state, setState] = useState<"loading" | "ok" | "error">("loading");
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
   const [workflowFilter, setWorkflowFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("");
@@ -39,17 +46,36 @@ export function HistoryPage() {
 
   const load = useCallback(() => {
     setState("loading");
-    listRuns(100)
-      .then((data) => {
-        setRuns(data);
+    setLoadMoreError(false);
+    listRuns(PAGE_SIZE, 0)
+      .then((page) => {
+        setRuns(page.runs);
+        setTotal(page.total);
         setState("ok");
       })
       .catch(() => setState("error"));
   }, []);
 
+  // GW-13: fetch the next page at offset = number already loaded, and append.
+  const loadMore = useCallback(() => {
+    if (runs === null) return;
+    setLoadingMore(true);
+    setLoadMoreError(false);
+    listRuns(PAGE_SIZE, runs.length)
+      .then((page) => {
+        setRuns((current) => [...(current ?? []), ...page.runs]);
+        setTotal(page.total);
+      })
+      .catch(() => setLoadMoreError(true))
+      .finally(() => setLoadingMore(false));
+  }, [runs]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  // True when the ledger holds more runs than we have fetched so far.
+  const hasMore = runs !== null && runs.length < total;
 
   const workflowTitles = useMemo(() => {
     const titles = new Set<string>();
@@ -221,6 +247,29 @@ export function HistoryPage() {
               </tbody>
             </table>
           )}
+
+          <div className="history-pager">
+            <p className="muted history-count">
+              {hasFilters
+                ? `Showing ${filtered.length} of ${runs?.length ?? 0} loaded (${total} total)`
+                : `Showing ${runs?.length ?? 0} of ${total}`}
+            </p>
+            {hasMore ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={loadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Loading..." : "Load more"}
+              </button>
+            ) : null}
+            {loadMoreError ? (
+              <p className="inline-error-text">
+                More runs did not load. Try Load more again.
+              </p>
+            ) : null}
+          </div>
         </>
       )}
     </div>

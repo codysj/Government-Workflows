@@ -28,6 +28,7 @@ from api.schemas.models import (
     RunDetail,
     RunListItem,
     SourceRowInfo,
+    SuggestedMapping,
     ValidationSection,
 )
 
@@ -105,6 +106,17 @@ def preflight_response_from_dict(d: dict[str, Any]) -> PreflightResponse:
         ],
         supported_checks=list(d.get("supported_checks", [])),
         next_steps=list(d.get("next_steps", [])),
+        suggested_mappings=[
+            SuggestedMapping(
+                input_key=m.get("input_key", ""),
+                semantic_name=m.get("semantic_name", ""),
+                mapped_column=m.get("mapped_column"),
+                confidence=float(m.get("confidence", 0.0) or 0.0),
+                source=str(m.get("source", "unmapped")),
+                candidates=list(m.get("candidates", []) or []),
+            )
+            for m in d.get("column_mappings", [])
+        ],
     )
 
 
@@ -167,9 +179,21 @@ def _validation_passed(summary: dict) -> Optional[bool]:
     return None
 
 
-def build_run_list(ledger: RunLedger, limit: int) -> list[RunListItem]:
+def build_run_list(
+    ledger: RunLedger, limit: int, offset: int = 0
+) -> tuple[list[RunListItem], int]:
+    """Build one page of run-list items plus the TOTAL run count.
+
+    Returns ``(items, total)``. ``total`` is the full number of runs in the
+    ledger; ``items`` is the ``[offset:offset+limit]`` slice (newest-first, as
+    the ledger orders them). All counting/slicing happens here; no core change.
+    """
+    all_rows = ledger.list_runs()
+    total = len(all_rows)
+    start = max(offset, 0)
+    page = all_rows[start:start + max(limit, 0)]
     items: list[RunListItem] = []
-    for row in ledger.list_runs()[:max(limit, 0)]:
+    for row in page:
         run_id = row["run_id"]
         summary = row.get("summary") or {}
         preflight = ledger.get_preflight(run_id)
@@ -184,7 +208,7 @@ def build_run_list(ledger: RunLedger, limit: int) -> list[RunListItem]:
             finding_count=len(ledger.list_findings(run_id)),
             artifact_count=len(ledger.list_export_artifacts(run_id)),
         ))
-    return items
+    return items, total
 
 
 def build_run_detail(ledger: RunLedger, run_id: str) -> Optional[RunDetail]:

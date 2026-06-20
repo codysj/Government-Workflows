@@ -37,6 +37,26 @@ def test_preflight_broken_upload_fails(client):
     assert any(f["code"] == "missing_required_column" for f in blocking)
 
 
+def test_preflight_suggested_mappings_populated(client):
+    """GW-20: preflight on a sample with detectable columns returns non-empty
+    suggested_mappings mirroring the core column-mapping shape."""
+    r = client.post(
+        "/api/workflows/report_review/preflight",
+        data={"use_sample": "true"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    mappings = body["suggested_mappings"]
+    assert isinstance(mappings, list) and mappings, "expected suggestions"
+    m = mappings[0]
+    assert {"input_key", "semantic_name", "mapped_column", "confidence",
+            "source", "candidates"} == set(m)
+    assert m["source"] in ("auto", "human", "unmapped")
+    # At least one semantic column was confidently mapped on the sample.
+    assert any(mm["source"] == "auto" and mm["mapped_column"]
+               for mm in mappings)
+
+
 def test_preflight_no_inputs_422(client):
     r = client.post("/api/workflows/report_review/preflight", data={})
     assert r.status_code == 422
