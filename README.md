@@ -88,6 +88,13 @@ a different wire format can be supplied via a custom `transport=` callable
 passed to `RealLLMProvider`. All existing validation/source-citation
 guardrails apply to the real provider path identically to the mock path.
 
+An **Anthropic Messages API preset** is available in `src/llm/provider.py`
+as `anthropic_messages_transport`. It handles the Anthropic wire format
+(`x-api-key` + `anthropic-version` headers; `content[0].text` response
+parsing) and is passed as `transport=anthropic_messages_transport` to
+`RealLLMProvider`. Full `get_provider()` auto-dispatch for
+`LLM_PROVIDER=anthropic` is tracked in GW-38.
+
 The real provider is never exercised by the default test suite and is not
 required for any demo.
 
@@ -653,11 +660,13 @@ data only:
 - **Scheduled runs** — local, manual-trigger recurring schedules
   (`src/core/scheduler.py`, monthly / quarterly / before-agenda / custom cadence).
   No daemon or cron -- schedules are recorded and surfaced as due; the user clicks
-  to run. The React console supports creating schedules and triggering them directly
-  (POST /api/schedules, POST /api/schedules/{id}/run). The due-check endpoint
-  (GET /api/schedules/due?as_of=YYYY-MM-DD) surfaces which schedules are due on a
-  given date. Schedule listings reflect writes made after API startup without a
-  restart (per-request store reload).
+  to run. The React console supports creating, pausing/activating, deleting, and
+  triggering schedules (POST /api/schedules, PATCH /api/schedules/{id},
+  DELETE /api/schedules/{id}, POST /api/schedules/{id}/run). The due-check
+  endpoint (GET /api/schedules/due?as_of=YYYY-MM-DD) surfaces which schedules are
+  due on a given date, and the Home page displays a reminder banner when any are
+  due. Schedule listings reflect writes made after API startup without a restart
+  (per-request store reload).
 
 ## Demo path
 

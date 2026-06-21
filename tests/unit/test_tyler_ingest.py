@@ -218,6 +218,22 @@ def test_unsupported_file_type_fails_closed(tmp_path):
     assert "unsupported file type" in str(exc.value)
 
 
+def test_optional_alias_missing_yields_warning(tmp_path):
+    """GW-29: a file missing the invoice_numbers column (optional, alias-targeted)
+    yields a warning instead of silently omitting it."""
+    # Build a check_register CSV without any invoice_numbers alias column.
+    src = tmp_path / "checks_no_invoices.csv"
+    src.write_text(
+        "Check Number,Check Date,Vendor Number,Vendor Name,Check Amount,Status\n"
+        "CHK-1001,2026-01-15,V-1001,Acme Office Supply,1500.00,Cleared\n",
+        encoding="utf-8",
+    )
+    export = tyler.normalize_tyler_export(src, "check_register")
+    assert any("optional_column_missing" in w and "invoice_numbers" in w
+               for w in export.warnings)
+    assert "invoice_numbers" not in export.dataframe.columns
+
+
 def test_footer_total_row_flagged_never_deleted(tmp_path):
     base = (DATA / "check_register.csv").read_text(encoding="utf-8")
     src = tmp_path / "checks_with_footer.csv"
@@ -391,9 +407,14 @@ def test_new_finding_types_added():
 
 def test_tyler_munis_preset_extended_backward_compatible():
     aliases = presets.PRESETS["tyler_munis_style"]
-    # Original mappings preserved.
+    # Original mappings preserved (gl_amount/journal_amount/je_amount/invoice
+    # were dead aliases with no fixture or TYLER_DATASET_TYPES counterpart --
+    # removed by GW-30).
     assert aliases["jrnl_date"] == "date"
-    assert aliases["gl_amount"] == "amount"
+    assert "gl_amount" not in aliases  # GW-30: deleted dead alias
+    assert "journal_amount" not in aliases  # GW-30: deleted dead alias
+    assert "je_amount" not in aliases  # GW-30: deleted dead alias
+    assert "invoice" not in aliases  # GW-30: deleted dead alias (no fixture)
     assert aliases["org"] == "department"
     assert aliases["object"] == "account_code"
     # New Munis-style variants present.

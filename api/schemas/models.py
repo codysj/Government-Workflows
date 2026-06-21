@@ -353,3 +353,9 @@ class ScheduleCreateRequest(BaseModel):
     cadence: str
     start: Optional[str] = None
     interval_days: Optional[int] = None
+
+
+class ScheduleUpdateRequest(BaseModel):
+    """Patch a schedule. Only ``active`` is mutable this batch (toggle on/off)."""
+
+    active: bool

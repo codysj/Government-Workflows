@@ -89,15 +89,21 @@ TYLER_MUNIS_STYLE: dict[str, str] = {
     "eff_date": "date",
     "je_date": "date",
     "jnl_date": "date",
-    # amount
-    "gl_amount": "amount",
-    "journal_amount": "amount",
-    "je_amount": "amount",
     # description
     "line_description": "description",
     "je_description": "description",
     "comment": "description",
     # dimensions (Munis: Fund / Org / Object / Project)
+    # ponytail: GW-28 -- "org"->"department" and "object"->"account_code" here conflict
+    # with TYLER_DATASET_TYPES which keeps "org" and "object" as canonicals. These are
+    # separate pipeline paths (preset for original workflows; tyler.py for Tyler workflows)
+    # so there is no runtime clash, but a developer mixing the two paths will see different
+    # canonical names for the same Munis dimension. Fixing requires renaming org/object
+    # across all TYLER_DATASET_TYPES specs, fixtures, and downstream workflow column refs --
+    # a multi-file rename with no synthetic-only benefit. Deferred; tracked in GW-28.
+    # Upgrade path: pick ONE canonical per dimension (prefer "org"/"object" to match Munis
+    # terminology) and update the preset to not remap them; then rename all preset-path
+    # usages of "department"/"account_code" that came from Munis dimensions.
     "org": "department",
     "org_code": "department",
     "object": "account_code",
@@ -117,7 +123,6 @@ TYLER_MUNIS_STYLE: dict[str, str] = {
     "vend_no": "vendor_number",
     "invoice_no": "invoice_number",
     "inv_no": "invoice_number",
-    "invoice": "invoice_number",
     "po_no": "po_number",
     "po": "po_number",
     "purchase_order": "po_number",

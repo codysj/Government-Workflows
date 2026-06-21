@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AiUsagePage } from "./AiUsagePage";
@@ -18,7 +18,7 @@ function renderPage(rows: AiUsageRow[]) {
     },
   ]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AiUsagePage />
     </MemoryRouter>,
   );

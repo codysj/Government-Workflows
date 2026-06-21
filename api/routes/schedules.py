@@ -19,6 +19,7 @@ from api.schemas.models import (
     ScheduleCreateRequest,
     ScheduleInfo,
     ScheduleList,
+    ScheduleUpdateRequest,
 )
 from api.services.inputs import InputError, build_sample_inputs
 from api.services.runs import build_run_detail, execute_run
@@ -86,6 +87,33 @@ def create_schedule_endpoint(
     except ScheduleInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return to_info(sched)
+
+
+@router.patch("/schedules/{schedule_id}", response_model=ScheduleInfo)
+def update_schedule_endpoint(
+    schedule_id: str,
+    body: ScheduleUpdateRequest,
+    request: Request,
+) -> ScheduleInfo:
+    """Toggle a schedule's ``active`` flag. 404 for an unknown id."""
+    store = load_store(request.app.state.schedules_path)
+    sched = store.get(schedule_id)
+    if sched is None:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown schedule '{schedule_id}'.")
+    store.update(sched.model_copy(update={"active": body.active}))
+    return to_info(store.get(schedule_id))
+
+
+@router.delete("/schedules/{schedule_id}", status_code=204)
+def delete_schedule_endpoint(schedule_id: str, request: Request) -> Response:
+    """Delete a schedule. 404 for an unknown id."""
+    store = load_store(request.app.state.schedules_path)
+    if store.get(schedule_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown schedule '{schedule_id}'.")
+    store.remove(schedule_id)
+    return Response(status_code=204)
 
 
 @router.post("/schedules/{schedule_id}/run", response_model=RunDetail)

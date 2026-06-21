@@ -200,6 +200,54 @@ class MockLLMProvider:
 Transport = Callable[[dict], str]
 
 
+def anthropic_messages_transport(request: dict) -> str:
+    """Anthropic Messages API transport preset.
+
+    Drop-in replacement for _default_httpx_transport when the target is the
+    Anthropic Messages API (https://api.anthropic.com/v1/messages). Wire format
+    differs from OpenAI-compatible: uses ``x-api-key`` / ``anthropic-version``
+    headers and returns ``content[0].text`` instead of
+    ``choices[0].message.content``.
+
+    Opt-in via::
+
+        from src.llm.provider import anthropic_messages_transport, RealLLMProvider
+        p = RealLLMProvider(
+            model_provider="anthropic",
+            model_name="claude-opus-4-8",  # or override via LLM_MODEL env
+            api_key_env="ANTHROPIC_API_KEY",
+            base_url="https://api.anthropic.com/v1/messages",
+            transport=anthropic_messages_transport,
+        )
+
+    This function performs the only network I/O for the Anthropic path and is
+    NEVER exercised by the default (offline, mock) test suite.
+    """
+    import httpx  # local import: only touched on the opt-in real path
+
+    base_url = request.get("base_url", "https://api.anthropic.com/v1/messages")
+    headers = {
+        "x-api-key": request["api_key"],
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": request["model"],
+        "max_tokens": 4096,
+        "messages": [{"role": "user", "content": request["prompt"]}],
+    }
+    resp = httpx.post(
+        base_url,
+        headers=headers,
+        json=body,
+        timeout=request.get("timeout", 60.0),
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    # Anthropic response: content[0].text
+    return data["content"][0]["text"]
+
+
 def _default_httpx_transport(request: dict) -> str:
     """Default transport: POST the prompt to a chat-completions-style endpoint.
 
@@ -403,5 +451,6 @@ __all__ = [
     "MockLLMProvider",
     "RealLLMProvider",
     "Transport",
+    "anthropic_messages_transport",
     "get_provider",
 ]

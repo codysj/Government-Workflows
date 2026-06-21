@@ -202,3 +202,35 @@ test("history nav link shows the History page", async ({ page }) => {
     page.getByRole("heading", { name: /Could not load/i }),
   ).not.toBeVisible({ timeout: 5_000 });
 });
+
+// ---------------------------------------------------------------------------
+// GW-22 – Nav smoke tests for the four secondary pages.
+// Each loads the SPA root, clicks the nav link (client-side route), and asserts
+// one key element on the destination page. Kept deliberately tiny.
+// ---------------------------------------------------------------------------
+
+const NAV_SMOKE: Array<{ link: RegExp; heading: RegExp }> = [
+  { link: /^Settings$/i, heading: /^Settings$/i },
+  { link: /^AI usage$/i, heading: /^AI usage$/i },
+  { link: /^Redaction assist$/i, heading: /^Redaction assist$/i },
+  { link: /^Scheduled runs$/i, heading: /^Scheduled runs$/i },
+];
+
+for (const { link, heading } of NAV_SMOKE) {
+  test(`nav smoke: ${link.source} page loads via nav link`, async ({ page }) => {
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: /Municipal Finance AI Workflow Tool/i }),
+    ).toBeVisible({ timeout: 20_000 });
+
+    await page.getByRole("link", { name: link }).click();
+
+    await expect(
+      page.getByRole("heading", { name: heading, level: 1 }),
+    ).toBeVisible({ timeout: 15_000 });
+
+    await expect(
+      page.getByRole("heading", { name: /Could not load|Cannot reach/i }),
+    ).not.toBeVisible({ timeout: 5_000 });
+  });
+}

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { SettingsPage } from "./SettingsPage";
@@ -17,7 +17,7 @@ function renderPage(settings = makeSettings()) {
     },
   ]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <SettingsPage />
     </MemoryRouter>,
   );

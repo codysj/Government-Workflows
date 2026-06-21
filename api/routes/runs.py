@@ -41,9 +41,18 @@ def list_runs(
     request: Request,
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    workflow_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    human_review_status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
 ) -> RunList:
     items, total = build_run_list(
-        request.app.state.ledger, limit, offset)
+        request.app.state.ledger, limit, offset,
+        workflow_type=workflow_type,
+        status=status,
+        human_review_status=human_review_status,
+        search=search,
+    )
     return RunList(runs=items, total=total, limit=limit, offset=offset)
 
 

@@ -31,7 +31,7 @@ Tool. This file is meant to be read and updated by both humans and LLM agents.
    the completed log. **Do not invent scope** — only add tasks traceable to code,
    a review finding, or an explicit product decision.
 
-**Next ID:** `GW-38`
+**Next ID:** `GW-46`
 
 **Status legend:** `[ ]` not started/scoped &nbsp; `[~]` in progress &nbsp;
 `[!]` blocked &nbsp; `[x]` done
@@ -49,192 +49,6 @@ _(none — the FastAPI + React migration loose ends are all cleared.)_
 Ordered by importance (top = do next). Each needs scoping (acceptance criteria,
 file plan) before implementation — move to *Active* and set `Status: scoped`
 once that is done.
-
-### GW-25 — Remove unused app.state.schedule_store from api/main.py
-- **Status:** not_started
-- **Priority:** P1
-- **Area:** backend
-- **Why:** Schedule routes now build a fresh `ScheduleStore` per request
-  (GW-19), so the startup-built `app.state.schedule_store` is dead code.
-  Leaving it in place implies a long-lived store the routes no longer consult,
-  which is misleading. Trivial, high-clarity cleanup right after the batch that
-  created it.
-- **Acceptance:** `app.state.schedule_store` initialization removed from
-  `create_app`; all schedule route tests still pass; no runtime error.
-- **Files:** `api/main.py`
-
-### GW-32 — Surface due schedules as a reminder banner in the console
-- **Status:** not_started
-- **Priority:** P1
-- **Area:** frontend
-- **Why:** The backend `GET /api/schedules/due` (GW-18) and the
-  `getDueSchedules(asOf?)` client function are already built, but nothing in the
-  console shows which schedules are due — the reminder loop is half-finished. A
-  small banner closes it with little effort.
-- **Acceptance:** A banner/callout on the Home or Scheduled Runs page shows
-  "X scheduled run(s) are due" when the due count is > 0, and clicking navigates
-  to Scheduled Runs. No finance arithmetic in the frontend.
-- **Files:** `frontend/src/pages/SchedulesPage.tsx`,
-  `frontend/src/pages/HomePage.tsx`, `frontend/src/api/client.ts`
-
-### GW-27 — Add Anthropic Messages API transport preset for RealLLMProvider
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** core
-- **Why:** The default transport in `RealLLMProvider` (GW-14) is
-  OpenAI-compatible. Wiring Anthropic — the project's likely provider — requires
-  a hand-written custom `transport=` callable today. A named preset makes the
-  opt-in real-provider path turnkey, so GW-14 is actually usable.
-- **Acceptance:** A preset transport callable (or named factory) in
-  `src/llm/provider.py` that sends an Anthropic Messages API request (x-api-key,
-  anthropic-version headers; content[].text parsing) and returns the canonical
-  completion text. Documented in README + decisions.md. No live call in tests
-  (use the injectable-transport seam).
-- **Files:** `src/llm/provider.py`, `tests/unit/test_llm_provider.py`
-
-### GW-33 — Add pause/activate and delete controls for schedules
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** Schedules render Active/Paused and the core `ScheduleStore` supports
-  update/remove, but the console can only create and run-now. Editing active
-  state or deleting a stale schedule still requires Streamlit or a direct JSON
-  edit.
-- **Acceptance:** Each schedule row gets an activate/pause toggle and a delete
-  button. Backend PATCH (active toggle) and DELETE endpoints added. Tests cover
-  both.
-- **Files:** `frontend/src/pages/SchedulesPage.tsx`, `api/routes/schedules.py`,
-  `api/schemas/models.py`
-
-### GW-22 — Add e2e smoke tests for the four newer console pages
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** The settings, ai-usage, redaction, and schedules pages have vitest
-  unit coverage but no Playwright e2e flow. A navigation smoke test would confirm
-  each loads and renders key elements against the live API.
-- **Acceptance:** Four Playwright tests (one per page) navigate via the nav link
-  and assert at least one key element (table heading, banner text). Runs in the
-  existing `npx playwright test` suite.
-- **Files:** `frontend/e2e/core-loop.spec.ts` (extend) or a new spec file
-
-### GW-23 — Add a webbrowser smoke check for the launcher
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** infra
-- **Why:** `scripts/launch_console.py`'s `webbrowser.open()` call is the one
-  launcher branch never exercised in automated tests. A monkeypatched unit test
-  closes the gap without spawning a real browser.
-- **Acceptance:** A test patches `webbrowser.open` and asserts it is called with
-  the expected URL when `--no-browser` is not set, reusing the existing
-  `wait_for_health` / `stop_server` helpers to avoid a full subprocess.
-- **Files:** `scripts/launch_console.py`, `tests/` (new test file)
-
-### GW-35 — Suppress React Router v7 future-flag warnings in vitest
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** frontend
-- **Why:** Every page test logs two React Router v6->v7 future-flag warnings
-  (v7_startTransition, v7_relativeSplatPath) to stderr. Tests pass, but the noise
-  clutters CI logs and could mask a real warning.
-- **Acceptance:** The two future flags are set on the test (or app) router so the
-  warnings are suppressed. No test behavior change.
-- **Files:** `frontend/src/test/` setup or the router configuration
-
-### GW-34 — Add server-side filtering for the history endpoint
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** backend
-- **Why:** History filters (workflow/status/review/search) operate only on the
-  client-loaded rows, so filtering can miss matches in not-yet-loaded pages. With
-  large ledgers a backend filter param makes results complete rather than
-  page-limited.
-- **Acceptance:** `GET /api/runs` gains optional filter params (workflow_type,
-  status, human_review_status, search); `total` reflects the filtered count; the
-  history filter passes them when set. No change to client-side display logic
-  (totals stay strings, no arithmetic).
-- **Files:** `api/routes/runs.py`, `api/services/runs.py`,
-  `src/core/run_ledger.py` (may need a filtered query),
-  `frontend/src/pages/HistoryPage.tsx`
-
-### GW-26 — Allow scheduled runs to carry persisted input sets (not just samples)
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** backend
-- **Why:** `POST /api/schedules/{id}/run` can only trigger bundled sample inputs
-  because `Schedule` stores no file references. Real recurring runs (monthly
-  reconciliation over the latest export) need a stable input source tied to a
-  schedule.
-- **Acceptance:** Scoped first. The Schedule model (or a companion record) can
-  store an input-set reference; the trigger endpoint uses it when present, falling
-  back to sample inputs. Any `src/core/scheduler.py` change is weighed against the
-  frozen-path rule.
-- **Files:** `src/core/scheduler.py`, `api/routes/schedules.py`,
-  `api/schemas/models.py`
-
-### GW-28 — Resolve org/object canonical name conflict (preset vs tyler normalizer)
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** core
-- **Why:** `TYLER_MUNIS_STYLE` maps org->department and object->account_code,
-  while `TYLER_DATASET_TYPES` keeps org and object as canonicals. The two paths
-  produce different column names for the same Munis dimensions, which can confuse
-  developers mixing them. (Tyler-normalizer hygiene; low urgency while
-  synthetic-only.)
-- **Acceptance:** One canonical name per dimension, used consistently in both the
-  preset and the dataset-type registry. Alias maps and fixtures updated. No change
-  to deterministic workflow logic.
-- **Files:** `src/ingest/presets.py`, `src/ingest/tyler.py`,
-  `data/synthetic/tyler/`, `docs/tyler_assumptions.md`
-
-### GW-29 — Warn when an optional alias fails to resolve (invoice_number_s case)
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** core
-- **Why:** The `invoice_number_s -> invoice_numbers` alias is fragile. If the real
-  Munis header differs slightly (Invoice Numbers, Invoices, Invoice No(s)) the
-  alias silently fails and the optional column is absent with no signal.
-- **Acceptance:** When an optional alias produces no column match, a warning is
-  emitted (to `TylerNormalizedExport.warnings` or a preflight finding) rather than
-  silently skipping. Tests cover the warning path.
-- **Files:** `src/ingest/tyler.py`, `src/ingest/presets.py`
-
-### GW-30 — Remove or add fixture coverage for dead TYLER_MUNIS_STYLE aliases
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** data
-- **Why:** Several `TYLER_MUNIS_STYLE` aliases (`invoice`, `gl_amount`,
-  `journal_amount`, `je_amount`) have no synthetic fixture exercising them and no
-  counterpart in `TYLER_DATASET_TYPES` — dead-code risk that may behave
-  confusingly if a real file matches.
-- **Acceptance:** Each alias is either removed (if truly unused) or covered by a
-  fixture that exercises it end-to-end. Decision documented.
-- **Files:** `src/ingest/presets.py`, `data/synthetic/tyler/`
-
-### GW-24 — Wire frontend/test-results and playwright-report into CI (or confirm ignored)
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** infra
-- **Why:** Playwright writes `frontend/test-results/` and
-  `frontend/playwright-report/` per run. They are gitignored, but a CI pipeline
-  (which does not yet exist) should upload them on failure. Conditional on CI
-  being set up.
-- **Acceptance:** A CI step uploads `frontend/test-results/` as a build artifact
-  on failure, or the gitignore is confirmed sufficient and the task is closed as
-  "no action needed". Documented.
-- **Files:** `.github/workflows/` (or CI config), `frontend/.gitignore`
-
-### GW-36 — Investigate the one-off 37-minute backend pytest wall time
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** infra
-- **Why:** A first run of `tests/api` once took ~2227s vs ~18s on an identical
-  re-run. If reproducible this points to a flaky fixture or IO bottleneck (e.g.
-  RunLedger SQLite temp-dir contention under --basetemp) worth pinning down for
-  predictable CI timing. Speculative — may not reproduce.
-- **Acceptance:** Root cause identified and documented; fix applied and
-  re-measured if needed, or closed with a "not reproducible" note.
-- **Files:** `tests/api/` fixtures, `pyproject.toml` (basetemp config)
 
 ### GW-37 — Validate Tyler / JE upload assumptions against a real city or Munis export
 - **Status:** blocked
@@ -256,12 +70,145 @@ once that is done.
 - **Blocked by:** external input — a real Munis export template or a city/vendor
   contact (not available in-repo; synthetic data only).
 
+### GW-38 — Wire anthropic_messages_transport into get_provider() for LLM_PROVIDER=anthropic
+- **Status:** not_started
+- **Priority:** P1
+- **Area:** core
+- **Why:** `anthropic_messages_transport` was added in GW-27, but `get_provider()`
+  always uses `_default_httpx_transport` even when `LLM_PROVIDER=anthropic`. The
+  preset exists but config-driven wiring is absent, so `LLM_PROVIDER=anthropic`
+  silently sends OpenAI-format requests and gets a 401.
+- **Acceptance:** `get_provider()` passes `anthropic_messages_transport` as the
+  transport when `LLM_PROVIDER=anthropic`; a test covers the env-driven dispatch
+  path (injectable transport; no live call).
+- **Files:** `src/llm/provider.py`, `tests/unit/test_llm_provider.py`
+
+### GW-40 — Persist history filters in the URL query string
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** GW-34 filters live only in component state, so a filtered history view
+  cannot be bookmarked/shared and is lost on reload. Syncing filters to the URL
+  (`useSearchParams`) would make the filtered view linkable.
+- **Acceptance:** Filter state is read from and written to the URL query string
+  (`?workflow_type=...&status=...` etc.). Navigating to a URL with filter params
+  pre-fills the dropdowns and fetches the filtered result immediately.
+- **Files:** `frontend/src/pages/HistoryPage.tsx`
+
+### GW-41 — Add a unit test for the GW-32 due-runs banner on HomePage
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** `HomePage.tsx` has no test file; the new `getDueSchedules` banner
+  (count > 0 render, failure-hides) is untested at the component level. A small
+  render test mirroring the other page tests would cover it.
+- **Acceptance:** A `HomePage.test.tsx` with at least two cases: banner renders
+  when due count > 0; banner is absent when the fetch fails or returns 0.
+- **Files:** `frontend/src/pages/HomePage.test.tsx` (new)
+
+### GW-26 — Allow scheduled runs to carry persisted input sets (not just samples)
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** backend
+- **Why:** `POST /api/schedules/{id}/run` can only trigger bundled sample inputs
+  because `Schedule` stores no file references. Real recurring runs (monthly
+  reconciliation over the latest export) need a stable input source tied to a
+  schedule. Deferred (YAGNI): schedule inputs are sample-only until a real
+  recurring dataset exists; revisit on real need.
+- **Acceptance:** Scoped first. The Schedule model (or a companion record) can
+  store an input-set reference; the trigger endpoint uses it when present, falling
+  back to sample inputs. Any `src/core/scheduler.py` change is weighed against the
+  frozen-path rule.
+- **Files:** `src/core/scheduler.py`, `api/routes/schedules.py`,
+  `api/schemas/models.py`
+
+### GW-28 — Resolve org/object canonical name conflict (preset vs tyler normalizer)
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** core
+- **Why:** `TYLER_MUNIS_STYLE` maps org->department and object->account_code,
+  while `TYLER_DATASET_TYPES` keeps org and object as canonicals. The two paths
+  produce different column names for the same Munis dimensions, which can confuse
+  developers mixing them. Deferred (YAGNI): harmless for synthetic-only data; a
+  `# ponytail: GW-28` comment in `presets.py` and `docs/tyler_assumptions.md`
+  Section 4 document the conflict and upgrade path; revisit before first real
+  Tyler dataset.
+- **Acceptance:** One canonical name per dimension, used consistently in both the
+  preset and the dataset-type registry. Alias maps and fixtures updated. No change
+  to deterministic workflow logic.
+- **Files:** `src/ingest/presets.py`, `src/ingest/tyler.py`,
+  `data/synthetic/tyler/`, `docs/tyler_assumptions.md`
+
+### GW-42 — Run GW-22 Playwright nav smoke tests in CI to close the e2e loop
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** infra
+- **Why:** The four nav smoke tests added in GW-22 are verified to exist in the
+  spec but have not been executed end-to-end (no CI pipeline; no live-server run
+  yet). Executing them in CI would confirm the pages load and render their h1.
+- **Acceptance:** `npx playwright test` runs green against a live API + built
+  bundle in a CI environment (or documented manually if CI is still absent).
+- **Files:** `frontend/e2e/core-loop.spec.ts`, CI config when available
+
+### GW-43 — Harden launch_console.py stop_server to avoid stray uvicorn on Windows
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** infra
+- **Why:** During the live smoke pass a background uvicorn spawn reported a failed
+  exit while the real server was serving on :8000, suggesting a transient duplicate
+  process can be left behind. `stop_server` in `scripts/launch_console.py` should
+  reliably reap the started process on Windows.
+- **Acceptance:** `stop_server` sends SIGTERM (or `proc.terminate()`) and waits for
+  the process to exit, with a timeout fallback to `proc.kill()`. No duplicate
+  uvicorn processes survive a clean shutdown.
+- **Files:** `scripts/launch_console.py`
+
+### GW-44 — Add a history-filter debounce for the search param
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** frontend
+- **Why:** GW-34 refetches from the ledger on every search keystroke. This is
+  fine while the ledger is in-memory, but the ponytail comment in
+  `api/services/runs.py` flags it as a ceiling: if the ledger ever goes remote
+  (paginated DB query), per-keystroke fetches will cause noticeable latency.
+- **Acceptance:** A debounce (200-300ms) delays the search query param from
+  updating until the user pauses typing. No behavior change otherwise.
+- **Files:** `frontend/src/pages/HistoryPage.tsx`
+
+### GW-45 — Update README test-count to reflect current passing total
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** docs
+- **Why:** README says "758 tests" (a stale count); the current passing total is
+  786 Python + 50 vitest. The README frontend test count (45) is also stale (now
+  50). Both should reflect the actual baseline.
+- **Acceptance:** README "How to run tests" section updated with correct counts;
+  vitest test file count updated (9 files, 50 tests).
+- **Files:** `README.md`
+
 ---
 
 ## Recently completed
 
 Condensed log, newest first (one line per task). Full rationale and Done detail
 live in `docs/decisions.md` (dated sections) and git history.
+
+**GW-22..GW-39 — P1/P2 batch + docs (2026-06-20)**
+- GW-39 — api_contract.md updated: PATCH/DELETE schedule endpoints and GET /api/runs 4 filter params documented
+
+**GW-22..GW-35 — P1/P2 batch (2026-06-19)**
+- GW-35 — React Router v7 future-flag warnings suppressed in vitest (App.tsx + 7 test MemoryRouters)
+- GW-34 — Server-side history filtering: 4 optional filter params on GET /api/runs; HistoryPage wired
+- GW-33 — Schedule pause/activate (PATCH) + delete (DELETE) endpoints + console Actions column
+- GW-32 — Due-runs reminder banner on HomePage (getDueSchedules; non-fatal; links to /schedules)
+- GW-30 — Removed 4 dead TYLER_MUNIS_STYLE aliases (gl_amount/journal_amount/je_amount/invoice); documented
+- GW-29 — Optional-alias-missing warning added to TylerNormalizedExport.warnings after apply_aliases
+- GW-27 — anthropic_messages_transport preset added to src/llm/provider.py (x-api-key; content[].text)
+- GW-25 — Deleted dead app.state.schedule_store init and unused ScheduleStore import from api/main.py
+- GW-23 — Launcher webbrowser.open monkeypatched test in tests/test_launcher.py (2 cases)
+- GW-22 — 4 nav smoke tests added to e2e/core-loop.spec.ts (Settings/AI usage/Redaction/Schedules)
+- GW-24 — closed: no CI exists; .gitignore already covers test-results/ and playwright-report/; no action needed
+- GW-36 — closed: not reproducible; 37-minute run never recurred; reopen if it recurs
 
 **GW-13..GW-21 — backlog batch 2 (2026-06-19)**
 - GW-21 — Schedule create/trigger UI in the console

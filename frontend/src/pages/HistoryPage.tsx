@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { listRuns } from "../api/client";
+import { listRuns, type RunFilters } from "../api/client";
 import type { RunListItem } from "../types/api";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
@@ -44,62 +44,63 @@ export function HistoryPage() {
   const [reviewFilter, setReviewFilter] = useState("");
   const [search, setSearch] = useState("");
 
+  // GW-34: the active filters, sent to the backend so paging covers the full
+  // filtered set (workflowFilter holds a workflow_type, not a title).
+  const filters: RunFilters = useMemo(
+    () => ({
+      workflow_type: workflowFilter || undefined,
+      status: statusFilter || undefined,
+      human_review_status: reviewFilter || undefined,
+      search: search.trim() || undefined,
+    }),
+    [workflowFilter, statusFilter, reviewFilter, search],
+  );
+
   const load = useCallback(() => {
     setState("loading");
     setLoadMoreError(false);
-    listRuns(PAGE_SIZE, 0)
+    listRuns(PAGE_SIZE, 0, filters)
       .then((page) => {
         setRuns(page.runs);
         setTotal(page.total);
         setState("ok");
       })
       .catch(() => setState("error"));
-  }, []);
+  }, [filters]);
 
   // GW-13: fetch the next page at offset = number already loaded, and append.
   const loadMore = useCallback(() => {
     if (runs === null) return;
     setLoadingMore(true);
     setLoadMoreError(false);
-    listRuns(PAGE_SIZE, runs.length)
+    listRuns(PAGE_SIZE, runs.length, filters)
       .then((page) => {
         setRuns((current) => [...(current ?? []), ...page.runs]);
         setTotal(page.total);
       })
       .catch(() => setLoadMoreError(true))
       .finally(() => setLoadingMore(false));
-  }, [runs]);
+  }, [runs, filters]);
 
+  // GW-34: reload from offset 0 whenever the filters change (server filters now).
+  // ponytail: search refetches per keystroke against the local in-memory ledger
+  // (fast enough). Ceiling: add a debounce if the ledger ever goes remote.
   useEffect(() => {
     load();
   }, [load]);
 
-  // True when the ledger holds more runs than we have fetched so far.
+  // True when the ledger holds more (filtered) runs than we have fetched so far.
   const hasMore = runs !== null && runs.length < total;
 
-  const workflowTitles = useMemo(() => {
-    const titles = new Set<string>();
-    for (const run of runs ?? []) titles.add(run.workflow_title);
-    return Array.from(titles).sort();
+  // The workflow picker lists type/title pairs seen in the loaded set; the value
+  // is the workflow_type the backend filters on (label shows the friendly title).
+  const workflowOptions = useMemo(() => {
+    const byType = new Map<string, string>();
+    for (const run of runs ?? []) byType.set(run.workflow_type, run.workflow_title);
+    return Array.from(byType, ([value, label]) => ({ value, label })).sort(
+      (a, b) => a.label.localeCompare(b.label),
+    );
   }, [runs]);
-
-  // Client-side filtering of the delivered list only (display filtering, no math).
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return (runs ?? []).filter((run) => {
-      if (workflowFilter && run.workflow_title !== workflowFilter) return false;
-      if (statusFilter && run.status !== statusFilter) return false;
-      if (reviewFilter && run.human_review_status !== reviewFilter) return false;
-      if (
-        term &&
-        !run.workflow_title.toLowerCase().includes(term) &&
-        !run.run_id.toLowerCase().includes(term)
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [runs, workflowFilter, statusFilter, reviewFilter, search]);
 
   const clearFilters = () => {
     setWorkflowFilter("");
@@ -126,7 +127,7 @@ export function HistoryPage() {
           body="The run history did not load from the local service."
           onRetry={load}
         />
-      ) : runs && runs.length === 0 ? (
+      ) : runs && runs.length === 0 && !hasFilters ? (
         <EmptyState
           icon="inbox"
           body="No runs yet. Run your first workflow on sample data - no files needed."
@@ -146,9 +147,9 @@ export function HistoryPage() {
                 onChange={(e) => setWorkflowFilter(e.target.value)}
               >
                 <option value="">All</option>
-                {workflowTitles.map((title) => (
-                  <option key={title} value={title}>
-                    {title}
+                {workflowOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
                   </option>
                 ))}
               </select>
@@ -190,7 +191,7 @@ export function HistoryPage() {
             </label>
           </div>
 
-          {filtered.length === 0 ? (
+          {(runs ?? []).length === 0 ? (
             <div className="empty-state">
               <p>No runs match these filters.</p>
               {hasFilters ? (
@@ -213,7 +214,7 @@ export function HistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((run) => (
+                {(runs ?? []).map((run) => (
                   <tr
                     key={run.run_id}
                     className="history-row"
@@ -250,9 +251,7 @@ export function HistoryPage() {
 
           <div className="history-pager">
             <p className="muted history-count">
-              {hasFilters
-                ? `Showing ${filtered.length} of ${runs?.length ?? 0} loaded (${total} total)`
-                : `Showing ${runs?.length ?? 0} of ${total}`}
+              {`Showing ${runs?.length ?? 0} of ${total}${hasFilters ? " matching" : ""}`}
             </p>
             {hasMore ? (
               <button

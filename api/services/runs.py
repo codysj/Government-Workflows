@@ -180,18 +180,50 @@ def _validation_passed(summary: dict) -> Optional[bool]:
 
 
 def build_run_list(
-    ledger: RunLedger, limit: int, offset: int = 0
+    ledger: RunLedger,
+    limit: int,
+    offset: int = 0,
+    *,
+    workflow_type: Optional[str] = None,
+    status: Optional[str] = None,
+    human_review_status: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> tuple[list[RunListItem], int]:
-    """Build one page of run-list items plus the TOTAL run count.
+    """Build one page of run-list items plus the (filtered) TOTAL run count.
 
-    Returns ``(items, total)``. ``total`` is the full number of runs in the
-    ledger; ``items`` is the ``[offset:offset+limit]`` slice (newest-first, as
-    the ledger orders them). All counting/slicing happens here; no core change.
+    Returns ``(items, total)``. Optional filters narrow the list before paging;
+    ``total`` reflects the FILTERED count. ``items`` is the
+    ``[offset:offset+limit]`` slice (newest-first, as the ledger orders them).
+    ``status`` matches the mapped contract status; ``search`` is a
+    case-insensitive substring over run_id + workflow_type + title.
+
+    # ponytail: in-memory filter; push to SQL if the ledger outgrows the
+    # 500-row page cap.
     """
     all_rows = ledger.list_runs()
-    total = len(all_rows)
+    needle = (search or "").strip().lower()
+    filtered = []
+    for row in all_rows:
+        run_id = row["run_id"]
+        wf = row.get("workflow_type", "")
+        if workflow_type and wf != workflow_type:
+            continue
+        if human_review_status and (
+                row.get("human_review_status", "pending") != human_review_status):
+            continue
+        if status:
+            mapped = _map_status(
+                row.get("status", ""), row.get("summary") or {},
+                ledger.get_preflight(run_id))
+            if mapped != status:
+                continue
+        if needle and needle not in (
+                run_id + " " + wf + " " + _title_for(wf)).lower():
+            continue
+        filtered.append(row)
+    total = len(filtered)
     start = max(offset, 0)
-    page = all_rows[start:start + max(limit, 0)]
+    page = filtered[start:start + max(limit, 0)]
     items: list[RunListItem] = []
     for row in page:
         run_id = row["run_id"]

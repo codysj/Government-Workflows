@@ -13,6 +13,7 @@ import pytest
 from src.llm.provider import (
     MockLLMProvider,
     RealLLMProvider,
+    anthropic_messages_transport,
     get_provider,
 )
 
@@ -204,6 +205,75 @@ def test_real_provider_invents_nothing_on_non_json(monkeypatch):
         rp.generate_structured_response("p")
     # text path falls back to the raw completion rather than fabricating fields.
     assert rp.generate_text_response("p") == "no json here"
+
+
+# ------------------------------------------------------------------ #
+# GW-27: Anthropic Messages API transport preset tests
+# ------------------------------------------------------------------ #
+
+def test_anthropic_transport_builds_correct_request_shape(monkeypatch):
+    """Preset builds x-api-key header and content[].text request; no network."""
+    import json as _json
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-test-key")
+    captured: dict = {}
+
+    # Simulate httpx.post returning an Anthropic-shaped response (no real network)
+    import unittest.mock as _mock
+    mock_resp = _mock.MagicMock()
+    mock_resp.json.return_value = {
+        "content": [{"type": "text", "text": _json.dumps({"summary": "Anthropic reply."})}]
+    }
+    mock_resp.raise_for_status = lambda: None
+
+    with _mock.patch("httpx.post", return_value=mock_resp) as mock_post:
+        rp = RealLLMProvider(
+            model_provider="anthropic",
+            model_name="claude-opus-4-8",
+            api_key_env="ANTHROPIC_API_KEY",
+            base_url="https://api.anthropic.com/v1/messages",
+            transport=anthropic_messages_transport,
+        )
+        out = rp.generate_structured_response("test prompt")
+
+    # Correct HTTP call shape
+    _, kwargs = mock_post.call_args
+    headers = kwargs["headers"]
+    assert headers["x-api-key"] == "ant-test-key"
+    assert headers["anthropic-version"] == "2023-06-01"
+    body = kwargs["json"]
+    assert body["model"] == "claude-opus-4-8"
+    assert body["messages"][0]["role"] == "user"
+    assert body["messages"][0]["content"] == "test prompt"
+    # content[0].text was parsed into the standard dict shape
+    assert out["summary"] == "Anthropic reply."
+
+
+def test_anthropic_transport_parses_content_text():
+    """content[].text extraction works with a fake httpx response; no network."""
+    import json as _json
+    import unittest.mock as _mock
+
+    mock_resp = _mock.MagicMock()
+    mock_resp.json.return_value = {
+        "content": [
+            {"type": "text", "text": _json.dumps({"summary": "Parsed ok.", "referenced_source_rows": ["bank:1"]})}
+        ]
+    }
+    mock_resp.raise_for_status = lambda: None
+
+    with _mock.patch("httpx.post", return_value=mock_resp):
+        result = anthropic_messages_transport({
+            "base_url": "https://api.anthropic.com/v1/messages",
+            "model": "claude-opus-4-8",
+            "api_key": "fake-key",
+            "prompt": "hello",
+            "timeout": 30.0,
+        })
+
+    data = _json.loads(result)
+    assert data["summary"] == "Parsed ok."
+    assert data["referenced_source_rows"] == ["bank:1"]
 
 
 def test_real_provider_does_not_call_transport_without_key(monkeypatch):

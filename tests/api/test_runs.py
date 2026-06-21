@@ -289,6 +289,30 @@ def test_runs_list_pagination_fields(client, ap_run):
     assert page0["runs"][0]["run_id"] != page1["runs"][0]["run_id"]
 
 
+def test_runs_list_filter_by_workflow_type(client, ap_run):
+    """GW-34: workflow_type filter narrows the list + filtered total.
+
+    The session client has runs of several workflow types; filtering to
+    ap_duplicate_review must return only those, and total must reflect the
+    filtered count (which is smaller than the unfiltered total).
+    """
+    # Ensure a run of a DIFFERENT type exists so the filter is meaningful.
+    client.post(
+        "/api/workflows/transaction_search/runs",
+        data={"use_sample": "true"},
+    )
+    unfiltered = client.get("/api/runs", params={"limit": 500}).json()
+    filtered = client.get(
+        "/api/runs",
+        params={"limit": 500, "workflow_type": "ap_duplicate_review"},
+    ).json()
+    assert ap_run["run_id"] in {r["run_id"] for r in filtered["runs"]}
+    assert all(r["workflow_type"] == "ap_duplicate_review"
+               for r in filtered["runs"])
+    assert filtered["total"] == len(filtered["runs"])
+    assert filtered["total"] < unfiltered["total"]
+
+
 def test_runs_list_default_call_backward_compatible(client, ap_run):
     """The default call still returns a runs list (additive fields only)."""
     body = client.get("/api/runs").json()

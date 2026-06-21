@@ -62,6 +62,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(response.status, detail);
   }
+  // 204 No Content (e.g. DELETE) has an empty body; nothing to parse.
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -95,18 +97,36 @@ export function startRun(workflowType: string, form: FormData): Promise<RunDetai
   });
 }
 
+/** GW-34: optional server-side history filters. All omittable; omitting = no filter. */
+export interface RunFilters {
+  workflow_type?: string;
+  status?: string;
+  human_review_status?: string;
+  search?: string;
+}
+
 /**
  * GW-13: fetch one page of run history. Returns the page rows plus the full
  * ledger `total` and the applied `limit`/`offset` so the caller can show
  * "Showing N of TOTAL" and load more. `total` is a display-only count.
+ * GW-34: `filters` map to the backend filter query params so paging reflects
+ * the full filtered set, not just the loaded page.
  */
 export async function listRuns(
   limit: number,
   offset = 0,
+  filters: RunFilters = {},
 ): Promise<RunPage> {
-  const data = await request<RunsResponse>(
-    `/runs?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
-  );
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (filters.workflow_type) params.set("workflow_type", filters.workflow_type);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.human_review_status)
+    params.set("human_review_status", filters.human_review_status);
+  if (filters.search) params.set("search", filters.search);
+  const data = await request<RunsResponse>(`/runs?${params.toString()}`);
   return {
     runs: data.runs,
     total: data.total,
@@ -193,6 +213,28 @@ export function runSchedule(scheduleId: string): Promise<RunDetail> {
     `/schedules/${encodeURIComponent(scheduleId)}/run`,
     { method: "POST" },
   );
+}
+
+/** GW-33: toggle a schedule's active flag. Returns the updated schedule. */
+export function updateSchedule(
+  scheduleId: string,
+  active: boolean,
+): Promise<ScheduleInfo> {
+  return request<ScheduleInfo>(
+    `/schedules/${encodeURIComponent(scheduleId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active }),
+    },
+  );
+}
+
+/** GW-33: delete a schedule (204 No Content). */
+export async function deleteSchedule(scheduleId: string): Promise<void> {
+  await request<void>(`/schedules/${encodeURIComponent(scheduleId)}`, {
+    method: "DELETE",
+  });
 }
 
 /** GW-18: active schedules due on or before `asOf` (defaults to today server-side). */

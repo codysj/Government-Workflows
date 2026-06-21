@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { listRuns } from "../api/client";
+import { getDueSchedules, listRuns } from "../api/client";
 import type { RunListItem } from "../types/api";
 import { EmptyState } from "../components/EmptyState";
 import { Icon } from "../components/Icon";
@@ -14,6 +14,8 @@ export function HomePage() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<RunListItem[] | null>(null);
   const [state, setState] = useState<"loading" | "ok" | "error">("loading");
+  // GW-32: count of schedules the backend reports as due (display-only reminder).
+  const [dueCount, setDueCount] = useState(0);
 
   const load = useCallback(() => {
     setState("loading");
@@ -29,6 +31,13 @@ export function HomePage() {
     load();
   }, [load]);
 
+  // GW-32: a non-fatal due-runs reminder; a failure just hides the banner.
+  useEffect(() => {
+    getDueSchedules()
+      .then((due) => setDueCount(due.length))
+      .catch(() => setDueCount(0));
+  }, []);
+
   return (
     <div className="page">
       <h1>Municipal Finance AI Workflow Tool</h1>
@@ -41,6 +50,16 @@ export function HomePage() {
           Run a workflow
         </Link>
       </p>
+
+      {dueCount > 0 ? (
+        <div className="banner-info">
+          <Icon name="info" size={18} />
+          <p>
+            {dueCount} scheduled {dueCount === 1 ? "run is" : "runs are"} due.{" "}
+            <Link to="/schedules">View scheduled runs</Link>
+          </p>
+        </div>
+      ) : null}
 
       <section>
         <h2>Recent runs</h2>

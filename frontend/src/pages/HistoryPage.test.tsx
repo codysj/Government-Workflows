@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { HistoryPage } from "./HistoryPage";
@@ -40,7 +40,7 @@ describe("HistoryPage paging (GW-13)", () => {
       },
     ]);
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HistoryPage />
       </MemoryRouter>,
     );
@@ -63,7 +63,7 @@ describe("HistoryPage paging (GW-13)", () => {
       },
     ]);
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HistoryPage />
       </MemoryRouter>,
     );
@@ -90,7 +90,7 @@ describe("HistoryPage paging (GW-13)", () => {
       },
     ]);
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HistoryPage />
       </MemoryRouter>,
     );

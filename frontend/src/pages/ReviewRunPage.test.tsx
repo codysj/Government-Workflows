@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ReviewRunPage } from "./ReviewRunPage";
@@ -45,7 +45,7 @@ function renderReview(run: RunDetail) {
     },
   ]);
   render(
-    <MemoryRouter initialEntries={["/runs/run123"]}>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/runs/run123"]}>
       <ToastProvider>
         <Routes>
           <Route path="/runs/:runId" element={<ReviewRunPage />} />

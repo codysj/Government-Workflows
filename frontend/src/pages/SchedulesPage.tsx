@@ -3,9 +3,11 @@ import { useNavigate } from "react-router-dom";
 import {
   ApiError,
   createSchedule,
+  deleteSchedule,
   getSchedules,
   getWorkflows,
   runSchedule,
+  updateSchedule,
 } from "../api/client";
 import type { ScheduleInfo, WorkflowInfo } from "../types/api";
 import { EmptyState } from "../components/EmptyState";
@@ -56,6 +58,12 @@ export function SchedulesPage() {
 
   // Which schedule (if any) is mid-trigger, so we can disable just that button.
   const [runningId, setRunningId] = useState<string | null>(null);
+  // GW-33: which schedule is mid-edit (toggle/delete), to disable just its row.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // GW-33: per-row inline error (422/404 detail) keyed by schedule id.
+  const [rowError, setRowError] = useState<{ id: string; detail: string } | null>(
+    null,
+  );
 
   const load = useCallback(() => {
     setState("loading");
@@ -144,6 +152,43 @@ export function SchedulesPage() {
         );
       });
   };
+
+  // GW-33: shared handler for toggle/delete; refreshes the list on success and
+  // surfaces the backend 422/404 detail inline on failure.
+  const runEdit = (
+    schedule: ScheduleInfo,
+    op: () => Promise<unknown>,
+    fallback: string,
+  ) => {
+    setEditingId(schedule.schedule_id);
+    setRowError(null);
+    op()
+      .then(() => {
+        setEditingId(null);
+        load();
+      })
+      .catch((error: unknown) => {
+        setEditingId(null);
+        setRowError({
+          id: schedule.schedule_id,
+          detail: error instanceof ApiError ? error.detail : fallback,
+        });
+      });
+  };
+
+  const toggleActive = (schedule: ScheduleInfo) =>
+    runEdit(
+      schedule,
+      () => updateSchedule(schedule.schedule_id, !schedule.active),
+      "The schedule could not be updated on the local service.",
+    );
+
+  const removeSchedule = (schedule: ScheduleInfo) =>
+    runEdit(
+      schedule,
+      () => deleteSchedule(schedule.schedule_id),
+      "The schedule could not be deleted on the local service.",
+    );
 
   return (
     <div className="page">
@@ -265,11 +310,15 @@ export function SchedulesPage() {
               <th scope="col">Next due</th>
               <th scope="col">Last run</th>
               <th scope="col">Active</th>
-              <th scope="col">Run</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {(schedules ?? []).map((schedule) => (
+            {(schedules ?? []).map((schedule) => {
+              const busy =
+                editingId === schedule.schedule_id ||
+                runningId === schedule.schedule_id;
+              return (
               <tr key={schedule.schedule_id}>
                 <td>{schedule.label}</td>
                 <td>{sentenceCase(schedule.workflow_type)}</td>
@@ -281,20 +330,42 @@ export function SchedulesPage() {
                     : "Never"}
                 </td>
                 <td>{schedule.active ? "Active" : "Paused"}</td>
-                <td>
+                <td className="schedule-actions">
                   <button
                     type="button"
                     className="btn btn-secondary btn-small"
                     onClick={() => triggerRun(schedule)}
-                    disabled={runningId !== null}
+                    disabled={runningId !== null || busy}
                   >
                     {runningId === schedule.schedule_id
                       ? "Starting..."
                       : "Run now"}
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => toggleActive(schedule)}
+                    disabled={busy}
+                  >
+                    {schedule.active ? "Pause" : "Activate"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => removeSchedule(schedule)}
+                    disabled={busy}
+                  >
+                    Delete
+                  </button>
+                  {rowError?.id === schedule.schedule_id ? (
+                    <p className="inline-error-text" role="alert">
+                      {rowError.detail}
+                    </p>
+                  ) : null}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}

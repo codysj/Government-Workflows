@@ -463,7 +463,7 @@ option, which may generate a template with its own column structure.
 
 ---
 
-## 4. TYLER_MUNIS_STYLE Preset vs TYLER_DATASET_TYPES
+## 4. TYLER_MUNIS_STYLE Preset vs TYLER_DATASET_TYPES (GW-28 status: DEFERRED)
 
 `src/ingest/presets.py` defines a `TYLER_MUNIS_STYLE` preset (combined with
 `GENERIC_ERP` as the `tyler_munis_style` entry in `PRESETS`). This preset is
@@ -489,6 +489,18 @@ Key aliases in `TYLER_MUNIS_STYLE` not in `TYLER_DATASET_TYPES`:
 | invoice            | invoice_number  | Not in any TYLER_DATASET_TYPES spec |
 | po                  | po_number       | Not in any TYLER_DATASET_TYPES spec |
 
+**GW-28 DEFERRED** -- Resolving the org/object canonical conflict requires renaming
+all TYLER_DATASET_TYPES specs, synthetic fixtures, and downstream workflow column
+references (a multi-file rename with no runtime benefit for the current synthetic-only
+dataset). A `# ponytail: GW-28` comment in presets.py documents the intended fix path.
+
+**Intended single canonical per dimension (for a future fix pass):**
+
+| Munis dimension | Intended canonical  | Notes |
+|----------------|---------------------|-------|
+| Org (organization) | `org`           | Matches Munis terminology; remove preset's `org -> department` remapping |
+| Object (expenditure object) | `object` | Matches Munis terminology; remove preset's `object -> account_code` remapping |
+
 Observations:
 1. `TYLER_MUNIS_STYLE` and `TYLER_DATASET_TYPES` use DIFFERENT canonical names
    for the same Munis "Org" dimension: the preset maps `org` -> `department`,
@@ -499,9 +511,8 @@ Observations:
    developer trying to extend both.
 2. `TYLER_MUNIS_STYLE` similarly maps `object` -> `account_code`, while
    `TYLER_DATASET_TYPES` keeps `object` as canonical. Same dual-path situation.
-3. The `invoice` alias (maps to `invoice_number`) in `TYLER_MUNIS_STYLE` has no
-   counterpart in `TYLER_DATASET_TYPES` (which uses `invoice_no` and `inv_no`).
-   No fixture uses the bare `invoice` header.
+3. The `invoice` alias (bare "invoice" -> `invoice_number`) in `TYLER_MUNIS_STYLE`
+   had no fixture coverage and no `TYLER_DATASET_TYPES` counterpart. **Removed by GW-30.**
 
 ---
 
@@ -717,15 +728,16 @@ here as discovered_followups for a future cleanup pass.
    "(s)" to "_s". If the real Munis column is spelled differently (e.g.
    "Invoice Numbers", "Invoices", "Invoice No(s)") this alias will silently fail
    to resolve and the `invoice_numbers` optional column will simply be absent.
-   There is no warning when an optional alias fails to resolve.
+   **PARTIALLY FIXED by GW-29**: `normalize_tyler_export` now appends a warning
+   to `TylerNormalizedExport.warnings` when an optional column that has registered
+   aliases is absent after normalization (so callers/logs surface the gap). The
+   alias fragility itself remains; see the checklist in Section 5.4.
 
-5. **`TYLER_MUNIS_STYLE` registers `gl_amount`, `journal_amount`, `je_amount`
+5. **`TYLER_MUNIS_STYLE` registered `gl_amount`, `journal_amount`, `je_amount`
    aliases with no corresponding canonical in `TYLER_DATASET_TYPES`.**
-   These aliases map to `amount`, which is a derived (not directly required)
-   canonical in the gl_detail and je_upload specs. If a file has a "GL Amount"
-   header and is processed through `normalize_tyler_export`, the alias will not
-   be applied (it only lives in `TYLER_MUNIS_STYLE`) and detection may fail if
-   there is no Debit/Credit pair.
+   **FIXED by GW-30**: all three were deleted from `TYLER_MUNIS_STYLE`. They had
+   no fixture coverage and no counterpart in `TYLER_DATASET_TYPES`. The bare
+   `invoice -> invoice_number` alias was also deleted for the same reason.
 
 6. **Budget basis preference is hardcoded, not city-configurable via the normalizer.**
    The normalizer derives `amount = debit - credit` unconditionally. The budget

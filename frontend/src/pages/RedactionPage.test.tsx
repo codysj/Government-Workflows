@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { RedactionPage } from "./RedactionPage";
@@ -27,7 +27,7 @@ describe("RedactionPage (GW-11)", () => {
       },
     ]);
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <RedactionPage />
       </MemoryRouter>,
     );
@@ -66,7 +66,7 @@ describe("RedactionPage (GW-11)", () => {
       },
     ]);
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <RedactionPage />
       </MemoryRouter>,
     );

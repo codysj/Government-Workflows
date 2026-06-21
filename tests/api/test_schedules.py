@@ -218,3 +218,60 @@ def test_trigger_unknown_schedule_404(tmp_path_factory):
     with TestClient(create_app(_settings(root))) as c:
         r = c.post("/api/schedules/not_a_schedule/run")
         assert r.status_code == 404
+
+
+def test_patch_schedule_toggles_active(tmp_path_factory):
+    """GW-33: PATCH /api/schedules/{id} toggles active and persists it."""
+    root = tmp_path_factory.mktemp("sched_patch")
+    settings = _settings(root)
+    store = ScheduleStore(settings.schedules_path)
+    sched = make_schedule(
+        workflow_type="ap_duplicate_review",
+        cadence=CadenceType.MONTHLY,
+        label="Toggle me",
+        start=date(2026, 7, 1),
+    )
+    store.add(sched)
+    with TestClient(create_app(settings)) as c:
+        r = c.patch(f"/api/schedules/{sched.schedule_id}",
+                    json={"active": False})
+        assert r.status_code == 200, r.text
+        assert r.json()["active"] is False
+        # Persisted: re-listing shows the toggled value.
+        listed = c.get("/api/schedules").json()["schedules"]
+        row = next(s for s in listed
+                   if s["schedule_id"] == sched.schedule_id)
+        assert row["active"] is False
+
+
+def test_patch_unknown_schedule_404(tmp_path_factory):
+    root = tmp_path_factory.mktemp("sched_patch_404")
+    with TestClient(create_app(_settings(root))) as c:
+        r = c.patch("/api/schedules/nope", json={"active": False})
+        assert r.status_code == 404
+
+
+def test_delete_schedule(tmp_path_factory):
+    """GW-33: DELETE /api/schedules/{id} removes it (204), then it's gone."""
+    root = tmp_path_factory.mktemp("sched_delete")
+    settings = _settings(root)
+    store = ScheduleStore(settings.schedules_path)
+    sched = make_schedule(
+        workflow_type="report_review",
+        cadence=CadenceType.QUARTERLY,
+        label="Delete me",
+        start=date(2026, 7, 1),
+    )
+    store.add(sched)
+    with TestClient(create_app(settings)) as c:
+        r = c.delete(f"/api/schedules/{sched.schedule_id}")
+        assert r.status_code == 204, r.text
+        listed = c.get("/api/schedules").json()["schedules"]
+        assert all(s["schedule_id"] != sched.schedule_id for s in listed)
+
+
+def test_delete_unknown_schedule_404(tmp_path_factory):
+    root = tmp_path_factory.mktemp("sched_delete_404")
+    with TestClient(create_app(_settings(root))) as c:
+        r = c.delete("/api/schedules/nope")
+        assert r.status_code == 404

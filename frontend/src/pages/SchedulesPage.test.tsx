@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { SchedulesPage } from "./SchedulesPage";
@@ -27,7 +27,7 @@ function renderPage(schedules: ScheduleInfo[], extraRoutes: MockRoute[] = []) {
     ...extraRoutes,
   ]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ToastProvider>
         <SchedulesPage />
       </ToastProvider>
@@ -123,6 +123,45 @@ describe("SchedulesPage create form (GW-17)", () => {
     expect(
       screen.getByRole("button", { name: "Create schedule" }),
     ).toBeDisabled();
+  });
+});
+
+describe("SchedulesPage activate/pause + delete (GW-33)", () => {
+  it("pauses an active schedule via PATCH and refreshes", async () => {
+    const sched = makeSchedule({ schedule_id: "sch-9", active: true });
+    const { calls } = renderPage([sched], [
+      {
+        match: /\/api\/schedules\/sch-9$/,
+        method: "PATCH",
+        respond: () => ({ body: { ...sched, active: false } }),
+      },
+    ]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+
+    await waitFor(() => {
+      const patch = calls.find(
+        (c) =>
+          /\/api\/schedules\/sch-9$/.test(c.url) &&
+          (c.init?.method ?? "GET").toUpperCase() === "PATCH",
+      );
+      expect(patch).toBeTruthy();
+      expect(JSON.parse(patch?.init?.body as string)).toEqual({ active: false });
+    });
+  });
+
+  it("shows the backend detail inline when delete fails", async () => {
+    const sched = makeSchedule({ schedule_id: "sch-9" });
+    renderPage([sched], [
+      {
+        match: /\/api\/schedules\/sch-9$/,
+        method: "DELETE",
+        respond: () => ({ status: 404, body: { detail: "Unknown schedule." } }),
+      },
+    ]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    expect(await screen.findByText("Unknown schedule.")).toBeInTheDocument();
   });
 });
 

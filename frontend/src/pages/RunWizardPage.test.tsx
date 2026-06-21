@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { RunWizardPage } from "./RunWizardPage";
@@ -32,7 +32,7 @@ function renderWizard(preflight: PreflightResponse) {
     },
   ]);
   render(
-    <MemoryRouter initialEntries={["/run"]}>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/run"]}>
       <ToastProvider>
         <RunWizardPage />
       </ToastProvider>
@@ -116,7 +116,7 @@ function renderWizardWithTextInput(preflight: PreflightResponse) {
     },
   ]);
   render(
-    <MemoryRouter initialEntries={["/run"]}>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/run"]}>
       <ToastProvider>
         <RunWizardPage />
       </ToastProvider>
@@ -216,7 +216,7 @@ describe("GW-10: advanced options (progressive disclosure)", () => {
       },
     ]);
     render(
-      <MemoryRouter initialEntries={["/run"]}>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/run"]}>
         <ToastProvider>
           <RunWizardPage />
         </ToastProvider>
@@ -276,7 +276,7 @@ describe("GW-20: suggested column mappings", () => {
       },
     ]);
     render(
-      <MemoryRouter initialEntries={["/run"]}>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/run"]}>
         <ToastProvider>
           <RunWizardPage />
         </ToastProvider>

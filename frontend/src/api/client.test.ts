@@ -3,14 +3,21 @@ import { vi } from "vitest";
 import {
   ApiError,
   artifactUrl,
+  deleteSchedule,
   getRun,
   getWorkflows,
   listRuns,
   postReviewAction,
   runPreflight,
+  updateSchedule,
 } from "./client";
 import { installFetchMock } from "../test/mockFetch";
-import { makeRunDetail, makeWorkflow, makePreflight } from "../test/fixtures";
+import {
+  makeRunDetail,
+  makeSchedule,
+  makeWorkflow,
+  makePreflight,
+} from "../test/fixtures";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -52,6 +59,52 @@ describe("api client", () => {
     ]);
     await listRuns(50, 50);
     expect(calls[0].url).toBe("/api/runs?limit=50&offset=50");
+  });
+
+  it("listRuns appends the GW-34 filter params it is given", async () => {
+    const { calls } = installFetchMock([
+      {
+        match: /\/api\/runs\?/,
+        respond: () => ({ body: { runs: [], total: 0, limit: 50, offset: 0 } }),
+      },
+    ]);
+    await listRuns(50, 0, {
+      workflow_type: "ap_duplicate_review",
+      status: "completed",
+      human_review_status: "approved",
+      search: "inv 42",
+    });
+    expect(calls[0].url).toBe(
+      "/api/runs?limit=50&offset=0&workflow_type=ap_duplicate_review&status=completed&human_review_status=approved&search=inv+42",
+    );
+  });
+
+  it("updateSchedule PATCHes the active flag (GW-33)", async () => {
+    const { calls } = installFetchMock([
+      {
+        match: /\/api\/schedules\/sch-1$/,
+        method: "PATCH",
+        respond: () => ({ body: makeSchedule({ active: false }) }),
+      },
+    ]);
+    const updated = await updateSchedule("sch-1", false);
+    expect(calls[0].url).toBe("/api/schedules/sch-1");
+    expect(calls[0].init?.method).toBe("PATCH");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ active: false });
+    expect(updated.active).toBe(false);
+  });
+
+  it("deleteSchedule DELETEs and tolerates a 204 empty body (GW-33)", async () => {
+    const { calls } = installFetchMock([
+      {
+        match: /\/api\/schedules\/sch-1$/,
+        method: "DELETE",
+        // No body is returned for 204; the client must not call .json().
+        respond: () => ({ status: 204, body: undefined }),
+      },
+    ]);
+    await expect(deleteSchedule("sch-1")).resolves.toBeUndefined();
+    expect(calls[0].init?.method).toBe("DELETE");
   });
 
   it("getRun encodes the run id in the path", async () => {

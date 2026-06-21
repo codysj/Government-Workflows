@@ -249,7 +249,7 @@ Notes for the frontend (trust boundaries):
   survive (by design) is the in-memory `result_tables`, which is never part
   of the API.
 
-## GET /api/runs?limit=N&offset=M
+## GET /api/runs?limit=N&offset=M (GW-13, filters GW-34)
 
 `200 {"runs": [RunListItem], "total": int, "limit": int, "offset": int}`
 newest first. `limit` defaults to 50 (1..500); `offset` defaults to 0
@@ -257,11 +257,21 @@ newest first. `limit` defaults to 50 (1..500); `offset` defaults to 0
 `runs` is still present and is the page; `total`/`limit`/`offset` are
 additive.
 
-- `total` is the full number of runs in the ledger (NOT just this page) -
-  use it to drive pagination controls.
-- `limit` / `offset` echo the page window actually applied.
-- The page is the `[offset : offset+limit]` slice of the newest-first run
-  list. An `offset` past the end yields `runs: []` with `total` still set.
+Four optional filter params (GW-34); omitting any param skips that filter:
+
+| Param | Type | Filter |
+| --- | --- | --- |
+| `workflow_type` | string | Exact match on `workflow_type` |
+| `status` | string | Exact match on mapped status (`completed`/`failed_preflight`/`failed`) |
+| `human_review_status` | string | Exact match on `human_review_status` (e.g. `pending`/`in_review`/`approved`/`rejected`) |
+| `search` | string | Case-insensitive substring across `run_id`, `workflow_type`, `workflow_title` |
+
+When filter params are present:
+- `total` reflects the FILTERED count, not the full ledger size.
+- The page is the `[offset : offset+limit]` slice of the FILTERED, newest-first list.
+- An `offset` past the end yields `runs: []` with `total` still set.
+
+Without filter params, `total` is the full run count and behavior is identical to before.
 
 ```json
 {
@@ -497,6 +507,28 @@ This endpoint is a MANUAL trigger only - there is no background daemon, cron,
 or thread. It uses the workflow's sample inputs (the schedule store carries no
 uploaded files), matching the local-only MVP design of the scheduler core.
 
+## PATCH /api/schedules/{schedule_id} (GW-33)
+
+Toggle the active flag of a schedule. JSON body:
+
+```json
+{ "active": true }
+```
+
+- `200 ScheduleInfo` with the updated `active` field.
+- `404` for an unknown `schedule_id`.
+
+Builds a fresh `ScheduleStore` per request (same as all schedule endpoints).
+Uses `ScheduleStore.update()` internally.
+
+## DELETE /api/schedules/{schedule_id} (GW-33)
+
+Delete a schedule permanently.
+
+- `204 No Content` on success.
+- `404` for an unknown `schedule_id` (checked before deletion; `ScheduleStore.remove`
+  is a silent no-op on a missing id, so the existence check is required to surface 404).
+
 ---
 
 ## Deviations from the v1 contract draft
@@ -518,8 +550,10 @@ integrity (sha256), traversal safety, fail-closed JE prep, review actions
 restart-simulation rehydration test, plus the GW-8/9/11 read-only surfaces
 (settings mirror, cross-run AI usage log, stateless redaction scan, and
 schedule listing). GW-13 runs pagination (`total`/`limit`/`offset`), GW-20
-preflight `suggested_mappings`, and the GW-17/18/19 schedule create, manual
-trigger, due-query, and live-listing flows are covered as well.
+preflight `suggested_mappings`, the GW-17/18/19 schedule create/trigger/due/
+live-listing flows, GW-33 schedule PATCH toggle and DELETE (including 404 on
+unknown id), and GW-34 runs filter params (workflow_type, status,
+human_review_status, search; filtered `total` tracking) are covered as well.
 Run them with:
 
 ```

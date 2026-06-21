@@ -613,6 +613,18 @@ def normalize_tyler_export(
 
     warnings: list[str] = []
 
+    # GW-29: warn when an optional alias targets a column not present after aliasing.
+    # ponytail: only checks optional columns with at least one alias pointing at them;
+    # upgrade path: promote to structured warning objects if callers need to filter by type.
+    _alias_targets = {dst for dst in spec.aliases.values()}
+    for opt_col in spec.optional_columns:
+        if opt_col not in df.columns and opt_col in _alias_targets:
+            src_aliases = [s for s, d in spec.aliases.items() if d == opt_col]
+            warnings.append(
+                f"optional_column_missing: '{opt_col}' not found after aliasing "
+                f"(tried: {src_aliases}); column will be absent from the normalized frame."
+            )
+
     # Flag (never delete) repeated header rows and footer/total rows.
     repeated = detect_repeated_header_rows(df)
     if repeated:

@@ -1625,3 +1625,92 @@ New/changed client functions in `frontend/src/api/client.ts`:
   documented follow-up for src/llm/provider.py).
 - No removal of app.state.schedule_store (unused but harmless; cleanup follow-up).
 - No real-provider live call in any test or default suite path.
+
+## P1/P2 batch (2026-06-19)
+
+Backend, frontend, ingest, and doc tasks from the P1/P2 backlog. All changes are
+in allowed paths (api/, frontend/, src/llm/provider.py, src/ingest/presets.py,
+src/ingest/tyler.py, docs/, tests/). Final state: 786 Python tests pass,
+vitest 50/50, build green.
+
+### Built
+
+- **GW-25:** Deleted the dead `app.state.schedule_store` init and the now-unused
+  `ScheduleStore` import from `api/main.py`. Schedule routes already reload a
+  fresh store per request; the startup store was never read.
+
+- **GW-27:** Added `anthropic_messages_transport` to `src/llm/provider.py` -- a
+  named transport preset for the Anthropic Messages API (`x-api-key` +
+  `anthropic-version` headers; `content[0].text` parsing; `max_tokens: 4096`).
+  No live call in tests (injectable transport seam). Mock remains the default.
+
+- **GW-29:** After `apply_aliases` in `normalize_tyler_export`, added a loop over
+  optional columns: when an optional alias target is absent after aliasing,
+  a `"optional_column_missing: ..."` warning is appended to
+  `TylerNormalizedExport.warnings`. Previously silent.
+
+- **GW-30:** Removed four dead aliases from `TYLER_MUNIS_STYLE` in
+  `src/ingest/presets.py`: `gl_amount`, `journal_amount`, `je_amount` (all ->
+  `amount`; no `TYLER_DATASET_TYPES` counterpart) and `invoice` -> `invoice_number`
+  (no fixture). Documented in `docs/tyler_assumptions.md` Section 7.
+
+- **GW-32:** `HomePage.tsx` calls `getDueSchedules()` in a non-fatal effect and
+  renders a banner "N scheduled run(s) are due" with a link to /schedules when
+  count > 0. Failure silently hides the banner.
+
+- **GW-33 (backend):** `PATCH /api/schedules/{id}` (toggle active, body
+  `{active: bool}`) and `DELETE /api/schedules/{id}` (204 No Content) added to
+  `api/routes/schedules.py`. Both reload the store per-request; unknown id -> 404.
+  New `ScheduleUpdateRequest` model in `api/schemas/models.py`.
+
+- **GW-33 (frontend):** `SchedulesPage.tsx` gained per-row Pause/Activate toggle
+  and Delete button in a new Actions column. New client functions in
+  `api/client.ts`: `updateSchedule(id, active)` (PATCH) and `deleteSchedule(id)`
+  (DELETE); `request()` returns `undefined` for 204.
+
+- **GW-34 (backend):** `GET /api/runs` gained four optional filter query params
+  (`workflow_type`, `status`, `human_review_status`, `search`) filtering the
+  in-memory `ledger.list_runs()` list in `build_run_list` before paging. `total`
+  reflects the filtered count. No core change.
+
+- **GW-34 (frontend):** `HistoryPage.tsx` builds a memoized filters object,
+  resets to offset 0 on filter change, and forwards filters to `listRuns()`.
+  `listRuns` appends only set params via `URLSearchParams`. Workflow dropdown
+  uses `workflow_type` values; empty-with-filters state shows "No runs match
+  these filters".
+
+- **GW-35:** Added `future={{v7_startTransition, v7_relativeSplatPath}}` to
+  `BrowserRouter` in `App.tsx` and to every `MemoryRouter` in the 7 page test
+  files. Vitest output is now warning-free.
+
+- **GW-22:** Extended `e2e/core-loop.spec.ts` with a data-driven loop of 4 nav
+  smoke tests (Settings, AI usage, Redaction assist, Scheduled runs) -- each
+  loads `/`, clicks the nav link, asserts the h1, and asserts no error heading.
+
+- **GW-23:** New `tests/test_launcher.py` with two tests that monkeypatch
+  `ensure_frontend_dist`/`start_server`/`wait_for_health` and `webbrowser.open`,
+  asserting `launch_console.run(open_browser=True)` calls `webbrowser.open`
+  with the expected URL and that `open_browser=False` skips it.
+  `scripts/launch_console.py` not modified.
+
+### Deferred / closed
+
+- **GW-28 (deferred, kept in backlog):** The `org->department` /
+  `object->account_code` conflict between `TYLER_MUNIS_STYLE` and
+  `TYLER_DATASET_TYPES` requires renaming all 8 dataset specs, fixtures, and
+  downstream workflow column refs. Low urgency while synthetic-only. A
+  `# ponytail: GW-28` comment in `presets.py` documents the conflict and upgrade
+  path. `docs/tyler_assumptions.md` updated with "GW-28 status: DEFERRED".
+
+- **GW-24 (closed, no action needed):** No CI exists in this repo; `.gitignore`
+  already covers `frontend/test-results/` and `playwright-report/`. Nothing to
+  do until CI is added.
+
+- **GW-36 (closed, not reproducible):** The one-off 37-minute backend pytest
+  run was never reproduced. Baseline is ~340s. Closing with a "not reproducible"
+  note; reopen if it recurs.
+
+- **GW-26 (deferred, kept in backlog):** Persisting input sets on schedules
+  requires a `Schedule` model change and a new storage/trigger path. No real need
+  yet on synthetic-only data. Updated note: "deferred (YAGNI): schedule inputs
+  are sample-only until a real recurring dataset exists".
