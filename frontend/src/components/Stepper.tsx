@@ -18,7 +18,8 @@ export function Stepper({ steps }: { steps: StepInfo[] }) {
           <span className="step-circle" aria-hidden="true">
             {step.state === "done" ? <Icon name="check" size={14} /> : index + 1}
           </span>
-          <span className="step-label">{step.label}</span>
+          {/* Circle carries the number; strip any leading number from the label. */}
+          <span className="step-label">{step.label.replace(/^\d+\s+/, "")}</span>
         </li>
       ))}
     </ol>

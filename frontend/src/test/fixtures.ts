@@ -209,6 +209,35 @@ export function makeRunDetail(overrides: Partial<RunDetail> = {}): RunDetail {
             },
           },
         ],
+        evidence: {
+          groups: [
+            {
+              table_name: "ap_invoices",
+              file_name: "ap_invoices.csv",
+              file_hash: "abc123def4567890",
+              rows: [
+                {
+                  row_index: 14,
+                  cells: [
+                    { column: "invoice_number", value: "INV-1042", highlighted: true },
+                    { column: "vendor", value: "Cascade Paving", highlighted: false },
+                    { column: "amount", value: 5200, highlighted: true },
+                  ],
+                },
+                {
+                  row_index: 87,
+                  cells: [
+                    { column: "invoice_number", value: "INV-1042", highlighted: true },
+                    { column: "vendor", value: "Cascade Paving", highlighted: false },
+                    { column: "amount", value: 5200, highlighted: true },
+                  ],
+                },
+              ],
+            },
+          ],
+          one_sided: false,
+          missing_documents: [],
+        },
       },
       {
         finding_id: "f-002",
@@ -219,6 +248,7 @@ export function makeRunDetail(overrides: Partial<RunDetail> = {}): RunDetail {
         requires_human_review: false,
         computed_values: {},
         source_rows: [],
+        evidence: { groups: [], one_sided: false, missing_documents: [] },
       },
     ],
     ai: {

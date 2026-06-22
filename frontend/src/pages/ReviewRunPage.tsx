@@ -197,7 +197,8 @@ export function ReviewRunPage() {
       <div className="summary-strip">
         {run.status === "completed" ? (
           <div className="stat-tile">
-            <span className="stat-value">Items flagged: {flaggedCount}</span>
+            <span className="stat-label">Items flagged</span>
+            <span className="stat-value">{flaggedCount}</span>
             <span className="stat-sublabel">
               {run.findings.length} total checks results
             </span>
@@ -223,8 +224,9 @@ export function ReviewRunPage() {
           <ReviewStatusChip status={run.human_review_status} />
         </div>
         <div className="stat-tile">
+          <span className="stat-label">Export files</span>
           <a href="#exports" className="stat-value stat-link">
-            Export files: {run.artifacts.length}
+            {run.artifacts.length}
           </a>
         </div>
       </div>

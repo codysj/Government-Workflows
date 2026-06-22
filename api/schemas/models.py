@@ -142,6 +142,43 @@ class SourceRowInfo(BaseModel):
     source_values: dict[str, Any] = Field(default_factory=dict)
 
 
+class EvidenceCell(BaseModel):
+    """One source-cell. ``highlighted`` is set by the deterministic core when the
+    cell is one of the fields that drives the finding (the frontend never decides
+    this)."""
+
+    column: str
+    value: Any = None
+    highlighted: bool = False
+
+
+class EvidenceRow(BaseModel):
+    row_index: int
+    cells: list[EvidenceCell] = Field(default_factory=list)
+
+
+class EvidenceGroup(BaseModel):
+    """The source rows a finding cites from one document, with provenance.
+
+    ``file_name``/``file_hash`` are null for runs recorded before the input slot
+    was tracked; the values still come straight from the parsed file."""
+
+    table_name: str
+    file_name: Optional[str] = None
+    file_hash: Optional[str] = None
+    rows: list[EvidenceRow] = Field(default_factory=list)
+
+
+class FindingEvidence(BaseModel):
+    """Reviewer-facing evidence for a finding, produced by the deterministic core
+    (``src.core.evidence``). ``one_sided`` + ``missing_documents`` communicate an
+    absent counterpart (e.g. a bank item with no ledger match)."""
+
+    groups: list[EvidenceGroup] = Field(default_factory=list)
+    one_sided: bool = False
+    missing_documents: list[str] = Field(default_factory=list)
+
+
 class FindingInfo(BaseModel):
     finding_id: str
     finding_type: str
@@ -151,6 +188,7 @@ class FindingInfo(BaseModel):
     requires_human_review: bool = False
     computed_values: dict[str, Any] = Field(default_factory=dict)
     source_rows: list[SourceRowInfo] = Field(default_factory=list)
+    evidence: FindingEvidence = Field(default_factory=FindingEvidence)
 
 
 class AiSection(BaseModel):

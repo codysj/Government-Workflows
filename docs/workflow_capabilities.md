@@ -323,3 +323,15 @@ The condition codes (`PreflightConditionCode` in `src/core/schemas.py`):
 `POSSIBLE_ACCOUNT_ROLLUP`, `POSSIBLE_BUDGET_BASIS_MISMATCH`,
 `POSSIBLE_UNKNOWN_REPORT_STRUCTURE`, `UNSUPPORTED_PATTERN_DETECTED`,
 `NEEDS_HUMAN_CONFIGURATION`. Each value is the snake_case of the member name.
+
+## Source-row evidence (cross-workflow review surface)
+
+Independent of preflight: every deterministic finding any workflow produces
+carries source-row references (`DeterministicFinding.source_rows`, each a
+`SourceRowRef` with the parsed `source_values`). On the review page these are
+turned into reviewer-facing evidence by `src.core.evidence.build_finding_evidence`
+— rows grouped by source document, the finding's salient fields highlighted, full
+provenance (file name + recorded hash + absolute row index), and a clear missing-
+counterpart signal for one-sided findings. It is deterministic and read-only (no
+re-parsing, no matching, no LLM) and works for any finding that carries source
+rows; see `docs/decisions.md` ("Source-row evidence viewer for findings").

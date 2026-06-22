@@ -23,17 +23,15 @@ export function WorkflowCard({
     >
       <span className="workflow-card-title">{workflow.title}</span>
       <span className="workflow-card-desc">{oneLiner(workflow)}</span>
-      <span className="workflow-card-chips">
-        <span className="chip chip-slate">
+      <span className="workflow-card-meta">
+        <span>
           {requiredCount === 0
             ? "No files required"
             : `${requiredCount} ${requiredCount === 1 ? "file" : "files"} required`}
         </span>
-        {workflow.has_sample ? (
-          <span className="chip chip-green">Sample data available</span>
-        ) : null}
+        {workflow.has_sample ? <span>Sample data available</span> : null}
         {workflow.workflow_type === "freeform" ? (
-          <span className="chip chip-slate">Draft-only mode</span>
+          <span>Draft-only mode</span>
         ) : null}
       </span>
     </button>

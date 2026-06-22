@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app import workflow_registry as wfr
+from src.core import evidence as evidence_engine
 from src.core import preflight as preflight_engine
 from src.core.audit_log import AuditLog
 from src.core.run_ledger import RunLedger
@@ -20,6 +21,7 @@ from api.schemas.models import (
     AiSection,
     ArtifactInfo,
     AuditEventInfo,
+    FindingEvidence,
     FindingInfo,
     PreflightFileInfo,
     PreflightFindingInfo,
@@ -259,6 +261,20 @@ def build_run_detail(ledger: RunLedger, run_id: str) -> Optional[RunDetail]:
     summary = run.get("summary") or {}
     preflight_dict = run.get("preflight")
 
+    # Provenance map (input slot -> file name + recorded hash) and the run's
+    # document set, both fed to the deterministic evidence builder. Thin: the
+    # core (src.core.evidence) decides grouping/highlight/one-sidedness.
+    raw_findings = run.get("findings", [])
+    files_by_key = {
+        ipf["input_key"]: {
+            "file_name": ipf.get("file_name"),
+            "file_hash": ipf.get("file_hash"),
+        }
+        for ipf in ledger.list_input_files(run_id)
+        if ipf.get("input_key")
+    }
+    run_documents = evidence_engine.run_documents_of(raw_findings)
+
     findings = [
         FindingInfo(
             finding_id=f.get("finding_id", ""),
@@ -278,6 +294,11 @@ def build_run_detail(ledger: RunLedger, run_id: str) -> Optional[RunDetail]:
                 )
                 for s in (f.get("source_rows") or [])
             ],
+            evidence=FindingEvidence.model_validate(
+                evidence_engine.build_finding_evidence(
+                    f, files_by_key=files_by_key, run_documents=run_documents
+                )
+            ),
         )
         for f in run.get("findings", [])
     ]

@@ -293,6 +293,13 @@ them. The guided React console replaces that experience with:
 - Progressive disclosure: the summary strip (finding counts by severity, AI
   safety-check badge, review status) appears first; source-row evidence and
   audit events are one click deeper.
+- Source-row evidence: expanding a finding shows the actual cell values of every
+  source row it references, grouped by source document and shown side by side,
+  with the fields that drive the finding highlighted and full provenance (file
+  name, absolute row index, and the file's recorded hash) on every row. A
+  one-sided finding (e.g. a bank item with no ledger match) shows the present
+  row and names the missing side. The backend (`src.core.evidence`) decides
+  which rows, which fields, and which side is absent; the UI only renders it.
 - Explicit visual and structural separation of AI-drafted content from
   deterministic findings (the TrustBoundary component, always labeled "Draft -
   written by AI, verify before use", always in a distinct treatment).

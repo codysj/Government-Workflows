@@ -330,6 +330,39 @@ def test_audit_events_present(client, ap_run):
         assert {"event_type", "actor", "timestamp", "details"} <= set(e)
 
 
+def test_bank_rec_findings_carry_source_row_evidence(client):
+    """Each finding exposes deterministic evidence: rows grouped by document with
+    provenance, a highlighted salient field, and one-sided detection."""
+    r = client.post(
+        "/api/workflows/bank_reconciliation/runs",
+        data={"use_sample": "true", "actor": "tester"},
+    )
+    assert r.status_code == 200, r.text
+    findings = r.json()["findings"]
+    assert findings
+    assert all("evidence" in f for f in findings)
+
+    # A two-sided finding cites a bank row and a ledger row, side by side.
+    two_sided = next(
+        f for f in findings
+        if {g["table_name"] for g in f["evidence"]["groups"]} == {"bank", "ledger"}
+    )
+    groups = two_sided["evidence"]["groups"]
+    for g in groups:
+        assert g["file_name"], "provenance file name should be tracked"
+        assert g["file_hash"], "provenance hash should be tracked"
+        assert any(r_["cells"] for r_ in g["rows"])
+    assert any(
+        c["highlighted"] for g in groups for r_ in g["rows"] for c in r_["cells"]
+    ), "the salient field(s) should be highlighted by the core"
+
+    # If the sample has an unmatched item, it is flagged one-sided and names the
+    # absent document.
+    one_sided = next((f for f in findings if f["evidence"]["one_sided"]), None)
+    if one_sided is not None:
+        assert one_sided["evidence"]["missing_documents"]
+
+
 def test_run_detail_404(client):
     assert client.get("/api/runs/does_not_exist").status_code == 404
 

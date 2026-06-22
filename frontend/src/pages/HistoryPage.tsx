@@ -207,10 +207,10 @@ export function HistoryPage() {
                   <th scope="col">Workflow</th>
                   <th scope="col">Date</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Findings</th>
+                  <th scope="col" className="num">Findings</th>
                   <th scope="col">AI safety check</th>
                   <th scope="col">Review</th>
-                  <th scope="col">Exports</th>
+                  <th scope="col" className="num">Exports</th>
                 </tr>
               </thead>
               <tbody>
@@ -233,7 +233,7 @@ export function HistoryPage() {
                     <td>
                       <RunStatusPill status={run.status} />
                     </td>
-                    <td>{run.finding_count}</td>
+                    <td className="num">{run.finding_count}</td>
                     <td>
                       <ValidationBadge
                         state={validationStateFromFlag(run.validation_passed)}
@@ -242,7 +242,7 @@ export function HistoryPage() {
                     <td>
                       <ReviewStatusChip status={run.human_review_status} />
                     </td>
-                    <td>{run.artifact_count}</td>
+                    <td className="num">{run.artifact_count}</td>
                   </tr>
                 ))}
               </tbody>

@@ -43,4 +43,5 @@ def to_input_file(path: str | Path, parsed: ParsedTable) -> InputFile:
         parser_used=parsed.parser_used,
         row_count=parsed.row_count,
         column_names=parsed.column_names,
+        input_key=parsed.table_name,
     )

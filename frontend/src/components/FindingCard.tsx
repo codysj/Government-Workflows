@@ -58,7 +58,7 @@ export function FindingCard({
         </span>
       </button>
       <div id={contentId} hidden={!open} className="finding-detail">
-        <SourceRowTable rows={finding.source_rows} />
+        <SourceRowTable evidence={finding.evidence} />
         {Object.keys(finding.computed_values).length > 0 ? (
           <div className="computed-values">
             <p className="source-rows-caption">Computed values</p>

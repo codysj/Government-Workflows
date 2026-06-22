@@ -62,10 +62,11 @@ describe("Review Run page", () => {
 
     // Header + summary strip.
     await screen.findByRole("heading", { level: 1, name: "Duplicate payment review" });
-    expect(screen.getByText("Items flagged: 1")).toBeInTheDocument();
+    // Summary tiles: quiet eyebrow label + the count as the hero value.
+    expect(screen.getByText("Items flagged")).toBeInTheDocument();
     expect(screen.getByText("2 total checks results")).toBeInTheDocument();
     expect(screen.getByText("Not yet reviewed")).toBeInTheDocument();
-    expect(screen.getByText("Export files: 3")).toBeInTheDocument();
+    expect(screen.getByText("Export files")).toBeInTheDocument();
 
     // Deterministic findings, severity-grouped, plain-language rule heading.
     expect(

@@ -126,6 +126,33 @@ export interface SourceRowRef {
   source_values: Record<string, unknown>;
 }
 
+// Reviewer-facing evidence for a finding, produced by the deterministic core
+// (src.core.evidence). The frontend renders it verbatim - it never decides
+// grouping, highlighting, or which side is missing.
+export interface EvidenceCell {
+  column: string;
+  value: unknown;
+  highlighted: boolean;
+}
+
+export interface EvidenceRow {
+  row_index: number;
+  cells: EvidenceCell[];
+}
+
+export interface EvidenceGroup {
+  table_name: string;
+  file_name: string | null;
+  file_hash: string | null;
+  rows: EvidenceRow[];
+}
+
+export interface FindingEvidence {
+  groups: EvidenceGroup[];
+  one_sided: boolean;
+  missing_documents: string[];
+}
+
 export interface RunFinding {
   finding_id: string;
   finding_type: string;
@@ -135,6 +162,7 @@ export interface RunFinding {
   requires_human_review: boolean;
   computed_values: Record<string, unknown>;
   source_rows: SourceRowRef[];
+  evidence: FindingEvidence;
 }
 
 export interface AiInfo {

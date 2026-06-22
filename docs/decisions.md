@@ -1714,3 +1714,91 @@ vitest 50/50, build green.
   requires a `Schedule` model change and a new storage/trigger path. No real need
   yet on synthetic-only data. Updated note: "deferred (YAGNI): schedule inputs
   are sample-only until a real recurring dataset exists".
+
+## Frontend visual refresh (UI-only)
+
+A visual-only pass to move the console off the templated/auto-generated look
+toward a restrained single-accent dashboard. No workflow logic, routing, copy,
+or the 4-step flow changed. Constraints honored: deterministic/AI separation
+untouched (CSS + presentational markup only), `ux_spec` hard rules kept (exact
+copy, violet reserved for the AI trust boundary, run IDs/source refs/validation/
+exports still visible), 14px body-text floor for older users.
+
+- **One token source.** `frontend/src/styles/tokens.css` remains the single
+  source. Added a warm `--color-canvas`, `--color-primary-soft`, `--slate-400`,
+  weight/line-height/letter-spacing tokens, a 3-step shadow scale, and
+  `--content-max`. Bumped `--text-sm` 13->14px. Components consume only tokens.
+
+- **Single accent.** Blue is the only accent; it appears on the active nav item
+  and primary actions only. Status colors (green/amber/red) are reserved for
+  status meaning, not emphasis - the green "Sample data available" chip and the
+  green sample-callout box were demoted to neutral. Violet stays AI-only.
+
+- **Hierarchy.** One dominant `h1`; category headers demoted to a muted
+  uppercase eyebrow; card titles unified to one size/weight. Stepper shows the
+  number once (circle), with connecting lines and a dominant active step.
+
+- **Results-screen numbers.** Review Run summary tiles promote the count to the
+  hero figure over a quiet label; data tables use `tabular-nums` and right-align
+  numeric columns (`.num`) so digits line up. (`ReviewRunPage.test.tsx` updated
+  to match the split label/value markup.)
+
+- **Typography (the one bet).** Vendored IBM Plex Sans (400/500/600/700) + IBM
+  Plex Mono (400) as local woff2 under `frontend/src/styles/fonts/` (declared in
+  `fonts.css`, imported first in `main.tsx`). Chosen for its civic/institutional
+  character and legibility; self-hosted so the app stays fully offline (no CDN
+  at runtime). System stack remains as fallback in `--font-sans`/`--font-mono`.
+  IBM Plex is licensed under SIL OFL-1.1 - see `frontend/src/styles/fonts/NOTICE.md`.
+
+- **Out of scope / flagged.** Nav collapse-to-icons < 1024px (ux_spec) is
+  behavior, not visual - left for a follow-up. Loud color/gradients/ambient
+  motion from `design.md` were intentionally not applied; the restraint brief
+  governs for a trust-critical tool. Motion is limited to one CSS-only page-load
+  reveal that respects `prefers-reduced-motion`.
+
+## Source-row evidence viewer for findings
+
+Turns the existing "links to source rows" into "shows the source rows": each
+finding on the review page expands to the real cell values of every source row
+it cites, grouped by source document and shown side by side, with the salient
+fields highlighted and full provenance (file name, absolute row index, recorded
+hash). Works for any finding that carries source-row references.
+
+- **Evidence is recoverable with zero re-parsing.** Findings already persist
+  `source_rows[].source_values` (the parsed cell values) and `computed_values`.
+  The new `src.core.evidence.build_finding_evidence` reads only that persisted
+  data; it never re-reads files, re-matches, recalculates, or calls the LLM, and
+  it does not mutate findings. The API (`build_run_detail`) calls it and maps the
+  result into the contract; React renders it verbatim. This keeps the invariant:
+  core decides which rows / which fields / which side is missing.
+
+- **Provenance join (the one schema change).** A source row carries
+  `table_name` ("bank"), but `InputFile` recorded the file's name/hash without
+  which input slot it filled, and the workflow's per-row `file_id` is a fresh
+  uuid that does NOT match the persisted `InputFile.file_id`. So `file_id` is
+  not a usable join key. Added an additive, backward-compatible
+  `InputFile.input_key` (populated in `csv_loader.to_input_file` from the parsed
+  table name) so evidence joins `source_row.table_name -> input_key ->
+  {file_name, file_hash}`. Older runs lack it: provenance degrades to file name
+  unknown / hash null; the cell values still show.
+
+- **Highlight is value-match, not column-role tracking (`# ponytail` ceiling).**
+  Salient cells are found by matching a row's values against the finding's
+  `computed_values` (parsed-amount / parsed-date / exact string). Faithful for
+  amount/date-driven findings without touching any workflow's matching code; a
+  cell that coincidentally equals a computed value can also light up. Upgrade
+  path: have workflows record salient column names directly on the finding.
+
+- **One-sided detection is generic (`# ponytail` ceiling).** A finding is
+  "one-sided" when its `finding_type`/`rule_used` carries a missing-counterpart
+  marker (`unmatched`, `without_match`, `missing`, ...) AND it references exactly
+  one document; the absent side is named from the documents seen across the run's
+  findings (no per-workflow map). Bank-rec `unmatched_bank`/`unmatched_ledger`
+  resolve correctly; other workflows get the marker treatment when their type/
+  rule names carry one, else just show the present rows. Same-document findings
+  (e.g. within-table duplicates) are correctly NOT flagged one-sided.
+
+- **No new endpoint / no new dependency.** Evidence rides the existing
+  `GET /api/runs/{id}` payload (`finding.evidence`); the frontend reuses the
+  existing source-row component, now rendering grouped evidence. No AI anywhere
+  in this path.

@@ -129,6 +129,11 @@ class InputFile(BaseModel):
     parser_used: str
     row_count: int
     column_names: list[str] = Field(default_factory=list)
+    # The input slot this file filled (e.g. "bank"/"ledger"). Matches a
+    # finding's SourceRowRef.table_name, so source-row evidence can join a row
+    # back to its file's recorded name + hash. Optional/back-compatible: older
+    # ledger rows predate it and deserialize with None.
+    input_key: Optional[str] = None
 
 
 class ParsedTable(BaseModel):

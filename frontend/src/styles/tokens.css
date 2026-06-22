@@ -1,57 +1,57 @@
-/* Design tokens: color, spacing, and type scale. WCAG-AA-minded palette. */
+/* Design tokens: color, spacing, type. Single source. WCAG-AA-minded. */
 
 :root {
-  /* neutrals */
+  /* ---- neutral scale (cool slate; the one gray family) ---- */
   --slate-50: #f8fafc;
   --slate-100: #f1f5f9;
-  --slate-200: #e2e8f0;
+  --slate-200: #e8ecf1; /* softened border */
   --slate-300: #cbd5e1;
+  --slate-400: #94a3b8; /* muted icons / eyebrow / future step */
   --slate-500: #64748b;
   --slate-600: #475569;
   --slate-700: #334155;
   --slate-800: #1e293b;
   --slate-900: #0f172a;
 
-  /* status greens */
+  /* ---- single accent (blue; violet is reserved for AI only) ---- */
+  --blue-100: #dbeafe;
+  --blue-400: #60a5fa; /* accent on the dark sidebar (legible on slate-800) */
+  --blue-700: #1d4ed8;
+  --blue-800: #1e40af;
+  --color-primary: var(--blue-700);
+  --color-primary-hover: var(--blue-800);
+  --color-primary-soft: #eef3ff; /* active nav / selected / done-step tint */
+  --color-focus: var(--blue-700);
+
+  /* ---- semantic status (used ONLY for status, never decoration) ---- */
   --green-100: #dcfce7;
   --green-700: #15803d;
   --green-800: #166534;
-
-  /* warning ambers */
   --amber-50: #fffbeb;
   --amber-100: #fef3c7;
   --amber-700: #b45309;
   --amber-800: #92400e;
-
-  /* error reds */
   --red-50: #fef2f2;
   --red-100: #fee2e2;
   --red-600: #dc2626;
   --red-700: #b91c1c;
   --red-800: #991b1b;
 
-  /* info blues */
-  --blue-100: #dbeafe;
-  --blue-700: #1d4ed8;
-  --blue-800: #1e40af;
-
-  /* AI trust-boundary tint (used ONLY by .ai-container and its chips) */
+  /* ---- AI trust-boundary tint (binding: ONLY .ai-container) ---- */
   --violet-50: #f5f3ff;
   --violet-100: #ede9fe;
   --violet-400: #a78bfa;
   --violet-800: #5b21b6;
 
-  /* semantic */
-  --color-bg: #ffffff;
+  /* ---- surfaces ---- */
+  --color-canvas: #f7f7f5; /* warm off-white app background */
+  --color-bg: #ffffff; /* cards / surfaces */
   --color-surface: var(--slate-50);
   --color-border: var(--slate-200);
   --color-text: var(--slate-900);
   --color-text-muted: var(--slate-600);
-  --color-primary: var(--blue-700);
-  --color-primary-hover: var(--blue-800);
-  --color-focus: var(--blue-700);
 
-  /* spacing scale */
+  /* ---- spacing ---- */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -60,19 +60,37 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  /* type scale */
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-base: 15px;
-  --text-lg: 18px;
-  --text-xl: 22px;
-  --text-2xl: 28px;
+  /* ---- type: 4 effective roles ---- */
+  --text-xs: 12px; /* eyebrow, chips, micro-meta */
+  --text-sm: 14px; /* metadata (was 13 -> 14 readability floor) */
+  --text-base: 15px; /* body */
+  --text-lg: 18px; /* card + section titles (one weight) */
+  --text-xl: 20px; /* step section heading */
+  --text-2xl: 28px; /* the one dominant page title */
 
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --leading-tight: 1.25; /* headings */
+  --leading-normal: 1.5; /* body */
+  --tracking-eyebrow: 0.06em;
+
+  /* ---- radius ---- */
   --radius-sm: 4px;
   --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-lg: 10px;
 
-  --font-sans: -apple-system, "Segoe UI", system-ui, Roboto, "Helvetica Neue",
-    Arial, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  /* ---- shadows: restrained; borders do most of the work ---- */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 6px 20px rgba(15, 23, 42, 0.1);
+
+  /* ---- layout ---- */
+  --content-max: 1080px; /* intentional max content width */
+
+  --font-sans: "IBM Plex Sans", -apple-system, "Segoe UI Variable Text",
+    "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas,
+    "Courier New", monospace;
 }

@@ -201,7 +201,21 @@ when no `query` field is sent.
         {"file_id": "...", "table_name": "ap_invoices", "row_index": 17,
          "column_names": ["vendor_name", "amount"],
          "source_values": {"vendor_name": "...", "amount": "1234.56"}}
-      ]
+      ],
+      "evidence": {
+        "groups": [
+          {"table_name": "ap_invoices", "file_name": "ap_invoices.csv",
+           "file_hash": "9f86d081...",
+           "rows": [
+             {"row_index": 17, "cells": [
+               {"column": "vendor_name", "value": "...", "highlighted": false},
+               {"column": "amount", "value": "1234.56", "highlighted": true}
+             ]}
+           ]}
+        ],
+        "one_sided": false,
+        "missing_documents": []
+      }
     }
   ],
   "ai": {
@@ -233,6 +247,15 @@ Notes for the frontend (trust boundaries):
 - `findings` are DETERMINISTIC results. `ai` is DRAFT content from the
   advisory LLM and MUST be rendered visually/structurally separated and
   labeled as AI-drafted, never mixed with deterministic findings.
+- `finding.evidence` is the deterministic source-row evidence for that finding,
+  produced by the core (`src.core.evidence`): rows grouped by source document
+  (`groups`), each row's cells flagged `highlighted` when they are a field that
+  drives the finding, and provenance (`file_name` + recorded `file_hash`; both
+  may be `null` for runs recorded before the input slot was tracked). When a
+  finding's counterpart row is absent (e.g. an unmatched bank item),
+  `one_sided` is `true` and `missing_documents` names the absent side(s). The
+  frontend RENDERS this verbatim; it never decides grouping, highlighting, or
+  which side is missing. `groups` is empty for file-level findings (no rows).
 - `ai` is `null` whenever the LLM was never called (fail-closed paths such as
   failed preflight). `ai.response` is an opaque dict whose keys vary by
   workflow (`summary`, `draft_memo`, `draft`, ...); render known keys, show
