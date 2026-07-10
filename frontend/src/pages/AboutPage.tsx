@@ -29,10 +29,12 @@ export function AboutPage() {
               <li>Plain-language explanations</li>
               <li>Summaries</li>
               <li>Draft memos</li>
+              <li>Answering questions about a completed run</li>
             </ul>
             <p className="muted">
               Always citing source rows, always checked, always a draft until a person
-              approves it.
+              approves it. The run Q&amp;A assistant is bound to one run and its data -
+              not a general chatbot - and it cannot change any records.
             </p>
           </div>
         </div>

@@ -301,6 +301,7 @@ export function makeRunDetail(overrides: Partial<RunDetail> = {}): RunDetail {
       "approve_draft",
       "reject_ai_explanation",
     ],
+    qa_turns: [],
     ...overrides,
   };
 }

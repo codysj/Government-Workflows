@@ -211,6 +211,23 @@ class ValidationSection(BaseModel):
     numeric_claims_checked: int = 0
 
 
+class QaTurn(BaseModel):
+    """One run-scoped Q&A turn. The answer is an advisory DRAFT grounded only in
+    the run's data; ``validation`` is the same check drafted commentary passes
+    (turn-level, not the run's headline validation)."""
+
+    question: str
+    answer: str
+    answerable: bool = True
+    referenced_source_rows: list[str] = Field(default_factory=list)
+    validation: ValidationSection
+
+
+class QuestionRequest(BaseModel):
+    question: str
+    actor: Optional[str] = None
+
+
 class ArtifactInfo(BaseModel):
     file_name: str
     artifact_type: str
@@ -247,6 +264,7 @@ class RunDetail(BaseModel):
     artifacts: list[ArtifactInfo] = Field(default_factory=list)
     review_actions: list[ReviewActionInfo] = Field(default_factory=list)
     allowed_review_actions: list[str] = Field(default_factory=list)
+    qa_turns: list[QaTurn] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #

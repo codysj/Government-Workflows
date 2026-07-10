@@ -5,6 +5,8 @@ import type {
   AuditResponse,
   HealthResponse,
   PreflightResponse,
+  QaTurn,
+  QuestionRequest,
   RedactionScanRequest,
   RedactionScanResult,
   ReviewActionRequest,
@@ -151,6 +153,19 @@ export function postReviewAction(
       body: JSON.stringify(body),
     },
   );
+}
+
+/** Ask a question about a completed run. Returns the validated, advisory DRAFT
+ * answer turn (grounded only in the run's data). */
+export function askRunQuestion(
+  runId: string,
+  body: QuestionRequest,
+): Promise<QaTurn> {
+  return request<QaTurn>(`/runs/${encodeURIComponent(runId)}/questions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 export async function getAudit(runId: string): Promise<AuditEvent[]> {

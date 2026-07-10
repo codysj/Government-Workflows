@@ -1802,3 +1802,42 @@ hash). Works for any finding that carries source-row references.
   `GET /api/runs/{id}` payload (`finding.evidence`); the frontend reuses the
   existing source-row component, now rendering grouped evidence. No AI anywhere
   in this path.
+
+## Run-scoped Q&A assistant ("ask about this run")
+
+A bounded assistant attached to ONE completed run (`src.core.run_qa`,
+`POST /api/runs/{id}/questions`, `RunQaPanel`). It answers questions grounded
+only in that run's findings, cited source rows, available reference data, and
+metadata. Not a general chatbot: attached to a run, cannot act/change records,
+no internet.
+
+- **Turns reuse the `LLMResponse` row + `validate_llm_output`.** Each turn is
+  stored as an `LLMResponse` tagged `prompt_template_version="run_qa.v1"`, so it
+  inherits the audit trail (existing `LLM_REQUEST_SENT`/`LLM_RESPONSE_RECEIVED`
+  events with `details.kind="run_qa"` - no `EventType` enum change), the AI usage
+  log (`list_llm_interactions` already reads every `LLMResponse`), the retention
+  category (it is the run's), and the review packet. Turn-level validation is the
+  SAME `validate_llm_output` drafted commentary uses (invented refs -> rejected,
+  stray numbers -> flagged), embedded INSIDE the turn's `response_json` - never
+  written to the `validation_results` table, so the run's headline validation is
+  untouched.
+
+- **Behavior-preserving reader split.** Because turns now live in
+  `llm_responses`, the two readers that assumed "`[-1]` is the workflow draft"
+  (`build_run_detail.ai` and `review_packet` section 4 / manifest `model`) now
+  select the last NON-qa response. Identical output for runs without Q&A; for
+  runs with Q&A they still show the workflow draft, not a turn. Q&A turns surface
+  separately: `RunDetail.qa_turns` and an additive review-packet **section 9**.
+  This is the "append through existing logging/export paths" the brief allows; it
+  does not change what those paths do for existing (non-qa) content.
+
+- **Answerability + offline mock (`# ponytail` ceiling).** The model is
+  instructed to refuse ungrounded questions; the offline `MockLLMProvider` gains
+  a chat branch (triggered only by the Q&A prompt marker - existing mock output
+  unchanged) that decides answerability by keyword overlap and cites only real
+  finding refs. Validation is the hard gate, not the heuristic. Reference
+  grounding = app-level `load_context()` (city profile + default chart of
+  accounts), not per-run uploaded COA rows (those aren't persisted as data).
+
+- **No new dependency; mock by default.** Uses the existing provider factory
+  (`get_provider()`), so default runs/tests need no key and no network.

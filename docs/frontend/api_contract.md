@@ -260,6 +260,13 @@ Notes for the frontend (trust boundaries):
   failed preflight). `ai.response` is an opaque dict whose keys vary by
   workflow (`summary`, `draft_memo`, `draft`, ...); render known keys, show
   the rest as-is.
+- `qa_turns` is the run-scoped Q&A history (advisory; see `POST
+  /api/runs/{run_id}/questions`). Each `QaTurn` is
+  `{question, answer, answerable, referenced_source_rows, validation}` where
+  `validation` is the same shape as the run's `validation` (turn-level: invented
+  refs make `passed=false`). These are kept SEPARATE from the workflow draft in
+  `ai`; render every answer in the same AI trust-boundary treatment as `ai`.
+  Empty for runs with no questions asked.
 - `status` mapping: ledger `completed` -> `completed`; ledger `failed` with a
   preflight `fail` (or `summary.blocked`) -> `failed_preflight`; any other
   ledger state (including a process that died mid-run, leaving
@@ -345,6 +352,32 @@ Request: `{"action": str, "actor": str, "note": str|null, "finding_id": str|null
 `200 {"human_review_status": str, "review_actions": [ReviewActionInfo]}` -
 the updated run-level review status plus the full, updated action list for
 the run (sorted by `created_at`).
+
+## POST /api/runs/{run_id}/questions (run-scoped Q&A)
+
+Ask one question about a completed run. Request: `{"question": str,
+"actor": str|null}`.
+
+`200 QaTurn` = `{question, answer, answerable, referenced_source_rows,
+validation}`.
+
+- The answer is an advisory DRAFT grounded ONLY in this run's findings, cited
+  source rows, available reference data (city profile + chart of accounts), and
+  run metadata - never general knowledge, never the internet. It is produced by
+  `src.core.run_qa` using the default offline provider (mock) unless real-LLM
+  env vars are set, exactly like the rest of the tool.
+- It is VALIDATED with the same `src.core.validation` drafted commentary uses:
+  an invented source-row reference makes `validation.passed=false`
+  (`invented_reference_detected=true`); stray numeric claims are flagged as
+  warnings. Render a failed answer as not-yet-trustworthy (safety banner), the
+  same as a failed draft.
+- When the run's data cannot support the question, `answerable` is `false` and
+  the answer says so plainly (no fabricated content).
+- The turn is persisted (tagged `run_qa.v1`), so it appears in the run's audit
+  trail, the AI usage log, the exported review packet (section 9), and inherits
+  the run's retention category. It does NOT alter the run's headline `ai` draft
+  or `validation`.
+- `422` empty question; `404` unknown run.
 
 ## GET /api/runs/{run_id}/artifacts
 

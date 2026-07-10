@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 
@@ -143,6 +144,9 @@ class MockLLMProvider:
 
     # ------------------------------------------------------------------ #
     def _build(self, prompt: str) -> dict:
+        # Run-scoped Q&A prompts get a question-aware, still-grounded answer.
+        if "RUN Q&A ASSISTANT" in prompt:
+            return self._build_qa(prompt)
         findings = _extract_findings_from_prompt(prompt)
         ref_ids: list[str] = []
         categorized: list[dict] = []
@@ -175,6 +179,52 @@ class MockLLMProvider:
                 "All figures were computed deterministically; the assistant only "
                 "drafted explanatory language."
             ),
+        }
+
+    def _build_qa(self, prompt: str) -> dict:
+        """Offline run-Q&A answer: grounded in the prompt's findings, never
+        invents. Answerability is decided by keyword overlap between the question
+        and the grounding.
+
+        # ponytail: overlap heuristic stands in for a real model's judgment of
+        # whether the run's data supports the question; a real provider does the
+        # real reasoning. The hard guardrail is validation, not this heuristic.
+        """
+        findings = _extract_findings_from_prompt(prompt)
+        refs = sorted({r for f in findings for r in (f.get("source_row_ids") or [])})
+
+        marker = "QUESTION:"
+        idx = prompt.find(marker)
+        question = prompt[idx + len(marker):].split("\n", 1)[0].strip() if idx != -1 else ""
+        grounding_blob = (prompt[:idx] if idx != -1 else prompt).lower()
+
+        q_tokens = {w for w in re.findall(r"[a-z0-9]{3,}", question.lower())}
+        # Words that carry no run-specific meaning shouldn't make a question
+        # look "grounded" on their own.
+        stop = {"the", "and", "why", "what", "how", "did", "does", "this", "that",
+                "for", "are", "was", "were", "with", "from", "have", "has", "any",
+                "would", "could", "should", "about", "run", "these", "those"}
+        meaningful = q_tokens - stop
+        answerable = bool(meaningful and any(t in grounding_blob for t in meaningful))
+
+        if not answerable:
+            return {
+                "summary": (
+                    "I can't answer that from this run's data. Try asking about "
+                    "the flagged items, their source rows, or the run's results."
+                ),
+                "referenced_source_rows": [],
+                "answerable": False,
+            }
+        return {
+            "summary": (
+                f"Based on this run's {len(findings)} finding(s): the flagged "
+                "items and their cited source rows are what the deterministic "
+                "checks produced. See the cited rows for the underlying values. "
+                "This is a draft for human review; no figures were computed here."
+            ),
+            "referenced_source_rows": refs,
+            "answerable": True,
         }
 
 

@@ -24,6 +24,7 @@ import { KeyValueList } from "../components/KeyValueList";
 import { SkeletonRows } from "../components/LoadingState";
 import { PreflightResultView } from "../components/PreflightResultView";
 import { ReviewStatusChip } from "../components/ReviewStatusChip";
+import { RunQaPanel } from "../components/RunQaPanel";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { StatusPill } from "../components/StatusPill";
 import { useToast } from "../components/ToastProvider";
@@ -284,6 +285,10 @@ export function ReviewRunPage() {
           onAction={submitAction}
           busyAction={busyAction}
         />
+      ) : null}
+
+      {run.status === "completed" ? (
+        <RunQaPanel runId={run.run_id} initialTurns={run.qa_turns} />
       ) : null}
 
       {/* Section order per ux_spec: completed runs show "Your review" (4.4) before

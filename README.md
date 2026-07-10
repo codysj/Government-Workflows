@@ -2,9 +2,11 @@
 
 A local-first AI workflow tool for small municipal finance departments. It turns
 recurring, error-prone finance tasks into auditable, source-linked review
-workflows. It is a controlled workflow runner, not a chatbot: every calculation
-is done by deterministic code, the model is used only for language tasks, and
-every run is logged and exportable for human review.
+workflows. It is a controlled workflow runner, not a general chatbot: every
+calculation is done by deterministic code, and the model is used only for
+language tasks — drafting explanations and answering questions about a specific
+run, always grounded in that run's own data, validated the same way, and logged.
+Every run is logged and exportable for human review.
 
 This is an MVP built on synthetic data only. See
 [`docs/Project_Outline_Master.md`](docs/Project_Outline_Master.md) for the full
@@ -303,6 +305,15 @@ them. The guided React console replaces that experience with:
 - Explicit visual and structural separation of AI-drafted content from
   deterministic findings (the TrustBoundary component, always labeled "Draft -
   written by AI, verify before use", always in a distinct treatment).
+- Ask about this run: a bounded, run-scoped Q&A assistant. After a run
+  completes, staff can ask questions ("why might these not have matched?") and
+  get answers grounded ONLY in that run's findings, cited source rows, reference
+  data, and metadata. It is not a general chatbot: it is attached to one run, it
+  cannot change records, every answer is an advisory DRAFT shown in the same AI
+  TrustBoundary, it passes the same validation as drafted commentary (invented
+  references rejected, stray numbers flagged), and when the run's data can't
+  support a question it says so plainly instead of guessing. Every turn is in the
+  run's audit trail, AI usage log, retention category, and exported review packet.
 - Clear review controls and export buttons that are never buried.
 
 Streamlit is retained as the legacy/dev surface. It shares the same run
@@ -585,10 +596,10 @@ The React console (`http://127.0.0.1:8765` via the launcher, or
 | --- | --- | --- |
 | Home | Home | Workflow picker and status strip |
 | Run wizard | Run a workflow | Four-step guided wizard (upload -> file check -> run -> review); Advanced options section exposes config JSON and suggested column mappings from preflight |
-| Review Run | (reached from wizard) | Findings, AI trust boundary, artifacts, audit trail |
+| Review Run | (reached from wizard) | Findings (with side-by-side source-row evidence), AI trust boundary, run-scoped Q&A ("ask about this run"), artifacts, audit trail |
 | History | History | All past runs with status and link to Review Run; offset-based pagination (50 per page, Load more button, total count display) |
 | Settings | Settings | Read-only display of local settings from `app_settings.json` (city name, default actor, AI provider/mode, tolerances, export dir, role, retention category) |
-| AI usage | AI usage | Cross-run table of every AI interaction: workflow, model, prompt version, validation status, draft/final state, source rows cited -- newest first |
+| AI usage | AI usage | Cross-run table of every AI interaction (workflow drafts AND run-scoped Q&A turns, distinguished by prompt version): workflow, model, prompt version, validation status, draft/final state, source rows cited -- newest first |
 | Redaction assist | Redaction assist | Paste text, scan for PII patterns (SSN, email, phone, credit card, long numbers), see masked previews and redacted output; nothing stored |
 | Scheduled runs | Scheduled runs | Live list of local schedules (cadence, next due, last run, active); create a new schedule via a form (workflow, label, cadence, optional interval); "Run now" on any schedule triggers it on sample data and navigates to the result |
 | About | About and safety | Safety model and invariants |

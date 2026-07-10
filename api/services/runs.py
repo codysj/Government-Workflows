@@ -14,6 +14,7 @@ from typing import Any, Optional
 from app import workflow_registry as wfr
 from src.core import evidence as evidence_engine
 from src.core import preflight as preflight_engine
+from src.core import run_qa as run_qa_engine
 from src.core.audit_log import AuditLog
 from src.core.run_ledger import RunLedger
 
@@ -26,6 +27,7 @@ from api.schemas.models import (
     PreflightFileInfo,
     PreflightFindingInfo,
     PreflightResponse,
+    QaTurn,
     ReviewActionInfo,
     RunDetail,
     RunListItem,
@@ -303,10 +305,15 @@ def build_run_detail(ledger: RunLedger, run_id: str) -> Optional[RunDetail]:
         for f in run.get("findings", [])
     ]
 
-    # The ledger stores a LIST of LLM responses; the last one is the active
-    # draft. ai is null when the LLM was never called (fail-closed paths).
+    # The ledger stores a LIST of LLM responses mixing the workflow draft with
+    # run-scoped Q&A turns. The active draft is the last NON-qa response; Q&A
+    # turns are surfaced separately (below). ai is null when the LLM was never
+    # called (fail-closed paths).
     ai: Optional[AiSection] = None
-    llm_responses = run.get("llm_responses") or []
+    llm_responses = [
+        r for r in (run.get("llm_responses") or [])
+        if not run_qa_engine.is_qa_response(r)
+    ]
     if llm_responses:
         last = llm_responses[-1]
         ai = AiSection(
@@ -349,7 +356,25 @@ def build_run_detail(ledger: RunLedger, run_id: str) -> Optional[RunDetail]:
         artifacts=build_artifacts(ledger, run_id),
         review_actions=build_review_actions(ledger, run_id),
         allowed_review_actions=list(ALLOWED_REVIEW_ACTIONS),
+        qa_turns=[QaTurn(**t) for t in run_qa_engine.qa_turns_for_run(run)],
     )
+
+
+def answer_run_question(
+    ledger: RunLedger,
+    audit: AuditLog,
+    run_id: str,
+    question: str,
+    *,
+    export_dir: Path,
+    actor: str = "finance_staff",
+) -> Optional[QaTurn]:
+    """Answer one run-scoped question. Thin wrapper over the core run_qa engine
+    (which grounds, validates, persists, audits, and refreshes the packet). Uses
+    the default offline provider unless LLM env vars opt into a real one."""
+    turn = run_qa_engine.answer_question(
+        ledger, audit, run_id, question, export_dir=export_dir, actor=actor)
+    return QaTurn(**turn) if turn is not None else None
 
 
 def build_artifacts(ledger: RunLedger, run_id: str) -> list[ArtifactInfo]:

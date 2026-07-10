@@ -196,6 +196,21 @@ export interface ReviewActionRecord {
   created_at: string;
 }
 
+// One run-scoped Q&A turn. The answer is an advisory DRAFT grounded only in the
+// run's data; `validation` is the same check drafted commentary passes.
+export interface QaTurn {
+  question: string;
+  answer: string;
+  answerable: boolean;
+  referenced_source_rows: string[];
+  validation: ValidationInfo;
+}
+
+export interface QuestionRequest {
+  question: string;
+  actor?: string | null;
+}
+
 export interface RunDetail {
   run_id: string;
   workflow_type: string;
@@ -213,6 +228,7 @@ export interface RunDetail {
   artifacts: ArtifactInfo[];
   review_actions: ReviewActionRecord[];
   allowed_review_actions: string[];
+  qa_turns: QaTurn[];
 }
 
 export interface ReviewActionRequest {

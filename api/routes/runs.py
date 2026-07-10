@@ -9,6 +9,8 @@ from app.workflow_registry import record_human_review_action
 from api.schemas.models import (
     ArtifactList,
     AuditEventList,
+    QaTurn,
+    QuestionRequest,
     ReviewActionRequest,
     ReviewActionResult,
     RunDetail,
@@ -16,6 +18,7 @@ from api.schemas.models import (
 )
 from api.services.runs import (
     ALLOWED_REVIEW_ACTIONS,
+    answer_run_question,
     apply_review_status_transition,
     build_artifacts,
     build_audit_events,
@@ -94,6 +97,27 @@ def post_review_action(
         human_review_status=new_status,
         review_actions=build_review_actions(ledger, run_id),
     )
+
+
+@router.post("/runs/{run_id}/questions", response_model=QaTurn)
+def post_question(run_id: str, body: QuestionRequest, request: Request) -> QaTurn:
+    """Ask a question about a completed run. The answer is an advisory DRAFT
+    grounded only in this run's findings, source rows, reference data, and
+    metadata; it is validated, audited, and added to the run's review packet."""
+    ledger = request.app.state.ledger
+    audit = request.app.state.audit
+    settings = request.app.state.settings
+    _require_run(ledger, run_id)
+    if not body.question.strip():
+        raise HTTPException(status_code=422, detail="Question must not be empty.")
+    turn = answer_run_question(
+        ledger, audit, run_id, body.question,
+        export_dir=settings.export_dir,
+        actor=(body.actor or "finance_staff"),
+    )
+    if turn is None:
+        raise HTTPException(status_code=404, detail=f"Unknown run '{run_id}'.")
+    return turn
 
 
 @router.get("/runs/{run_id}/artifacts", response_model=ArtifactList)

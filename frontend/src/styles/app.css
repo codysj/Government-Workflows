@@ -1428,6 +1428,44 @@ textarea {
   margin: 0;
 }
 
+/* Run Q&A ("ask about this run") */
+.qa-turns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.qa-question {
+  margin: 0 0 var(--space-1);
+}
+
+.qa-q-label {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+}
+
+.qa-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 640px;
+  margin-top: var(--space-3);
+}
+
+.qa-ask label {
+  font-weight: var(--weight-semibold);
+}
+
+.qa-ask textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.qa-ask .btn {
+  align-self: flex-start;
+}
+
 /* Review form */
 .review-form {
   display: flex;

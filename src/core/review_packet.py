@@ -47,6 +47,11 @@ _APPROVE_ACTION = "approve_draft"
 _REJECT_ACTION = "reject_ai_explanation"
 
 
+def _is_qa(llm_response: dict) -> bool:
+    """True if a stored llm_response row is a run-scoped Q&A turn (run_qa.*)."""
+    return str(llm_response.get("prompt_template_version", "")).startswith("run_qa")
+
+
 # --------------------------------------------------------------------------- #
 # Status derivation
 # --------------------------------------------------------------------------- #
@@ -134,7 +139,11 @@ def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
     summary = run.get("summary") or {}
     actions = run.get("human_review_actions") or []
     findings = run.get("findings") or []
-    llms = run.get("llm_responses") or []
+    # Q&A turns are stored as llm_responses tagged run_qa.*; keep them out of the
+    # workflow-draft section (4) and surface them in their own section (9).
+    all_llms = run.get("llm_responses") or []
+    qa_turns = [r for r in all_llms if _is_qa(r)]
+    llms = [r for r in all_llms if not _is_qa(r)]
     vrs = run.get("validation_results") or []
     files = run.get("input_files") or []
     draft_status = derive_draft_status(actions)
@@ -289,6 +298,33 @@ def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
         lines.append("_No audit events recorded._")
     lines.append("")
 
+    # 9. Run Q&A (advisory). The bounded "ask about this run" assistant; each
+    # answer is a DRAFT grounded only in this run's data and validated like the
+    # drafted commentary above.
+    lines += ["## 9. Run Q&A (advisory — DRAFT, human review required)", ""]
+    if qa_turns:
+        for r in qa_turns:
+            t = r.get("response_json", {}) or {}
+            v = t.get("validation", {}) or {}
+            refs = ", ".join(t.get("referenced_source_rows", []) or []) or "(none)"
+            status = "PASSED" if v.get("passed", True) else "FLAGGED"
+            lines += [
+                f"**Q:** {t.get('question', '')}",
+                "",
+                f"**A (draft):** {t.get('answer', '')}",
+                f"- Answerable from this run: {t.get('answerable')}",
+                f"- Cited source rows: {refs}",
+                f"- Validation: {status}",
+            ]
+            for e in v.get("errors", []) or []:
+                lines.append(f"  - ERROR: {e}")
+            for w in v.get("warnings", []) or []:
+                lines.append(f"  - WARNING: {w}")
+            lines.append("")
+    else:
+        lines.append("_No run questions recorded._")
+    lines.append("")
+
     return "\n".join(lines)
 
 
@@ -298,7 +334,9 @@ def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
 def build_run_manifest(run: dict, audit_events: list[dict]) -> dict:
     """Machine-readable bundle of everything needed to review/defend a run."""
     actions = run.get("human_review_actions") or []
-    llms = run.get("llm_responses") or []
+    all_llms = run.get("llm_responses") or []
+    qa_turns = [r for r in all_llms if _is_qa(r)]
+    llms = [r for r in all_llms if not _is_qa(r)]
     vrs = run.get("validation_results") or []
     last_llm = llms[-1] if llms else {}
     last_v = vrs[-1] if vrs else {}
@@ -347,6 +385,17 @@ def build_run_manifest(run: dict, audit_events: list[dict]) -> dict:
             "warnings": last_v.get("warnings", []),
         },
         "human_review_actions": actions,
+        "run_qa": [
+            {
+                "question": (r.get("response_json", {}) or {}).get("question", ""),
+                "answer": (r.get("response_json", {}) or {}).get("answer", ""),
+                "answerable": (r.get("response_json", {}) or {}).get("answerable"),
+                "referenced_source_rows": (
+                    r.get("response_json", {}) or {}).get("referenced_source_rows", []),
+                "validation": (r.get("response_json", {}) or {}).get("validation", {}),
+            }
+            for r in qa_turns
+        ],
         "export_history": [
             {"file_name": a.get("file_name"), "sha256": a.get("sha256"),
              "type": a.get("artifact_type")}
