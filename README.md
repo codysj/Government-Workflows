@@ -25,8 +25,10 @@ always grounded in that run's own data, validated the same way, and logged.
   <img src="docs/media/demo.gif" alt="End-to-end demo: pick a workflow, check files, run, review source-linked findings and the validated AI draft" width="100%">
 </p>
 
-> **MVP on synthetic data only.** Everything here is fabricated for demonstration —
-> no real bank statements, vendors, PII, secrets, or ERP integrations. See the
+> **MVP on synthetic data only.** Everything in the public repository is fabricated
+> for demonstration — no real bank statements, vendors, PII, secrets, or ERP
+> integrations. The project does not connect directly to a live Tyler/Munis
+> installation. See the
 > [full spec](docs/Project_Outline_Master.md) and [architecture decisions](docs/decisions.md).
 
 ---
@@ -37,6 +39,10 @@ Small-city finance teams repeat the same manual, error-prone tasks every month a
 quarter: reconciling a bank statement against a ledger, explaining budget variances,
 checking a draft report before it goes into an agenda packet or audit. These tasks are
 tedious and easy to get wrong — but they demand exactness and an audit trail.
+
+This project was independently proposed and developed after interviews with finance
+staff surfaced records-retention and auditability risks around the use of individual
+AI accounts for work-related tasks.
 
 A general chatbot is the wrong tool. Finance staff can't trust a black box that might
 invent an account number or miscalculate a variance, and auditors need to see where
@@ -208,6 +214,14 @@ screen came from deterministic code, not the UI.
 Requires **Python 3.11+** and **Node 24+**. Runs fully offline by default. On Windows the
 project uses a local venv at `.venv\Scripts\python.exe`.
 
+### Deployment status
+
+As of July 2026, the system has been piloted with finance staff as a local,
+single-user MVP. The deployment path described below serves the built React console
+and FastAPI backend from one local process for evaluation and demonstration. It is not
+a hosted multi-user production deployment, and the public repository contains
+synthetic data only.
+
 ```bat
 REM 1. Backend
 python -m venv .venv
@@ -320,7 +334,8 @@ Deliberate scope boundaries of this MVP — not bugs:
 - **Local, single-user, no auth.** No accounts, roles, or access control. The role
   selector is presentation-only (reorders findings; never hides or deletes).
 - **No real ERP integration.** All data is local CSV/XLSX. Tyler/Munis column aliases are
-  modeled on observed export shapes and unvalidated against a live system — see the
+  modeled on observed export shapes and unvalidated against a live system. The public
+  repository does not connect directly to a live Tyler/Munis installation — see the
   assumptions register in [`docs/tyler_assumptions.md`](docs/tyler_assumptions.md).
 - **Synchronous execution, no streaming.** Workflows run in the request handler (seconds
   on synthetic data); a large real dataset would need a task queue.
@@ -332,8 +347,9 @@ Deliberate scope boundaries of this MVP — not bugs:
 
 Everything in this repository uses **synthetic data only**. There are no real bank
 statements, vendor records, employee or taxpayer data, credentials, PII, secrets, or ERP
-integrations anywhere in the project. "City of Riverbend" and all vendors, invoices,
-checks, POs, and amounts are fabricated. **Do not load real sensitive data into this MVP.**
+integrations anywhere in the public project, and it does not connect directly to a live
+Tyler/Munis installation. "City of Riverbend" and all vendors, invoices, checks, POs,
+and amounts are fabricated. **Do not load real sensitive data into this MVP.**
 
 ## Engineering decisions
 
