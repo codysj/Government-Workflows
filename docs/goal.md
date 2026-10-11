@@ -19,11 +19,11 @@ sections after it are the state.
 
 | Field | Value |
 | --- | --- |
-| Current milestone | Close-out: stop-hook follow-ups (AP < 10 s, screenshots, re-audit) |
+| Current milestone | Done: every Definition of Done item verified at `b5261cf` |
 | Branch | `goal/portfolio-hardening` |
 | Baseline commit | `4a5767a` |
 | OpenRouter spend so far | $0.1249 of $1.50 cap |
-| Last updated | 2026-10-11 (close-out in progress) |
+| Last updated | 2026-10-11 (goal complete) |
 
 **Outcome so far:** one pipeline behind four front ends (React console, CLI,
 MCP server, eval harness); claim validator that caught a real model's invented
@@ -179,23 +179,32 @@ questions in chat, never in the repo.
 | M5 MCP front end | done | 459f83e | `mcp_server.py` (5 tools, stdio), protocol tests, one recorded real session (`docs/mcp.md`) |
 | M6 Portfolio polish | done | 02a228b | CI, README rewrite, ADR index, lock file, dead code removed |
 | Final whole-branch review | done | ab0e455 | 16 findings fixed (log entry below) |
-| Close-out (stop-hook follow-ups) | in_progress | | AP 12 s -> 7 s (GW-48), screenshots re-captured, fresh README audit |
+| Close-out (stop-hook follow-ups) | done | 0855d2a, b5261cf | AP 12 s -> 7 s (GW-48), screenshots re-captured, fresh README audit fixed |
 
 ## Definition of Done
 
 - [x] One registry, one `run_workflow`; the API, CLI, and eval harness share it
+      (`tests/unit/test_registry_surface.py::test_only_one_run_workflow_exists`)
 - [x] Validator passes the adversarial set built from recorded real responses;
-      GW-38 fixed; `.env.example` accurate
+      GW-38 fixed; `.env.example` accurate (`tests/integration/test_real_llm_replay.py`;
+      `.env.example` re-checked by the final audit)
 - [x] Real-model eval numbers recorded; total OpenRouter spend logged and ≤ $1.50
+      (`docs/evaluation.md`; $0.1249 per `GET /api/v1/key`, Spend log reconciled)
 - [x] `app/` (Streamlit) removed
 - [x] Launcher shuts down cleanly; 50k-row timings recorded; plain-language
-      FAIL/PARTIAL guidance tested
+      FAIL/PARTIAL guidance tested (`tests/test_launcher.py`,
+      `tests/integration/test_preflight_guidance.py`; 50k: 2.9-7.3 s idle, all < 10 s)
 - [x] MCP server with tests and one recorded real call
-- [ ] CI file valid; all suites green from a clean checkout; every README claim
-      backed by a command
-- [x] Non-test source lines below baseline (see Baselines): 27,870 vs 30,229
-- [ ] No pilot-identifying info and no secrets anywhere in the branch diff (grep
-      check)
+      (`tests/integration/test_mcp_server.py`, `tests/fixtures/real_llm/sessions/`)
+- [x] CI file valid; all suites green from a clean checkout; every README claim
+      backed by a command (clean clone of `b5261cf`: 903 pytest, eval 7/7,
+      typecheck, lint, 57 vitest, build, tree clean after; README re-audited
+      claim by claim after the last edits, every finding fixed)
+- [x] Non-test source lines below baseline (see Baselines): 27,942 vs 30,229 at `b5261cf`
+      (28,096 counting the new `.mjs` capture script)
+- [x] No pilot-identifying info and no secrets anywhere in the branch diff (grep
+      check of `git diff 4a5767a b5261cf` and all commit messages: 0 pilot terms,
+      0 occurrences of the key)
 
 ## Baselines
 
@@ -433,3 +442,8 @@ and why. One dated bullet per entry.
   Out of scope but fixed: the eval harness wrote exports into runs/ even with
   `--out` (now next to the report; evaluation.md said "no on-disk state");
   messy-fixture description matched to what exists. pytest 903.
+- 2026-10-11: Final verification from a clean clone of b5261cf: 903 pytest,
+  eval 7/7, typecheck, lint, 57 vitest, build; no files changed by the checks.
+  LOC 27,942 (baseline 30,229). Branch diff + commit messages: 0 pilot terms,
+  0 key occurrences. Spend $0.1249 of $1.50. All Definition of Done items
+  checked. Not pushed; the user reviews the local branch.
