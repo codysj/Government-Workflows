@@ -1,0 +1,108 @@
+{
+  "workflow_type": "po_invoice_review",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "prompt_template_version": "po_invoice_review.v2",
+  "response_json": {
+    "summary": "This draft summarizes 9 flagged PO/invoice mismatch findings across 18 purchase order rows and 66 AP invoice rows. The findings include high-severity exceptions for invoice_exceeds_po, wrong_vendor, and missing_po; medium-severity exceptions for missing_po_over_threshold, closed_po_usage, unit_price_mismatch, quantity_mismatch, and invoiced_not_received; and one low-severity exception for received_not_invoiced. All items require human review before any conclusion is drawn.",
+    "categorized_exceptions": [
+      {
+        "category": "invoice_exceeds_po",
+        "description": "Total invoiced against PO-3001 is 11500.00, which exceeds the PO total 10000.00, with overage 1500.00 and tolerance 0.0%.",
+        "referenced_source_rows": [
+          "ap_invoice_detail:59",
+          "purchase_orders:1"
+        ]
+      },
+      {
+        "category": "wrong_vendor",
+        "description": "Invoice INV-90022 from vendor V-1008 references PO PO-3002, which was issued to vendor V-1004.",
+        "referenced_source_rows": [
+          "ap_invoice_detail:60",
+          "purchase_orders:2"
+        ]
+      },
+      {
+        "category": "missing_po",
+        "description": "Invoice INV-90033 references PO PO-3999, which does not exist in the purchase orders file. Invoice amount is 1800.00 and vendor_number is V-1009.",
+        "referenced_source_rows": [
+          "ap_invoice_detail:61"
+        ]
+      },
+      {
+        "category": "missing_po_over_threshold",
+        "description": "Invoice INV-44510 has amount 12000.00, no PO number, and exceeds the required-PO threshold of 5000.00. Vendor_number is V-1004.",
+        "referenced_source_rows": [
+          "ap_invoice_detail:52"
+        ]
+      },
+      {
+        "category": "closed_po_usage",
+        "description": "Invoice INV-90044 dated 2026-03-05 bills against PO PO-3004, which has Status=Closed with last activity 2026-01-31. Invoice date exceeds last activity plus grace period of 0 days.",
+        "referenced_source_rows": [
+          "ap_invoice_detail:62",
+          "purchase_orders:4"
+        ]
+      },
+      {
+        "category": "unit_price_mismatch",
+        "description": "Invoice INV-90055 unit price 27.50 differs from PO PO-3005 line 1 unit price 25.00, with deviation 10.00% and tolerance 1.0%.",
+        "referenced_source_rows": [
+          "ap_invoice_detail:63",
+          "purchase_orders:5"
+        ]
+      },
+      {
+        "category": "quantity_mismatch",
+        "description": "Invoice INV-90066 qty 65 exceeds PO PO-3006 line 1 ordered qty 50, with overage 15 and qty tolerance 0.",
+        "referenced_source_rows": [
+          "ap_invoice_detail:64",
+          "purchase_orders:7"
+        ]
+      },
+      {
+        "category": "received_not_invoiced",
+        "description": "PO PO-3007 line 1 for vendor V-1015 has received_qty 80 but invoiced_qty 0 and no matching AP invoice. This may be an accrual candidate.",
+        "referenced_source_rows": [
+          "purchase_orders:9"
+        ]
+      },
+      {
+        "category": "invoiced_not_received",
+        "description": "PO PO-3008 line 1 for vendor V-1018 has invoiced_qty 40, which exceeds received_qty 10, with difference 30.",
+        "referenced_source_rows": [
+          "purchase_orders:10",
+          "ap_invoice_detail:65"
+        ]
+      }
+    ],
+    "referenced_source_rows": [
+      "ap_invoice_detail:59",
+      "purchase_orders:1",
+      "ap_invoice_detail:60",
+      "purchase_orders:2",
+      "ap_invoice_detail:61",
+      "ap_invoice_detail:52",
+      "ap_invoice_detail:62",
+      "purchase_orders:4",
+      "ap_invoice_detail:63",
+      "purchase_orders:5",
+      "ap_invoice_detail:64",
+      "purchase_orders:7",
+      "purchase_orders:9",
+      "purchase_orders:10",
+      "ap_invoice_detail:65"
+    ],
+    "suggested_review_steps": [
+      "Confirm receipt with the department for the items related to ap_invoice_detail:59 and purchase_orders:1 before taking any further action.",
+      "Confirm vendor identity and PO issuance details for ap_invoice_detail:60 and purchase_orders:2 with the procurement team.",
+      "Verify whether PO PO-3999 exists outside the purchase orders file or was omitted from the file for ap_invoice_detail:61.",
+      "Confirm whether a PO was required and whether one exists for ap_invoice_detail:52, given the amount 12000.00 and threshold 5000.00.",
+      "Confirm whether any exception or reactivation applies to PO PO-3004 for ap_invoice_detail:62 and purchase_orders:4.",
+      "Confirm the agreed unit price with the department and vendor for ap_invoice_detail:63 and purchase_orders:5.",
+      "Confirm receipt and ordered quantity with the department for ap_invoice_detail:64 and purchase_orders:7.",
+      "Confirm receipt status and accrual treatment with the department for purchase_orders:9.",
+      "Confirm receipt quantity and invoice support with the department for purchase_orders:10 and ap_invoice_detail:65."
+    ],
+    "draft_memo": "DRAFT FOR HUMAN REVIEW \u2014 NOT AN APPROVAL\n\nSubject: PO/invoice mismatch review notes\n\nThe deterministic review identified 9 flagged findings across 18 purchase order rows and 66 AP invoice rows. These notes summarize the exceptions only and do not determine whether any invoice is proper.\n\nHigh-severity exceptions: invoice_exceeds_po for ap_invoice_detail:59 and purchase_orders:1; wrong_vendor for ap_invoice_detail:60 and purchase_orders:2; missing_po for ap_invoice_detail:61.\n\nMedium-severity exceptions: missing_po_over_threshold for ap_invoice_detail:52; closed_po_usage for ap_invoice_detail:62 and purchase_orders:4; unit_price_mismatch for ap_invoice_detail:63 and purchase_orders:5; quantity_mismatch for ap_invoice_detail:64 and purchase_orders:7; invoiced_not_received for purchase_orders:10 and ap_invoice_detail:65.\n\nLow-severity exception: received_not_invoiced for purchase_orders:9, which may be an accrual candidate.\n\nSuggested human follow-up steps include confirming receipt with the department, confirming vendor and PO issuance details with procurement, verifying whether referenced POs exist or were omitted, confirming PO requirements and exceptions, confirming unit prices, and confirming receipt and accrual treatment. All source-row references are limited to the deterministic findings provided."
+  }
+}

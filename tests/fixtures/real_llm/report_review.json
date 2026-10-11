@@ -1,0 +1,87 @@
+{
+  "workflow_type": "report_review",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "prompt_template_version": "report_review.v2",
+  "response_json": {
+    "summary": "DRAFT FOR HUMAN REVIEW. This consistency review reports 7 findings: 3 high severity and 4 medium severity. High-severity items include a subtotal mismatch in section 'Expenditures' (stated subtotal 700000 versus line items summing to 810000, difference -110000), a missing required section 'Fund Balance', and account code '5099' not being present in the chart of accounts. Medium-severity items include a duplicate account line for account '5030' in section 'Expenditures' with amount 80000, inconsistent naming for account code '5040' as ['Prof. Services', 'Professional Services'], a large change for account '5010' from prior 250000 to current 400000 (change 150000, 60.0%), and a large change for account '5040' from prior 61000 to current 30000 (change -31000, 50.8%). This draft does not determine whether the report is correct.",
+    "categorized_exceptions": [
+      {
+        "category": "Subtotal consistency",
+        "description": "Subtotal for section 'Expenditures' is 700000, but the line items sum to 810000 (difference -110000).",
+        "referenced_source_rows": [
+          "report:5",
+          "report:6",
+          "report:7",
+          "report:8",
+          "report:9",
+          "report:10",
+          "report:11",
+          "report:12"
+        ]
+      },
+      {
+        "category": "Required section presence",
+        "description": "Required section 'Fund Balance' is missing from the report. Present sections include 'Expenditures' and 'Revenues'.",
+        "referenced_source_rows": []
+      },
+      {
+        "category": "Duplicate account line",
+        "description": "Duplicate account line: account '5030' in section 'Expenditures' appears more than once with the same values, amount 80000.",
+        "referenced_source_rows": [
+          "report:7",
+          "report:8"
+        ]
+      },
+      {
+        "category": "Account code validity",
+        "description": "Account code '5099' is not present in the chart of accounts.",
+        "referenced_source_rows": [
+          "report:11"
+        ]
+      },
+      {
+        "category": "Account naming consistency",
+        "description": "Inconsistent naming: account code '5040' is labeled with multiple names: ['Prof. Services', 'Professional Services'].",
+        "referenced_source_rows": [
+          "report:9",
+          "report:10"
+        ]
+      },
+      {
+        "category": "Large change from prior version",
+        "description": "Large change for account '5010': prior 250000 -> current 400000 (change 150000, 60.0%).",
+        "referenced_source_rows": [
+          "report:5"
+        ]
+      },
+      {
+        "category": "Large change from prior version",
+        "description": "Large change for account '5040': prior 61000 -> current 30000 (change -31000, 50.8%).",
+        "referenced_source_rows": [
+          "report:10"
+        ]
+      }
+    ],
+    "referenced_source_rows": [
+      "report:5",
+      "report:6",
+      "report:7",
+      "report:8",
+      "report:9",
+      "report:10",
+      "report:11",
+      "report:12"
+    ],
+    "suggested_review_steps": [
+      "Verify the 'Expenditures' subtotal against the line items using source rows report:5, report:6, report:7, report:8, report:9, report:10, report:11, and report:12, without altering amounts in this draft.",
+      "Confirm whether the required section 'Fund Balance' should be present in the report.",
+      "Review account '5030' lines in section 'Expenditures' for duplication using source rows report:7 and report:8.",
+      "Check whether account code '5099' exists in the chart of accounts and review source row report:11.",
+      "Review account code '5040' naming across source rows report:9 and report:10 for consistency.",
+      "Review the large change for account '5010' from prior 250000 to current 400000 using source row report:5.",
+      "Review the large change for account '5040' from prior 61000 to current 30000 using source row report:10.",
+      "Route all findings to a human reviewer for final determination; this draft does not approve or reject the report."
+    ],
+    "draft_memo": "DRAFT FOR HUMAN REVIEW. Subject: Financial report consistency review findings. This memo summarizes 7 detected inconsistencies for human review. It does not decide whether the report is correct. Finding 1: Subtotal for section 'Expenditures' is 700000, but the line items sum to 810000 (difference -110000), referencing source rows report:5, report:6, report:7, report:8, report:9, report:10, report:11, and report:12. Finding 2: Required section 'Fund Balance' is missing from the report; present sections include 'Expenditures' and 'Revenues'. Finding 3: Duplicate account line: account '5030' in section 'Expenditures' appears more than once with the same values, amount 80000, referencing source rows report:7 and report:8. Finding 4: Account code '5099' is not present in the chart of accounts, referencing source row report:11. Finding 5: Inconsistent naming: account code '5040' is labeled with multiple names: ['Prof. Services', 'Professional Services'], referencing source rows report:9 and report:10. Finding 6: Large change for account '5010': prior 250000 -> current 400000 (change 150000, 60.0%), referencing source row report:5. Finding 7: Large change for account '5040': prior 61000 -> current 30000 (change -31000, 50.8%), referencing source row report:10. Suggested human follow-up: verify the subtotal and line items, confirm whether the missing section is required, review the duplicate account line, check the chart of accounts for account code '5099', review account naming for account code '5040', and review the large changes for accounts '5010' and '5040'. All items require human review before any conclusion is made."
+  }
+}

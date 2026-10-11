@@ -63,9 +63,10 @@ from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
 from src.ingest.tyler import normalize_tyler_export, source_ref_for_row
+from src.llm.prompts import OUTPUT_RULES
 
 WORKFLOW_TYPE = "po_invoice_review"
-PROMPT_TEMPLATE_VERSION = "po_invoice_review.v1"
+PROMPT_TEMPLATE_VERSION = "po_invoice_review.v2"  # v2: shared OUTPUT_RULES appended
 
 
 EXPORT_FILE_NAMES = (
@@ -919,7 +920,8 @@ _GUARDRAILS = (
     "- Use ONLY numbers and source-row ids that appear in the findings below.\n"
     "- Every claim must cite source_row ids in 'referenced_source_rows'.\n"
     "- All output is a DRAFT for human review. Never produce approval language.\n"
-)
+
+) + OUTPUT_RULES
 
 _OUTPUT_CONTRACT = (
     "Return JSON with keys: summary (str), categorized_exceptions (list of "
@@ -1089,18 +1091,8 @@ def _call_llm(
 def validate_llm_output(
     response_json: dict, det: POInvoiceReviewOutput
 ) -> ValidationResult:
-    """Thin wrapper: delegates to the canonical validator.
-
-    Missing source references are treated as warnings (not errors) because
-    INFO/skip findings carry no source rows.
-    """
-    return _core_validate_llm_output(
-        response_json,
-        det,
-        require_references=True,
-        missing_references_is_error=False,
-        check_numeric_claims=False,
-    )
+    """Delegates to the canonical validator (one policy for every workflow)."""
+    return _core_validate_llm_output(response_json, det)
 
 
 # --------------------------------------------------------------------------- #

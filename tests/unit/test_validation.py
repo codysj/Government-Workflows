@@ -6,6 +6,8 @@ and an invalid-JSON case.
 """
 from __future__ import annotations
 
+import pytest
+
 from src.core.schemas import (
     DeterministicFinding,
     FindingType,
@@ -67,7 +69,7 @@ def test_invented_source_row_fails():
     assert any("invented" in e.lower() for e in result.errors)
 
 
-def test_invented_number_warns():
+def test_invented_number_fails():
     det = _Det([_finding("report", 0, amount="100")])
     # 100 is supported (in computed values); 777 is invented.
     resp = {
@@ -76,18 +78,6 @@ def test_invented_number_warns():
     }
     result = validate_llm_output(resp, det)
     assert result.numeric_claims_checked >= 1
-    assert any("777" in w for w in result.warnings)
-
-
-def test_invented_number_as_error():
-    det = _Det([_finding("report", 0, amount="100")])
-    resp = {
-        "summary": "Total is 777 at report:0.",
-        "referenced_source_rows": ["report:0"],
-    }
-    result = validate_llm_output(
-        resp, det, numeric_claims_are_warnings=False
-    )
     assert result.passed is False
     assert any("777" in e for e in result.errors)
 
@@ -112,14 +102,11 @@ def test_missing_references_error_by_default():
     assert any("source reference" in e.lower() for e in result.errors)
 
 
-def test_missing_references_as_warning_when_configured():
+def test_missing_references_allowed_when_not_required():
     det = _Det([_finding("report", 0)])
-    resp = {"summary": "No refs but allowed as warning."}
-    result = validate_llm_output(
-        resp, det, missing_references_is_error=False
-    )
+    resp = {"summary": "No refs, as run Q&A may legitimately answer."}
+    result = validate_llm_output(resp, det, require_references=False)
     assert result.passed is True
-    assert any("source reference" in w.lower() for w in result.warnings)
 
 
 def test_account_code_not_in_context_fails():
@@ -150,3 +137,89 @@ def test_json_string_is_parsed_when_valid():
         det,
     )
     assert result.passed is True
+
+
+def test_normalized_claims_match_the_data():
+    """Real-model phrasing of supported values passes."""
+    f = _finding("budget", 1, amount="12450.00")
+    f.computed_values.update({"pct_variance": "17.5000", "invoice": "INV-10234",
+                              "invoice_date": "2026-03-10"})
+    resp = {
+        "summary": ("Invoice INV-10234 dated March 10, 2026 (03/10/2026) for "
+                    "$12,450.00 (i.e. $12,450) is 17.50% over; see budget:1. "
+                    "It is the 1st of 1 finding(s) in March 2026, a 1-row issue."),
+        "referenced_source_rows": ["budget:1"],
+    }
+    result = validate_llm_output(resp, _Det([f]))
+    assert result.passed is True, result.errors
+
+
+@pytest.mark.parametrize("claim", [
+    "$12,451.00", "17.6%", "INV-10235", "2026-03-11", "April 2026", "budget:2",
+])
+def test_near_miss_claims_fail(claim):
+    """Values one step away from the data are still caught."""
+    f = _finding("budget", 1, amount="12450.00")
+    f.computed_values.update({"pct_variance": "17.5000", "invoice": "INV-10234",
+                              "invoice_date": "2026-03-10"})
+    resp = {"summary": f"See budget:1. Also {claim}.", "referenced_source_rows": ["budget:1"]}
+    assert validate_llm_output(resp, _Det([f])).passed is False
+
+
+def test_whole_numbers_do_not_round_match_small_values():
+    f = _finding("report", 0, amount="2.7")
+    resp = {"summary": "There are 3 problems at report:0.", "referenced_source_rows": ["report:0"]}
+    assert validate_llm_output(resp, _Det([f])).passed is False
+
+
+# --- Review-found bypasses: each invented claim below must be rejected. ---
+def _rich_det():
+    """Rows 46-58 cited, ~13 findings: lots of small numbers in the context."""
+    findings = []
+    for row in range(46, 59):
+        f = _finding("ap_invoices", row, amount="1250.00")
+        f.computed_values.update({"po_number": "PO-3001", "invoice_date": "2026-03-10"})
+        findings.append(f)
+    return _Det(findings)
+
+
+@pytest.mark.parametrize("resp", [
+    {"summary": "See ap_invoices:46. Invoice exceeds PO by $50, roughly 47% over."},
+    {"summary": "See ap_invoices:46. There are 50 duplicate pairs."},
+    {"summary": "See ap_invoices:46.", "categorized_exceptions": [{"amount": 99999.99}]},
+    {"summary": "See ap_invoices:46.", "suggested_review_steps": [
+        {"step": "check", "referenced_source_rows": ["ap_invoices:999"]}]},
+    {"summary": "See ap_invoices:46.", "notes": {"$99,999 overpaid": "see row"}},
+    {"summary": "See ap_invoices:46. A $2 million shortfall exists."},
+    {"summary": "See ap_invoices:46. Twelve thousand dollars is unexplained."},
+    {"summary": "See ap_invoices:46. There are nineteen duplicate invoices."},
+    {"summary": "See ap_invoices:46 and AP_INVOICES:999."},
+    {"summary": "See ap_invoices:46. It was paid on March 3rd."},
+    {"summary": "See ap_invoices:46. This reconciliation is approved."},
+    {"summary": "See ap_invoices:46 and rows 46, 47, and 99."},
+], ids=["dollar=row", "count=row", "nested-number", "nested-ref", "dict-key",
+        "scale-word", "spelled-amount", "word-count", "uppercase-ref",
+        "date-no-year", "approval-regex", "row-list"])
+def test_review_bypasses_are_rejected(resp):
+    resp.setdefault("referenced_source_rows", ["ap_invoices:46"])
+    assert validate_llm_output(resp, _rich_det()).passed is False
+
+
+@pytest.mark.parametrize("text", [
+    "PO 3001 and invoice #3001 relate to ap_invoices:46.",
+    "Meet at 10:00 AM to review 100% of rows 46, 47, and 48.",
+    "Finding 5: request Form 1099 and a W-9; see ap_invoices:46.",
+    "1. Confirm ap_invoices:46\n2. Confirm ap_invoices:47\n3. Escalate",
+    "It is three days apart; dated March 10 (ap_invoices:46).",
+    "Bank rows 13 were reviewed for ap_invoices:46.",
+])
+def test_ordinary_phrasing_is_not_flagged(text):
+    resp = {"summary": text, "referenced_source_rows": ["ap_invoices:46"]}
+    result = validate_llm_output(resp, _rich_det())
+    assert result.passed is True, result.errors
+
+
+def test_absurd_precision_does_not_crash():
+    resp = {"summary": "Rate 0.000000000000000000000000000001 at ap_invoices:46.",
+            "referenced_source_rows": ["ap_invoices:46"]}
+    assert validate_llm_output(resp, _rich_det()).passed is False

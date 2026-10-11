@@ -62,12 +62,13 @@ from src.core.exports import write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
+from src.llm.prompts import OUTPUT_RULES
 
 # --------------------------------------------------------------------------- #
 # Module constants / registry (single import line for the Integration agent)
 # --------------------------------------------------------------------------- #
 WORKFLOW_TYPE = "freeform"
-PROMPT_TEMPLATE_VERSION = "freeform.v1"
+PROMPT_TEMPLATE_VERSION = "freeform.v2"  # v2: shared OUTPUT_RULES appended
 
 
 # Discovery log: task_type patterns are appended here for future workflow
@@ -515,7 +516,8 @@ _GUARDRAILS = (
     "- Every claim must cite source_row ids in 'referenced_source_rows'.\n"
     "- Do NOT promise authoritative financial answers and do NOT produce "
     "final/official language; ALL output is a DRAFT for human review.\n"
-)
+
+) + OUTPUT_RULES
 
 _OUTPUT_CONTRACT = (
     "Return JSON with keys: summary (str), draft (str), "
@@ -638,18 +640,13 @@ def _call_llm(
 def validate_llm_output(
     response_json: dict, det: FreeformDeterministicOutput
 ) -> ValidationResult:
-    """Thin wrapper: the canonical validator lives in ``src.core.validation``.
-
-    Freeform treats missing references / missing draft / a missing human-review
-    flag as WARNINGS (the request itself may legitimately have a single source
-    row), so those knobs are set accordingly.
-    """
+    """Canonical validator; freeform also warns on a missing draft or
+    human-review flag. The user's own request text was in the prompt, so its
+    figures count as supported."""
     return _core_validate_llm_output(
         response_json,
         det,
-        require_references=True,
-        missing_references_is_error=False,
-        check_numeric_claims=False,
+        grounding={"request": vars(det.request), "context_refs": det.context_refs},
         require_draft=True,
         require_human_review_flag=True,
     )

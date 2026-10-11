@@ -1,0 +1,63 @@
+{
+  "workflow_type": "bank_reconciliation",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "prompt_template_version": "bank_reconciliation.v2",
+  "response_json": {
+    "summary": "This bank reconciliation exception review covers 7 bank rows and 6 ledger rows, with 4 matched items, 1 timing difference, 2 unmatched bank items, 1 unmatched ledger item, 0 duplicate bank pairs, and 0 duplicate ledger pairs. The deterministic findings identify matched items at exact amount and date for bank:0 to ledger:0 (amount 12500.00, date 2026-01-03), bank:1 to ledger:1 (amount 2300.50, date 2026-01-05), bank:3 to ledger:3 (amount 50000.00, date 2026-01-10), and bank:5 to ledger:4 (amount 640.25, date 2026-01-15). One timing difference is flagged for bank:2 (date 2026-01-08) and ledger:2 (date 2026-01-09) sharing amount 875.00 but differing in date. Two unmatched bank items are flagged: bank:4 (amount 35.00, date 2026-01-12) and bank:6 (amount 2300.50, date 2026-01-18). One unmatched ledger item is flagged: ledger:5 (amount 4200.00, date 2026-01-20). Human review is required.",
+    "categorized_exceptions": [
+      {
+        "category": "timing_difference",
+        "description": "Bank:2 and ledger:2 share amount 875.00 but have different dates (bank:2 date 2026-01-08 and ledger:2 date 2026-01-09), which is within the stated date tolerance of 3 days. This is likely a timing difference where the bank and ledger recorded the same transaction on different dates.",
+        "referenced_source_rows": [
+          "bank:2",
+          "ledger:2"
+        ]
+      },
+      {
+        "category": "unmatched_bank",
+        "description": "Bank:4 (amount 35.00, date 2026-01-12) has no ledger match. This is an unmatched bank item that may represent an unrecorded ledger entry, a bank-only transaction, or a data entry issue.",
+        "referenced_source_rows": [
+          "bank:4"
+        ]
+      },
+      {
+        "category": "unmatched_bank",
+        "description": "Bank:6 (amount 2300.50, date 2026-01-18) has no ledger match. This is an unmatched bank item that may represent an unrecorded ledger entry, a bank-only transaction, or a data entry issue.",
+        "referenced_source_rows": [
+          "bank:6"
+        ]
+      },
+      {
+        "category": "unmatched_ledger",
+        "description": "Ledger:5 (amount 4200.00, date 2026-01-20) has no bank match. This is an unmatched ledger item that may represent an unrecorded bank entry, a ledger-only transaction, or a data entry issue.",
+        "referenced_source_rows": [
+          "ledger:5"
+        ]
+      }
+    ],
+    "referenced_source_rows": [
+      "bank:0",
+      "ledger:0",
+      "bank:1",
+      "ledger:1",
+      "bank:2",
+      "ledger:2",
+      "bank:3",
+      "ledger:3",
+      "bank:4",
+      "bank:5",
+      "ledger:4",
+      "bank:6",
+      "ledger:5"
+    ],
+    "suggested_review_steps": [
+      "Review the timing difference between bank:2 and ledger:2 to confirm whether the date variance is due to normal processing timing and whether no further action is needed.",
+      "Investigate bank:4 (amount 35.00, date 2026-01-12) to determine whether a corresponding ledger entry is missing, whether it is a bank-only item such as a fee, or whether it requires a reconciling adjustment.",
+      "Investigate bank:6 (amount 2300.50, date 2026-01-18) to determine whether a corresponding ledger entry is missing, whether it is a bank-only item, or whether it requires a reconciling adjustment.",
+      "Investigate ledger:5 (amount 4200.00, date 2026-01-20) to determine whether a corresponding bank entry is missing, whether it is a ledger-only item, or whether it requires a reconciling adjustment.",
+      "Confirm that no duplicate bank pairs or duplicate ledger pairs exist based on the deterministic findings, which report 0 duplicate bank pairs and 0 duplicate ledger pairs.",
+      "Document human review conclusions for each flagged exception and retain supporting evidence for the reconciliation file."
+    ],
+    "draft_memo": "DRAFT FOR HUMAN REVIEW\n\nSubject: Bank Reconciliation Exception Summary\n\nThis memo summarizes the bank reconciliation exception review based on the deterministic findings provided. The reconciliation included 7 bank rows and 6 ledger rows. There were 4 matched items, 1 timing difference, 2 unmatched bank items, 1 unmatched ledger item, 0 duplicate bank pairs, and 0 duplicate ledger pairs. The amount tolerance was 0 and the date tolerance was 3 days. Human review is required.\n\nMatched items include bank:0 to ledger:0 (amount 12500.00, date 2026-01-03), bank:1 to ledger:1 (amount 2300.50, date 2026-01-05), bank:3 to ledger:3 (amount 50000.00, date 2026-01-10), and bank:5 to ledger:4 (amount 640.25, date 2026-01-15).\n\nOne timing difference was identified: bank:2 (date 2026-01-08) and ledger:2 (date 2026-01-09) share amount 875.00 but differ in date. This is likely due to normal timing differences in recording the same transaction.\n\nTwo unmatched bank items were identified: bank:4 (amount 35.00, date 2026-01-12) and bank:6 (amount 2300.50, date 2026-01-18). These items have no ledger match and may represent unrecorded ledger entries, bank-only transactions, or data entry issues.\n\nOne unmatched ledger item was identified: ledger:5 (amount 4200.00, date 2026-01-20). This item has no bank match and may represent an unrecorded bank entry, a ledger-only transaction, or a data entry issue.\n\nSuggested review steps include investigating each unmatched item, confirming the timing difference is acceptable, and documenting conclusions. No matching, calculation, or new figures have been performed in this draft.\n\nPrepared by: Finance Review Assistant\nStatus: DRAFT \u2013 Requires human review and approval."
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "workflow_type": "freeform",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "prompt_template_version": "freeform.v2",
+  "response_json": {
+    "summary": "This is a synthetic sample request for the bundled demo, recorded as task type 'grant_reimbursement_summary'. The requester wants a short plain-language reimbursement summary memo (draft). No uploaded files are attached (uploaded_file_count is 0), and no chart of accounts codes, names, or context files are available, so there is no grant, fund, vendor, amount, or date data to summarize. Only the city profile for 'Sample City' with default actor 'finance_staff' and the freeform request itself are present. Because no substantive source data exists, this draft can only describe what the request is asking for and flag that human review and additional information are needed before any reimbursement memo content can be prepared.",
+    "categorized_exceptions": [],
+    "referenced_source_rows": [
+      "freeform_request:0"
+    ],
+    "suggested_review_steps": [
+      "Confirm with the requester which grant and which reimbursement period the memo should address (referenced in 'freeform_request:0').",
+      "Attach or index the relevant grant agreement, reimbursement claim, and supporting expenditure records before drafting substantive content.",
+      "Verify against the chart of accounts once account codes and names are populated (current count is 0).",
+      "Confirm the reviewing authority and approval path within Sample City finance per the 'finance_staff' default actor in the city profile.",
+      "Re-run this task once source files and account data are available so a substantive draft can be produced.",
+      "Treat all output as a draft and route to a human reviewer before any external or official use."
+    ],
+    "draft_memo": "",
+    "draft": "DRAFT FOR HUMAN REVIEW \u2014 NOT AN OFFICIAL FINANCIAL DOCUMENT\n\nPurpose: This memo responds to a request recorded as a grant reimbursement summary task for Sample City. The requester asked for a short plain-language reimbursement summary memo in draft form.\n\nWhat was requested: A reimbursement summary memo related to a grant, prepared for review by municipal finance staff. The request is identified by source row 'freeform_request:0'.\n\nWhat information is available: The only available context is the city profile for 'Sample City' with a default actor of 'finance_staff'. There are no uploaded files (uploaded_file_count is 0), no chart of accounts codes or names (count is 0), and no context files. No grant award details, expenditure records, reimbursement claim line items, vendor information, amounts, or dates have been provided.\n\nWhat this draft can and cannot say: This draft cannot state any grant reimbursement amounts, dates, account codes, funds, vendors, or approval status because none of that data is present in the provided context. It also cannot confirm eligibility, compliance, or submission requirements.\n\nNext steps needed: Finance staff should gather the underlying grant agreement, reimbursement claim documentation, and coded expenditure details, and confirm with the requesting party what period and grant the memo should cover. Once source records are attached and reviewed, a substantive reimbursement summary memo can be prepared and routed for human approval.\n\nStatus: This is a placeholder draft pending source documentation and human review.",
+    "clarifying_questions": [
+      "Which grant is this reimbursement summary for, and what is the grant identifier or award number?",
+      "What reimbursement period or reporting period should the memo cover?",
+      "Which expenditures, vendors, or claim line items are in scope for this reimbursement?",
+      "Which fund and account codes from the chart of accounts should be associated with this reimbursement?",
+      "Who is the intended audience for the memo (internal finance, grantor, council, or other)?",
+      "What is the submission deadline or due date, if any, for this reimbursement?",
+      "Are there prior reimbursement submissions or balances that this memo should reference?"
+    ],
+    "needs_human_review": true
+  }
+}

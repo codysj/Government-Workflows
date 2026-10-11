@@ -54,6 +54,7 @@ from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
 from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
+from src.llm.prompts import OUTPUT_RULES
 
 # --------------------------------------------------------------------------- #
 # Config
@@ -65,7 +66,7 @@ DEFAULT_PCT_THRESHOLD = Decimal("10")  # percent
 KEY_COLUMNS = ("fund", "account", "department", "object")
 
 WORKFLOW_TYPE = "budget_variance"
-PROMPT_TEMPLATE_VERSION = "budget_variance.v1"
+PROMPT_TEMPLATE_VERSION = "budget_variance.v2"  # v2: shared OUTPUT_RULES appended
 
 
 # --------------------------------------------------------------------------- #
@@ -844,7 +845,8 @@ _GUARDRAILS = (
     "dates. Use only numbers and source-row ids present in the data below. "
     "Every claim must cite source_row ids. All output is a DRAFT for human "
     "review.\n"
-)
+
+) + OUTPUT_RULES
 
 
 def build_prompt(det: DeterministicOutput) -> str:
@@ -899,8 +901,7 @@ def validate_llm(det: DeterministicOutput, llm: LLMResponse) -> ValidationResult
     Budget variance receives an ``LLMResponse`` (not a bare dict). The
     LLMResponse's ``referenced_source_rows`` are merged into the response JSON so
     the canonical validator sees every cited id (the response_json and the
-    LLMResponse field can differ). Budget historically treated missing
-    references as a WARNING, so that knob is set here.
+    LLMResponse field can differ).
     """
     response_json = dict(llm.response_json)
     merged_refs = list(
@@ -910,12 +911,7 @@ def validate_llm(det: DeterministicOutput, llm: LLMResponse) -> ValidationResult
         )
     )
     response_json["referenced_source_rows"] = merged_refs
-    return _core_validate_llm_output(
-        response_json,
-        det,
-        require_references=True,
-        missing_references_is_error=False,
-    )
+    return _core_validate_llm_output(response_json, det)
 
 
 # --------------------------------------------------------------------------- #

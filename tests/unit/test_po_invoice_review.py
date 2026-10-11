@@ -684,7 +684,7 @@ class TestMockLLMAndValidation:
         vr = validate_llm_output(resp, det)
         assert not vr.invented_reference_detected
         # Validation may warn about missing references for INFO findings (which
-        # carry no source rows) -- that is acceptable (missing_references_is_error=False)
+        # carry no source rows) -- that is acceptable.
         assert vr.passed or (not vr.errors), (
             f"Validation errors: {vr.errors}"
         )

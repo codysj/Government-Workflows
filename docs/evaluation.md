@@ -205,6 +205,75 @@ deposit; budget embedded-subtotal rollup; report unrecognized line types / wide
 pivot), and a clean PASS case. Each fixture directory's `README.md` states the
 data is synthetic only with no real PII.
 
+## Real-model guardrail results
+
+Measured 2026-10-11 against a real model (`deepseek/deepseek-v4.1-flash` via
+OpenRouter, hidden reasoning off, prompts `*.v2`) on the bundled synthetic data.
+Reproduce with `python -m src.eval.real_llm --repeat 3 --record <dir>` (loads
+the gitignored `.env`; about $0.03 per 24 responses).
+
+**Final held-out batch** (24 fresh responses, 3 per workflow, shipped
+validator and prompts; 1,345 numbers / dates / identifiers / row references
+checked):
+
+| Workflow | Responses | Accepted | Claims checked |
+| --- | --- | --- | --- |
+| bank_reconciliation | 3 | 3 | 139 |
+| budget_variance | 3 | 3 | 180 |
+| report_review | 3 | 3 | 182 |
+| transaction_search | 3 | 3 | 137 |
+| ap_duplicate_review | 3 | 3 | 310 |
+| je_upload_prep | 3 | 2 | 73 |
+| po_invoice_review | 3 | 2 → 3 | 312 |
+| freeform | 3 | 3 | 12 |
+
+- The je_upload_prep rejection is correct: the model returned an empty draft
+  citing nothing.
+- The po_invoice_review rejection was a false positive (inline enumeration
+  "(4) missing_po_over_threshold" read as the number 4). Fixed afterwards;
+  replaying that response now passes. Net: **23/24 accepted, the 1 rejection
+  correct, 0 false positives remaining.**
+- Across all 96 real responses recorded during this work, replayed through the
+  final validator, the only rejections are correct ones: a hallucinated invoice
+  number (`INV-90065`, exists nowhere in the data), the empty draft, and a
+  draft that invented its own labels (`N1`..`N9`, now forbidden by the shared
+  prompt rules). (Replays of drafts that cite finding ids are excluded: ids are
+  regenerated per run, so they only match live.)
+
+**Before this work**, the validator compared raw text tokens, checked numbers in
+only 3 of 8 workflows, and only as warnings, so a draft with an invented figure
+still showed "passed". With its number check enforced, it would have rejected
+30 of 32 legitimate real responses (451 false flags, e.g. `17.50%` vs
+`17.5000`, the `-01` in `2026-03-01`). As shipped, it accepted the
+`INV-90065` hallucination.
+
+**How the claim check works** (`src/core/validation.py`): numbers, dates,
+identifiers, and `table:row` references are extracted from every string in the
+response and from the material the model was shown (summary + findings), using
+the same normalizer on both sides (`$12,450.00` = `12450`, `17.5%` = `17.5000`,
+`March 10, 2026` = `2026-03-10`, `INV-10234` is an identifier, `7-row` is the
+number 7). A claim must match the data at the precision it was written;
+whole numbers only round-match values of 100 or more. Any miss is an error.
+
+**Tuning history** (each fix found on one batch, confirmed on the next):
+
+| Batch | Accepted | Root causes found |
+| --- | --- | --- |
+| Tuning set (8) | 3/8 | numbered-list markers, `7-row` units, search criteria missing from grounding |
+| Held-out 1 (24) | 20/24 | finding ids missing from grounding; `W-9` form name |
+| Held-out 2 (16) | 15/16 | model invented its own labels (`N1`...`N9`): added a shared prompt rule |
+| Held-out 3 (24) | 23/24 | none (the one rejection is a real hallucination) |
+| Adversarial review | n/a | 12 bypasses found by a fresh-eyes review (e.g. "$50" borrowing support from row 50, claims in nested fields, "$2 million", uppercase refs): all fixed, each pinned by a unit test |
+| Final (24) | 22/24 → 23/24 | inline "(4) category" enumerations; remaining rejection is an empty draft |
+
+**Offline regression suite** (`tests/integration/test_real_llm_replay.py`):
+the 8 recorded real responses must pass; 9 adversarial edits of each (invented
+amount, percent, count, date, month, identifier, prose row ref, cited row ref,
+approval language) must fail (72 cases); the recorded bad drafts in
+`rejected/` (hallucinated invoice, empty draft) must fail. A provider failure
+(timeout, HTTP error, bad key) never fails the run: the deterministic findings
+are kept and the draft is marked "AI draft unavailable".
+
 ## Human pilot metrics (Phase 7 "Human pilot metrics")
 
 The automated harness measures correctness and throughput; it cannot measure

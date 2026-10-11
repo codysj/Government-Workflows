@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.core.settings import AppSettings
+from src.llm.provider import llm_mode
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -49,7 +50,7 @@ class ApiSettings:
             export_dir=Path(s.export_dir),
             default_actor=s.default_actor,
             default_retention_category=s.default_retention_category,
-            llm_mode="mock" if s.mock_mode else "real",
+            llm_mode=llm_mode(),
         )
 
     def __post_init__(self) -> None:

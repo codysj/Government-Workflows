@@ -1,0 +1,30 @@
+{
+  "workflow_type": "transaction_search",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "prompt_template_version": "transaction_search.v2",
+  "response_json": {
+    "summary": "The search for payments to Cascade Paving over $5,000 between 2026-03-01 and 2026-05-31 returned 2 matches, both in the ap_invoice_detail module. The two matched rows are 'ap_invoice_detail:48' (invoice_number=INV-20881, invoice_date=2026-03-10, invoice_amount=8400.00, check_number=50138, po_number=PO-3015, fund=100) and 'ap_invoice_detail:49' (invoice_number=INV-20890, invoice_date=2026-03-13, invoice_amount=8400.00, check_number=50142, po_number=PO-3015, fund=100). Both rows matched on vendor_name, invoice_date, and invoice_amount. The deterministic summary reports total_signed_amount as '16800.00' and total_matches as 2, with truncated=false. The deterministic summary reports requires_human_review=false.",
+    "categorized_exceptions": [
+      {
+        "category": "possible_duplicate_or_split_billing",
+        "description": "Two separate invoices to the same vendor, Cascade Paving Inc, against the same po_number=PO-3015, each for invoice_amount=8400.00, with invoice_date=2026-03-10 on 'ap_invoice_detail:48' and invoice_date=2026-03-13 on 'ap_invoice_detail:49'. The descriptions indicate 'Street patching - blanket release 1' and 'Street patching - blanket release 2'. This pattern may warrant review to confirm the releases are distinct and authorized under the PO, rather than a duplicate or improperly split charge.",
+        "referenced_source_rows": [
+          "ap_invoice_detail:48",
+          "ap_invoice_detail:49"
+        ]
+      }
+    ],
+    "referenced_source_rows": [
+      "ap_invoice_detail:48",
+      "ap_invoice_detail:49"
+    ],
+    "suggested_review_steps": [
+      "Review 'ap_invoice_detail:48' and 'ap_invoice_detail:49' against po_number=PO-3015 to confirm both release 1 and release 2 are authorized and distinct.",
+      "Compare the descriptions 'Street patching - blanket release 1' and 'Street patching - blanket release 2' to the underlying receiving or completion documentation for each release.",
+      "Verify that check_number=50138 and check_number=50142 are separate disbursements and not duplicate payments for the same work.",
+      "Confirm fund '100' coding is appropriate for both rows, given both are charged to the same fund.",
+      "Determine whether the identical invoice_amount of 8400.00 on both rows reflects a per-release schedule or coincidental equal billing, and document the finding for human reviewer sign-off."
+    ],
+    "draft_memo": "DRAFT FOR HUMAN REVIEW - NOT AN APPROVAL\n\nSubject: Transaction search results - payments to Cascade Paving over $5,000, 2026-03-01 through 2026-05-31\n\nThe search returned 2 matches, both in the ap_invoice_detail module. The matches are 'ap_invoice_detail:48' and 'ap_invoice_detail:49'.\n\n'ap_invoice_detail:48' shows vendor_name 'Cascade Paving Inc', invoice_number 'INV-20881', invoice_date '2026-03-10', po_number 'PO-3015', invoice_amount '8400.00', check_number '50138', fund '100', and description 'Street patching - blanket release 1'.\n\n'ap_invoice_detail:49' shows vendor_name 'Cascade Paving Inc', invoice_number 'INV-20890', invoice_date '2026-03-13', po_number 'PO-3015', invoice_amount '8400.00', check_number '50142', fund '100', and description 'Street patching - blanket release 2'.\n\nThe deterministic summary reports total_matches as 2, total_signed_amount as '16800.00', truncated as false, and requires_human_review as false.\n\nA pattern worth noting for human review is that both invoices reference the same po_number 'PO-3015' and carry the same invoice_amount '8400.00', with descriptions identifying them as blanket release 1 and blanket release 2. This draft does not conclude whether this represents distinct authorized releases or a duplicate or split billing; that determination is left to the human reviewer.\n\nSuggested follow-up: review both rows against 'PO-3015', compare the release descriptions to underlying documentation, verify 'check_number=50138' and 'check_number=50142' are separate disbursements, and confirm fund '100' coding. No totals, amounts, or identifiers beyond those quoted from the findings have been derived."
+  }
+}

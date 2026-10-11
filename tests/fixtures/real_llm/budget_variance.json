@@ -1,0 +1,78 @@
+{
+  "workflow_type": "budget_variance",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "prompt_template_version": "budget_variance.v2",
+  "response_json": {
+    "summary": "This draft reviews budget-to-actual results using only the supplied source rows. The deterministic summary shows join keys fund, account, department, and object; joined_lines 4; flagged_variances 2; budget_only 1; actual_only 1; missing_accounts 1; dollar_threshold 10000; pct_threshold 10.0; total_budget 332000.0; and total_actual 367500.0. The deterministic findings identify variances for General account 5002 Fire Salaries (budget:1, actuals:1) and General account 5003 Parks Supplies (budget:2, actuals:2), a budget-only account General account 5010 Library Books (budget:4), an actual-only account General account 5020 Recreation Equipment (actuals:4), and a missing account General account 5099 Finance Audit (chart_of_accounts:6). No variance calculations are performed here; all figures and identifiers are quoted as provided.",
+    "categorized_exceptions": [
+      {
+        "category": "Budget-to-actual variance requiring staff explanation",
+        "description": "General account 5002 Fire Salaries was flagged high severity: budget 200000, actual 235000, dollar variance 35000, pct variance 17.5000, exceeding both the dollar_threshold 10000 and pct_threshold 10.0. See budget:1 and actuals:1.",
+        "referenced_source_rows": [
+          "budget:1",
+          "actuals:1"
+        ]
+      },
+      {
+        "category": "Budget-to-actual variance requiring staff explanation",
+        "description": "General account 5003 Parks Supplies was flagged medium severity: budget 2000, actual 3000, dollar variance 1000, pct variance 50.0000, exceeding pct_threshold 10.0 but not dollar_threshold 10000. See budget:2 and actuals:2.",
+        "referenced_source_rows": [
+          "budget:2",
+          "actuals:2"
+        ]
+      },
+      {
+        "category": "Budget-only account",
+        "description": "General account 5010 Library Books has no actuals recorded, with budget amount 15000. See budget:4.",
+        "referenced_source_rows": [
+          "budget:4"
+        ]
+      },
+      {
+        "category": "Actual-only account",
+        "description": "General account 5020 Recreation Equipment is not in budget, with actual amount 12000. See actuals:4.",
+        "referenced_source_rows": [
+          "actuals:4"
+        ]
+      },
+      {
+        "category": "Missing account",
+        "description": "General account 5099 Finance Audit appears in the chart of accounts but is missing from both budget and actuals. See chart_of_accounts:6.",
+        "referenced_source_rows": [
+          "chart_of_accounts:6"
+        ]
+      }
+    ],
+    "referenced_source_rows": [
+      "budget:1",
+      "actuals:1",
+      "budget:2",
+      "actuals:2",
+      "budget:4",
+      "actuals:4",
+      "chart_of_accounts:6"
+    ],
+    "suggested_review_steps": [
+      "Review the high-severity variance for General account 5002 Fire Salaries against budget:1 and actuals:1, noting budget 200000 and actual 235000, and request staff explanation for the flagged dollar variance 35000 and pct variance 17.5000.",
+      "Review the medium-severity variance for General account 5003 Parks Supplies against budget:2 and actuals:2, noting budget 2000 and actual 3000, and request staff explanation for the flagged pct variance 50.0000.",
+      "Confirm whether the budget-only General account 5010 Library Books in budget:4 has any actuals activity not present in the supplied source rows.",
+      "Confirm whether the actual-only General account 5020 Recreation Equipment in actuals:4 should have a corresponding budget line.",
+      "Determine why General account 5099 Finance Audit from chart_of_accounts:6 is missing from both budget and actuals.",
+      "Route this draft for human review before any finalization or distribution."
+    ],
+    "draft_memo": "DRAFT FOR HUMAN REVIEW. Subject: Budget-to-actual variance review. This memo summarizes deterministic findings only and does not calculate or revise any amount. The review covered 4 joined_lines with join keys fund, account, department, and object. There are 2 flagged_variances, 1 budget_only item, 1 actual_only item, and 1 missing_account. The dollar_threshold is 10000 and the pct_threshold is 10.0. Total_budget is 332000.0 and total_actual is 367500.0 as stated in the deterministic summary. Variance findings: General account 5002 Fire Salaries was flagged high severity, with budget 200000 in budget:1 and actual 235000 in actuals:1, dollar variance 35000, and pct variance 17.5000. General account 5003 Parks Supplies was flagged medium severity, with budget 2000 in budget:2 and actual 3000 in actuals:2, dollar variance 1000, and pct variance 50.0000. Missing-account findings: General account 5010 Library Books is budget-only with budget amount 15000 in budget:4; General account 5020 Recreation Equipment is actual-only with actual amount 12000 in actuals:4; and General account 5099 Finance Audit appears in chart_of_accounts:6 but is missing from both budget and actuals. Staff explanation is recommended for the flagged variances, and follow-up is recommended for the three missing-account findings. This draft should be reviewed by a human before any final action.",
+    "follow_up_questions": [
+      "For General account 5002 Fire Salaries, what explains the budget 200000 and actual 235000 in budget:1 and actuals:1?",
+      "For General account 5003 Parks Supplies, what explains the budget 2000 and actual 3000 in budget:2 and actuals:2?",
+      "For General account 5010 Library Books, why is there a budget amount 15000 in budget:4 but no actuals in the supplied data?",
+      "For General account 5020 Recreation Equipment, why is there an actual amount 12000 in actuals:4 but no budget line in the supplied data?",
+      "For General account 5099 Finance Audit, why does chart_of_accounts:6 show this account but the supplied budget and actuals do not include it?"
+    ],
+    "themes": [
+      "Variances exceeding deterministic thresholds: General account 5002 Fire Salaries (budget:1, actuals:1) and General account 5003 Parks Supplies (budget:2, actuals:2).",
+      "Budget-only activity: General account 5010 Library Books (budget:4).",
+      "Actual-only activity: General account 5020 Recreation Equipment (actuals:4).",
+      "Chart-of-accounts completeness: General account 5099 Finance Audit (chart_of_accounts:6) is missing from both budget and actuals."
+    ]
+  }
+}

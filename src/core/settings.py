@@ -17,8 +17,6 @@ DEFAULT_EXPORT_DIR = REPO_ROOT / "runs" / "exports"
 class AppSettings:
     city_name: str = "City of Example"
     default_actor: str = "finance_staff"
-    llm_provider: str = "mock"
-    mock_mode: bool = True
     date_tolerance_days: int = 3
     amount_tolerance: float = 0.01
     variance_threshold_pct: float = 10.0

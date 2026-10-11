@@ -87,9 +87,10 @@ from src.ingest.tyler import (
 )
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
+from src.llm.prompts import OUTPUT_RULES
 
 WORKFLOW_TYPE = "ap_duplicate_review"
-PROMPT_TEMPLATE_VERSION = "ap_duplicate_review.v1"
+PROMPT_TEMPLATE_VERSION = "ap_duplicate_review.v2"  # v2: shared OUTPUT_RULES appended
 
 # Repo-relative default sample input paths (for the wiring agent / demo UI).
 SAMPLE_INPUTS: dict[str, str] = {
@@ -867,7 +868,8 @@ _GUARDRAILS = (
     "- Every claim must cite source_row ids in 'referenced_source_rows'.\n"
     "- All output is a DRAFT for human review; use 'requires human review' language.\n"
     "- Do NOT produce final-approval or fraud-conclusion language.\n"
-)
+
+) + OUTPUT_RULES
 
 _OUTPUT_CONTRACT = (
     "Return JSON with keys: summary (str), categorized_exceptions (list of "
@@ -1020,14 +1022,8 @@ def _call_llm(det: APDuplicateOutput, provider: Any = None) -> tuple[dict, str, 
 def validate_llm_output(
     response_json: dict[str, Any], det: APDuplicateOutput
 ) -> ValidationResult:
-    """Thin wrapper: delegates to the canonical validator."""
-    return _core_validate_llm_output(
-        response_json,
-        det,
-        require_references=True,
-        missing_references_is_error=False,  # skip/info findings have no refs
-        check_numeric_claims=False,
-    )
+    """Delegates to the canonical validator (one policy for every workflow)."""
+    return _core_validate_llm_output(response_json, det)
 
 
 # --------------------------------------------------------------------------- #

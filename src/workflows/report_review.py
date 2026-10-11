@@ -58,9 +58,10 @@ from src.core.exports import write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
+from src.llm.prompts import OUTPUT_RULES
 
 WORKFLOW_TYPE = "report_review"
-PROMPT_TEMPLATE_VERSION = "report_review.v1"
+PROMPT_TEMPLATE_VERSION = "report_review.v2"  # v2: shared OUTPUT_RULES appended
 
 
 # --------------------------------------------------------------------------- #
@@ -747,7 +748,8 @@ _GUARDRAILS = (
     "- Every claim must cite source_row ids in 'referenced_source_rows'.\n"
     "- All output is a DRAFT for human review; do NOT produce final-approval "
     "language.\n"
-)
+
+) + OUTPUT_RULES
 
 _OUTPUT_CONTRACT = (
     "Return JSON with keys: summary (str), categorized_exceptions (list of "
@@ -865,13 +867,7 @@ def _call_llm(det: ReportReviewOutput, provider: Any = None) -> tuple[dict[str, 
 def validate_llm_output(
     response_json: dict[str, Any], det: ReportReviewOutput
 ) -> ValidationResult:
-    """Thin wrapper: the canonical validator lives in ``src.core.validation``.
-
-    Report review is the STRICT spec interpretation: invented references,
-    omitted required references, and final-approval language are all hard
-    errors; unsupported numeric claims are warnings. Those are the canonical
-    validator's defaults, so this simply delegates.
-    """
+    """Delegates to the canonical validator (one policy for every workflow)."""
     return _core_validate_llm_output(response_json, det)
 
 

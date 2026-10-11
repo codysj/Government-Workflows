@@ -87,9 +87,10 @@ from src.ingest.tyler import normalize_tyler_export
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
 from src.normalize.cleaning import parse_amount, parse_date, to_snake_case
+from src.llm.prompts import OUTPUT_RULES
 
 WORKFLOW_TYPE = "je_upload_prep"
-PROMPT_TEMPLATE_VERSION = "je_upload_prep.v1"
+PROMPT_TEMPLATE_VERSION = "je_upload_prep.v2"  # v2: shared OUTPUT_RULES appended
 
 # Munis JE upload template headers (exact, in order).
 UPLOAD_SHEET_NAME = "JE Upload"
@@ -967,7 +968,8 @@ _GUARDRAILS = (
     "- Every claim must cite source_row ids in 'referenced_source_rows'.\n"
     "- All output is a DRAFT for human review; do NOT produce final-approval language.\n"
     "- Do NOT suggest that the upload workbook is correct; state DRAFT status.\n"
-)
+
+) + OUTPUT_RULES
 
 _OUTPUT_CONTRACT = (
     "Return JSON with keys: summary (str), categorized_exceptions (list of "
@@ -1089,14 +1091,8 @@ def _call_llm(det: JEUploadOutput, provider: Any = None) -> tuple[dict, str, str
 def validate_llm_output(
     response_json: dict[str, Any], det: JEUploadOutput
 ) -> ValidationResult:
-    """Validate that the LLM output only cites known source rows and numbers."""
-    return _core_validate_llm_output(
-        response_json,
-        det,
-        require_references=True,
-        missing_references_is_error=False,
-        check_numeric_claims=False,
-    )
+    """Delegates to the canonical validator (one policy for every workflow)."""
+    return _core_validate_llm_output(response_json, det)
 
 
 # --------------------------------------------------------------------------- #

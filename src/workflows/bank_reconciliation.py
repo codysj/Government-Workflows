@@ -67,9 +67,10 @@ from src.normalize.matching import (
     detect_duplicates,
     match_records,
 )
+from src.llm.prompts import OUTPUT_RULES
 
 WORKFLOW_TYPE = "bank_reconciliation"
-PROMPT_TEMPLATE_VERSION = "bank_reconciliation.v1"
+PROMPT_TEMPLATE_VERSION = "bank_reconciliation.v2"  # v2: shared OUTPUT_RULES appended
 
 
 EXPORT_FILE_NAMES = (
@@ -784,7 +785,8 @@ _GUARDRAILS = (
     "- Use ONLY numbers and source-row ids that appear in the findings below.\n"
     "- Every claim must cite source_row ids in 'referenced_source_rows'.\n"
     "- All output is a DRAFT for human review.\n"
-)
+
+) + OUTPUT_RULES
 
 _OUTPUT_CONTRACT = (
     "Return JSON with keys: summary (str), categorized_exceptions (list of "
@@ -900,19 +902,8 @@ def _call_llm(det: ReconciliationOutput, provider: Any = None) -> tuple[dict, st
 def validate_llm_output(
     response_json: dict, det: ReconciliationOutput
 ) -> ValidationResult:
-    """Thin wrapper: the canonical validator lives in ``src.core.validation``.
-
-    Bank reconciliation historically treated missing source references as a
-    WARNING (not a hard error) and did not run the numeric-claim / approval-
-    phrase checks, so those knobs are set accordingly here.
-    """
-    return _core_validate_llm_output(
-        response_json,
-        det,
-        require_references=True,
-        missing_references_is_error=False,
-        check_numeric_claims=False,
-    )
+    """Delegates to the canonical validator (one policy for every workflow)."""
+    return _core_validate_llm_output(response_json, det)
 
 
 # --------------------------------------------------------------------------- #

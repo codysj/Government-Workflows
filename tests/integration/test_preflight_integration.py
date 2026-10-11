@@ -245,7 +245,7 @@ def test_partial_validation_rejects_resolution_claim(tmp_path):
     ok = validate_with_preflight(
         explain, [], preflight_status="partial",
         unsupported_condition_codes=codes,
-        require_references=False, missing_references_is_error=False)
+        require_references=False)
     assert ok.passed is True
 
     # Claiming it was resolved/reconciled is rejected.
@@ -254,7 +254,7 @@ def test_partial_validation_rejects_resolution_claim(tmp_path):
     bad = validate_with_preflight(
         claim, [], preflight_status="partial",
         unsupported_condition_codes=codes,
-        require_references=False, missing_references_is_error=False)
+        require_references=False)
     assert bad.passed is False
     assert any("unsupported preflight condition" in e for e in bad.errors)
 

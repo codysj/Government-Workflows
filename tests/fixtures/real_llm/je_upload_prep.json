@@ -1,0 +1,36 @@
+{
+  "workflow_type": "je_upload_prep",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "prompt_template_version": "je_upload_prep.v2",
+  "response_json": {
+    "summary": "DRAFT for human review. The journal entry upload preparation validation found 2 low-severity warning findings, with 0 blocking findings. The warnings are both for the rule 'round_dollar_large_amount'. Totals shown in the deterministic summary are total_debits '17500.00' and total_credits '17500.00' across row_count 7. The deterministic summary states upload_ready is true and requires_human_review is true. No corrections, calculations, or approvals are made in this draft.",
+    "categorized_exceptions": [
+      {
+        "category": "round_dollar_large_amount",
+        "description": "Row 5 (Journal='9102'): Amount 15000.00 is a round-dollar amount >= 10000.00; verify this is not a keying error.",
+        "referenced_source_rows": [
+          "je_draft_valid:5"
+        ]
+      },
+      {
+        "category": "round_dollar_large_amount",
+        "description": "Row 6 (Journal='9102'): Amount 15000.00 is a round-dollar amount >= 10000.00; verify this is not a keying error.",
+        "referenced_source_rows": [
+          "je_draft_valid:6"
+        ]
+      }
+    ],
+    "referenced_source_rows": [
+      "je_draft_valid:5",
+      "je_draft_valid:6"
+    ],
+    "suggested_review_steps": [
+      "Review the two warning findings together with their source rows: je_draft_valid:5 and je_draft_valid:6.",
+      "For je_draft_valid:5, confirm whether the amount 15000.00 in Journal='9102' is correct or whether it may be a keying error, using only the source data and supporting documentation.",
+      "For je_draft_valid:6, confirm whether the amount 15000.00 in Journal='9102' is correct or whether it may be a keying error, using only the source data and supporting documentation.",
+      "Compare the findings against the deterministic summary values total_debits '17500.00' and total_credits '17500.00' without changing or recalculating the journal entry data.",
+      "Document human conclusions for the review record; do not edit, fix, or approve the journal entry data in this draft."
+    ],
+    "draft_memo": "DRAFT \u2014 For human review only. This memo summarizes deterministic validation findings for the journal entry upload preparation workflow. The deterministic summary reports total_findings 2, blocking_findings 0, and warning_findings 2, with the only rule group being 'round_dollar_large_amount' (2 findings). The summary also reports row_count 7, total_debits '17500.00', total_credits '17500.00', upload_ready true, and requires_human_review true. Two low-severity warnings were flagged. For source row je_draft_valid:5 (Journal='9102'), the amount 15000.00 is described as a round-dollar amount >= 10000.00, and the description asks to verify this is not a keying error. For source row je_draft_valid:6 (Journal='9102'), the amount 15000.00 is likewise described as a round-dollar amount >= 10000.00, and the description asks to verify this is not a keying error. These findings are warnings only, and this draft does not state that the upload workbook is correct. No data has been edited, fixed, calculated, or certified. Please review the referenced source rows and document any human conclusions."
+  }
+}

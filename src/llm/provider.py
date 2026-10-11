@@ -11,7 +11,7 @@ its uniform methods. Per the spec (sections 0.3, 1.2, 3.6):
   * API keys come ONLY from environment variables.
   * Provider choice is config-driven (env ``LLM_PROVIDER`` / ``get_provider``).
   * Mock mode is the DEFAULT path and works with NO API key and NO internet.
-  * Prompt templates are versioned (see ``src.llm.prompts``).
+  * Prompt template versions are recorded per workflow; shared output rules live in ``src.llm.prompts``.
 
 The model may ONLY explain/summarize/draft/classify/flag. It MUST NEVER
 calculate, decide matches, or invent account numbers/funds/vendors/amounts/
@@ -54,7 +54,7 @@ class LLMProvider(Protocol):
 def _extract_findings_from_prompt(prompt: str) -> list[dict]:
     """Pull the JSON findings array out of a built prompt.
 
-    Prompts built by the workflows / ``src.llm.prompts`` embed a
+    Prompts built by the workflows embed a
     ``DETERMINISTIC FINDINGS:`` block followed by a JSON array. We parse it so
     the mock can cite the REAL source-row ids (never invented). Returns [] when
     no such block is present.
@@ -283,8 +283,9 @@ def anthropic_messages_transport(request: dict) -> str:
     }
     body = {
         "model": request["model"],
-        "max_tokens": 4096,
+        "max_tokens": request.get("max_tokens", 4096),
         "messages": [{"role": "user", "content": request["prompt"]}],
+        **request.get("extra_body", {}),
     }
     resp = httpx.post(
         base_url,
@@ -294,8 +295,9 @@ def anthropic_messages_transport(request: dict) -> str:
     )
     resp.raise_for_status()
     data = resp.json()
-    # Anthropic response: content[0].text
-    return data["content"][0]["text"]
+    # Anthropic response: the first content block of type "text" (a thinking
+    # block may come first when extended thinking is enabled).
+    return next(b["text"] for b in data["content"] if b.get("type") == "text")
 
 
 def _default_httpx_transport(request: dict) -> str:
@@ -321,6 +323,12 @@ def _default_httpx_transport(request: dict) -> str:
     body = {
         "model": request["model"],
         "messages": [{"role": "user", "content": request["prompt"]}],
+        "max_tokens": request.get("max_tokens", 4096),
+        # Every prompt's output contract is a JSON object.
+        "response_format": {"type": "json_object"},
+        # Vendor-specific knobs (e.g. OpenRouter's {"reasoning": {...}}) come
+        # from LLM_EXTRA_BODY so no vendor is hard-coded here.
+        **request.get("extra_body", {}),
     }
     resp = httpx.post(
         base_url,
@@ -331,7 +339,13 @@ def _default_httpx_transport(request: dict) -> str:
     resp.raise_for_status()
     data = resp.json()
     # OpenAI-compatible response: choices[0].message.content
-    return data["choices"][0]["message"]["content"]
+    choice = data["choices"][0]
+    content = choice["message"].get("content")
+    if not content:
+        raise RuntimeError(
+            "Model returned no content (finish_reason="
+            f"{choice.get('finish_reason')!r}); raise max_tokens or lower reasoning.")
+    return content
 
 
 # Keys the validation guardrails / workflows expect from a structured response.
@@ -342,6 +356,18 @@ _STRUCTURED_KEYS = (
     "suggested_review_steps",
     "draft_memo",
 )
+
+
+def _extra_body() -> dict:
+    """``LLM_EXTRA_BODY`` as a dict (vendor-specific request fields)."""
+    raw = os.environ.get("LLM_EXTRA_BODY") or "{}"
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("LLM_EXTRA_BODY is not valid JSON.") from exc
+    if not isinstance(value, dict):
+        raise ValueError("LLM_EXTRA_BODY must be a JSON object.")
+    return value
 
 
 class RealLLMProvider:
@@ -377,6 +403,7 @@ class RealLLMProvider:
         base_url: Optional[str] = None,
         transport: Optional[Transport] = None,
         timeout: float = 60.0,
+        max_tokens: int = 4096,  # reasoning models spend part of this budget thinking
     ):
         self.model_provider = model_provider
         self.model_name = model_name
@@ -387,6 +414,7 @@ class RealLLMProvider:
         )
         self._transport: Transport = transport or _default_httpx_transport
         self.timeout = timeout
+        self.max_tokens = max_tokens
 
     def _require_key(self) -> str:
         key = os.environ.get(self.api_key_env)
@@ -407,6 +435,8 @@ class RealLLMProvider:
             "api_key": self._require_key(),
             "prompt": prompt,
             "timeout": self.timeout,
+            "max_tokens": self.max_tokens,
+            "extra_body": _extra_body(),
         }
 
     @staticmethod
@@ -465,6 +495,18 @@ class RealLLMProvider:
 # --------------------------------------------------------------------------- #
 # Factory (config-driven; mock is the default)
 # --------------------------------------------------------------------------- #
+def llm_mode() -> str:
+    """'real' when ``LLM_MODE=real`` is set, else 'mock' (the default)."""
+    return "real" if os.environ.get("LLM_MODE", "").strip().lower() == "real" else "mock"
+
+
+def describe_provider() -> str:
+    """Human label for the active provider, e.g. 'openai:deepseek/...'."""
+    if llm_mode() == "mock":
+        return "mock"
+    return f"{os.environ.get('LLM_PROVIDER', 'openai')}:{os.environ.get('LLM_MODEL', 'unset')}"
+
+
 def get_provider(
     use_mock: Optional[bool] = None,
     *,
@@ -483,16 +525,20 @@ def get_provider(
     the system runs with no API key and no internet.
     """
     if use_mock is None:
-        mode = os.environ.get("LLM_MODE", "mock").strip().lower()
-        use_mock = mode != "real"
+        use_mock = llm_mode() == "mock"
 
     if use_mock:
         return MockLLMProvider()
 
+    provider_name = provider_name or os.environ.get("LLM_PROVIDER", "openai")
+    anthropic = provider_name.strip().lower() == "anthropic"
     return RealLLMProvider(
-        model_provider=provider_name or os.environ.get("LLM_PROVIDER", "openai"),
+        model_provider=provider_name,
         model_name=model_name or os.environ.get("LLM_MODEL", "unset"),
         api_key_env=os.environ.get("LLM_API_KEY_ENV", "LLM_API_KEY"),
+        base_url=os.environ.get("LLM_BASE_URL") or (
+            "https://api.anthropic.com/v1/messages" if anthropic else None),
+        transport=anthropic_messages_transport if anthropic else None,
     )
 
 
@@ -502,5 +548,7 @@ __all__ = [
     "RealLLMProvider",
     "Transport",
     "anthropic_messages_transport",
+    "describe_provider",
     "get_provider",
+    "llm_mode",
 ]

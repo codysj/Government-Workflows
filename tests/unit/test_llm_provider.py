@@ -286,3 +286,119 @@ def test_real_provider_does_not_call_transport_without_key(monkeypatch):
     rp = RealLLMProvider("openai", "gpt-test", transport=boom)
     with pytest.raises(RuntimeError):
         rp.generate_structured_response("p")
+
+
+def test_env_anthropic_provider_uses_messages_transport(monkeypatch):
+    """GW-38: LLM_PROVIDER=anthropic must not send OpenAI-format requests."""
+    from src.llm import provider as prov
+
+    monkeypatch.setenv("LLM_MODE", "real")
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    p = prov.get_provider()
+    assert p._transport is prov.anthropic_messages_transport
+    assert p.base_url == "https://api.anthropic.com/v1/messages"
+
+
+def test_env_openai_compatible_provider_keeps_default_transport(monkeypatch):
+    from src.llm import provider as prov
+
+    monkeypatch.setenv("LLM_MODE", "real")
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
+    p = prov.get_provider()
+    assert p._transport is prov._default_httpx_transport
+    assert p.base_url.startswith("https://openrouter.ai")
+
+
+def test_extra_body_and_max_tokens_reach_the_transport(monkeypatch):
+    from src.llm import provider as prov
+
+    seen = {}
+
+    def fake(request):
+        seen.update(request)
+        return '{"summary": "ok"}'
+
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_EXTRA_BODY", '{"reasoning": {"enabled": false}}')
+    p = prov.RealLLMProvider("openai", "m", transport=fake, max_tokens=123)
+    assert p.generate_structured_response("prompt")["summary"] == "ok"
+    assert seen["max_tokens"] == 123
+    assert seen["extra_body"] == {"reasoning": {"enabled": False}}
+
+
+def test_pipeline_uses_real_provider_when_llm_mode_real(monkeypatch):
+    from src.core import pipeline
+    from src.core.run_ledger import RunLedger
+    from src.workflows.registry import get_descriptor
+
+    class Canned:
+        model_provider = "canned"
+        model_name = "canned-1"
+
+        def generate_structured_response(self, prompt, schema=None):
+            return {"summary": "Draft only; see ledger:0.", "referenced_source_rows": ["ledger:0"]}
+
+    monkeypatch.setenv("LLM_MODE", "real")
+    monkeypatch.setattr(pipeline, "get_provider", lambda: Canned())
+    d = get_descriptor("bank_reconciliation")
+    result = pipeline.run_workflow(d.workflow_type, d.sample_inputs(), ledger=RunLedger(":memory:"))
+    assert result.llm_response.model_provider == "canned"
+
+
+def test_env_file_loader_strips_inline_comments(tmp_path, monkeypatch):
+    from src.eval.real_llm import load_env_file
+
+    env = tmp_path / ".env"
+    env.write_text('A_KEY=abc   # comment\nB_JSON={"x":1}\n# whole line\nC_Q="q v"\n',
+                   encoding="utf-8")
+    for k in ("A_KEY", "B_JSON", "C_Q"):
+        monkeypatch.delenv(k, raising=False)
+    load_env_file(env)
+    import os
+    assert os.environ["A_KEY"] == "abc"
+    assert os.environ["B_JSON"] == '{"x":1}'
+    assert os.environ["C_Q"] == "q v"
+
+
+def test_provider_failure_keeps_deterministic_results():
+    """A failing provider must not fail the run or drop the findings."""
+    from src.core import pipeline
+    from src.core.run_ledger import RunLedger
+    from src.workflows.registry import list_descriptors
+
+    class Broken:
+        model_provider = "broken"
+        model_name = "broken-1"
+
+        def generate_structured_response(self, prompt, schema=None):
+            raise TimeoutError("https://example.invalid/?key=secret timed out")
+
+        def generate_text_response(self, prompt):
+            raise TimeoutError("boom")
+
+    for d in list_descriptors():
+        if not d.sample_inputs():
+            continue
+        r = pipeline.run_workflow(d.workflow_type, d.sample_inputs(),
+                                  ledger=RunLedger(":memory:"), provider=Broken())
+        assert not r.blocked, d.workflow_type
+        assert r.findings or d.workflow_type == "freeform", d.workflow_type
+        if r.llm_response is not None:
+            text = str(r.llm_response.response_json)
+            assert "secret" not in text and "example.invalid" not in text
+
+
+def test_extra_body_must_be_a_json_object(monkeypatch):
+    import pytest
+    from src.llm import provider as prov
+
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    p = prov.RealLLMProvider("openai", "m", transport=lambda r: '{"summary": "x"}')
+    monkeypatch.setenv("LLM_EXTRA_BODY", "[1, 2]")
+    with pytest.raises(ValueError):
+        p.generate_structured_response("prompt")
+    monkeypatch.setenv("LLM_EXTRA_BODY", "{not json")
+    with pytest.raises(ValueError):
+        p.generate_structured_response("prompt")

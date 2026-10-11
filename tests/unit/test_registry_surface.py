@@ -75,7 +75,6 @@ def test_app_settings_round_trip(tmp_path):
     assert loaded.city_name == "Testville"
     assert loaded.variance_threshold_pct == 12.5
     assert loaded.default_retention_category == "permanent"
-    assert loaded.mock_mode is True  # mock default
 
 
 def test_app_settings_missing_file_gives_defaults(tmp_path):

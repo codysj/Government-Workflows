@@ -99,9 +99,10 @@ from src.ingest.tyler import (
     source_ref_for_row,
     TYLER_DATASET_TYPES,
 )
+from src.llm.prompts import OUTPUT_RULES
 
 WORKFLOW_TYPE = "transaction_search"
-PROMPT_TEMPLATE_VERSION = "transaction_search.v1"
+PROMPT_TEMPLATE_VERSION = "transaction_search.v2"  # v2: shared OUTPUT_RULES appended
 
 # Module name -> (inputs key, tyler dataset_type)
 _MODULE_MAP: dict[str, tuple[str, str]] = {
@@ -1137,7 +1138,8 @@ _GUARDRAILS = (
     "- All output is a DRAFT for human review; never produce approval language.\n"
     "- In STAGE 1 (intent parse) propose SearchCriteria JSON; in STAGE 2 (summarize)\n"
     "  only explain and suggest follow-up steps.\n"
-)
+
+) + OUTPUT_RULES
 
 _CRITERIA_CONTRACT = (
     "Return JSON with keys: vendor (str|null), invoice_number (str|null), "
@@ -1275,19 +1277,9 @@ def validate_llm_output(
     response_json: dict[str, Any],
     det: TransactionSearchOutput,
 ) -> ValidationResult:
-    """Validate the LLM summary response.
-
-    Rejects invented source-row references; warns on numeric claims not in
-    findings. Missing references on zero-result runs are a warning not an error.
-    """
-    return _core_validate_llm_output(
-        response_json,
-        det,
-        require_references=True,
-        missing_references_is_error=bool(det.findings),
-        check_numeric_claims=True,
-        numeric_claims_are_warnings=True,
-    )
+    """Canonical validator; the parsed search criteria were in the prompt too."""
+    criteria = det.criteria.model_dump() if det.criteria else None
+    return _core_validate_llm_output(response_json, det, grounding=criteria)
 
 
 # --------------------------------------------------------------------------- #

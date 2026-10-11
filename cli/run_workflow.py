@@ -157,15 +157,12 @@ def _load_mappings(mappings_arg: Optional[str]) -> Optional[dict[str, dict[str, 
 
 
 def _build_provider(use_real: bool) -> Any:
-    """Return the LLM provider. Mock is the DEFAULT path (no key/network).
-
-    The CLI never embeds provider-specific code; passing ``provider=None`` makes
-    each workflow use its built-in deterministic mock provider. ``--real`` is
-    accepted for interface completeness but, per the MVP spec, the mock path is
-    the only supported offline default; we still pass ``None`` so the workflow's
-    own provider selection applies.
-    """
-    # Mock mode (default): let the workflow use its built-in MockLLMProvider.
+    """``--real`` -> the env-configured real provider (needs LLM_API_KEY etc.).
+    Otherwise None: the pipeline uses each workflow's offline mock, unless the
+    environment sets ``LLM_MODE=real``."""
+    if use_real:
+        from src.llm.provider import get_provider
+        return get_provider(use_mock=False)
     return None
 
 
@@ -546,7 +543,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--real",
             dest="real",
             action="store_true",
-            help="Use a real LLM provider (not configured in the MVP; falls back to mock).",
+            help="Use the real LLM provider configured by LLM_* environment variables.",
         )
         p.set_defaults(real=False)
         p.add_argument("--db", metavar="PATH", help="RunLedger SQLite path (default in-memory).")

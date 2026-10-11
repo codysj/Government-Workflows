@@ -42,6 +42,7 @@ from src.core.schemas import (
     make_id,
 )
 from src.ingest.csv_loader import load_csv, to_input_file
+from src.llm.provider import get_provider, llm_mode
 from src.workflows.freeform import SensitivityNotConfirmedError
 from src.workflows.registry import DESCRIPTORS, WorkflowDescriptor, get_descriptor
 
@@ -171,6 +172,42 @@ def _input_files_for(inputs: dict[str, Any]) -> list:
             except Exception:
                 pass  # provenance is best-effort; never block a run on it
     return out
+
+
+class _GuardedProvider:
+    """Provider wrapper: a provider failure (timeout, HTTP error, missing key,
+    unparseable output) must never discard the deterministic results, which
+    are the authoritative output. The draft becomes an explicit "unavailable"
+    note that cites nothing, so validation marks it failed and the reviewer
+    sees why. Only the exception TYPE is shown (its text may carry a URL)."""
+
+    def __init__(self, inner: Any):
+        self._inner = inner
+        self.model_provider = getattr(inner, "model_provider", "unknown")
+        self.model_name = getattr(inner, "model_name", "unknown")
+
+    def _unavailable(self, exc: Exception) -> dict:
+        return {
+            "summary": (f"AI draft unavailable ({type(exc).__name__}). The "
+                        "deterministic findings are complete; review them directly."),
+            "referenced_source_rows": [],
+            "ai_unavailable": True,
+        }
+
+    def generate_structured_response(self, prompt: str, schema: Any = None) -> dict:
+        try:
+            return self._inner.generate_structured_response(prompt, schema)
+        except Exception as exc:  # noqa: BLE001 - any provider failure
+            return self._unavailable(exc)
+
+    def generate_text_response(self, prompt: str) -> str:
+        try:
+            return self._inner.generate_text_response(prompt)
+        except Exception as exc:  # noqa: BLE001
+            return self._unavailable(exc)["summary"]
+
+    def mock_response(self, prompt: str, schema: Any = None) -> dict:
+        return self._inner.mock_response(prompt, schema)
 
 
 class _LifecycleSuppressingAudit:
@@ -326,7 +363,8 @@ def run_workflow(
 ) -> UniformRunResult:
     """Drive any registered workflow through the shared pipeline.
 
-    ``provider=None`` means each workflow's built-in mock LLM (offline).
+    ``provider=None`` means each workflow's built-in mock LLM (offline), or
+    the configured real provider when ``LLM_MODE=real``.
     ``config`` carries caller tolerances/thresholds; uploaded config files in
     ``inputs`` take precedence. ``retention_category`` tags the run for
     records-retention (unknown values fall back to ``draft_working``).
@@ -337,6 +375,10 @@ def run_workflow(
     if descriptor is None:
         raise ValueError(f"Workflow '{workflow_type}' is not available.")
 
+    if provider is None and llm_mode() == "real":
+        provider = get_provider()
+    if provider is not None:
+        provider = _GuardedProvider(provider)
     run_id = make_id()
     run_export_dir: Optional[Path] = None
     if export_dir is not None:

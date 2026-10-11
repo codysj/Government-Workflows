@@ -173,8 +173,8 @@ def answer_question(
         findings_objs,
         valid_account_codes=coa_codes,
         require_references=False,
-        missing_references_is_error=False,
-        check_numeric_claims=True,
+        # metadata + reference data the prompt showed, and the question itself
+        grounding={**grounding, "question": question},
     )
 
     turn = {

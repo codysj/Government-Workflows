@@ -19,11 +19,11 @@ sections after it are the state.
 
 | Field | Value |
 | --- | --- |
-| Current milestone | M2 Real-model guardrails |
+| Current milestone | M4 Real-use robustness |
 | Branch | `goal/portfolio-hardening` |
 | Baseline commit | `4a5767a` |
-| OpenRouter spend so far | $0.00 of $1.50 cap |
-| Last updated | 2026-10-11 |
+| OpenRouter spend so far | $0.115 of $1.50 cap |
+| Last updated | 2026-10-11 (M2 done) |
 
 ---
 
@@ -165,10 +165,10 @@ questions in chat, never in the repo.
 | Milestone | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | Setup: create branch, commit this file + `CLAUDE.md` | done | (setup commit) | venv on Python 3.12; baselines recorded |
-| M1 One pipeline | done | (M1 commit) | one registry + `src/core/pipeline.py`; eval/CLI/API share it; non-test LOC 27469 |
-| M2 Real-model guardrails | in_progress | | |
-| M3 Retire Streamlit | done | 475418d + M1 commit | UI removed first, then `app/` deleted when the pipeline moved |
-| M4 Real-use robustness | not_started | | |
+| M1 One pipeline | done | bc482c4 | one registry + `src/core/pipeline.py`; eval/CLI/API share it; non-test LOC 27469 |
+| M2 Real-model guardrails | done | (M2 commit) | final held-out 23/24, the 1 rejection correct; hallucinated invoice caught (`docs/evaluation.md`) |
+| M3 Retire Streamlit | done | 475418d + bc482c4 | UI removed first, then `app/` deleted when the pipeline moved |
+| M4 Real-use robustness | in_progress | | 5k-row scale run: report_review 209s, ap_dup 107s -> O(n^2) hot spots |
 | M5 MCP front end | not_started | | |
 | M6 Portfolio polish | not_started | | |
 | Final whole-branch review | not_started | | |
@@ -176,9 +176,9 @@ questions in chat, never in the repo.
 ## Definition of Done
 
 - [x] One registry, one `run_workflow`; the API, CLI, and eval harness share it
-- [ ] Validator passes the adversarial set built from recorded real responses;
+- [x] Validator passes the adversarial set built from recorded real responses;
       GW-38 fixed; `.env.example` accurate
-- [ ] Real-model eval numbers recorded; total OpenRouter spend logged and ≤ $1.50
+- [x] Real-model eval numbers recorded; total OpenRouter spend logged and ≤ $1.50
 - [x] `app/` (Streamlit) removed
 - [ ] Launcher shuts down cleanly; 50k-row timings recorded; plain-language
       FAIL/PARTIAL guidance tested
@@ -209,6 +209,11 @@ git ls-files '*.py' '*.ts' '*.tsx' | grep -v -E '^tests/|^frontend/e2e/|\.test\.
 | Date | Purpose | Model | Before | After | Run cost |
 | --- | --- | --- | --- | --- | --- |
 | 2026-10-11 | Smoke tests (hit reasoning budget, then JSON ok) | deepseek/deepseek-v4.1-flash | $0.0000 | $0.0027 | $0.0027 |
+| 2026-10-11 | Tuning set: 8 workflows x1 (recorded fixtures v1) | deepseek/deepseek-v4.1-flash | $0.0064 | $0.0087 | $0.0023 |
+| 2026-10-11 | Held-out 1: 8 x3 | deepseek/deepseek-v4.1-flash | $0.0157 | $0.0331 | $0.0174 |
+| 2026-10-11 | Held-out 2: 8 x2 | deepseek/deepseek-v4.1-flash | $0.0452 | $0.0572 | $0.0121 |
+| 2026-10-11 | Re-record fixtures v2 (8) + final held-out 8 x3 | deepseek/deepseek-v4.1-flash | $0.0640 | $0.0914 | $0.0274 |
+| 2026-10-11 | Final held-out after review fixes: 8 x3 | deepseek/deepseek-v4.1-flash | $0.0961 | $0.1146 | $0.0185 |
 
 ## Log (append-only)
 
@@ -247,3 +252,41 @@ and why. One dated bullet per entry.
   hidden reasoning (empty content, finish_reason=length). Added a 4096 default,
   a clear error on empty content, and a generic `LLM_EXTRA_BODY` JSON passthrough
   (local `.env` sets OpenRouter `reasoning.enabled=false`).
+- 2026-10-11: M2 validator. One policy for all 8 workflows; every unsupported
+  number/date/identifier/row-ref is an ERROR. Claims are extracted and
+  normalized identically from the response and from what the model was shown.
+  Results and tuning history in `docs/evaluation.md` ("Real-model guardrail
+  results"). Key fact: the original validator accepted a real hallucinated
+  invoice number (INV-90065); the new one rejects it, with 0/23 false positives
+  on the final held-out batch. Prompt versions bumped to `*.v2` because the
+  shared OUTPUT_RULES changed the prompt text (audit trail stays truthful).
+- 2026-10-11: LLM mode now has one source of truth, the environment:
+  pipeline uses the real provider when `LLM_MODE=real`; `/api/health` and
+  Settings report the same; `mock_mode`/`llm_provider` removed from
+  app_settings. GW-38 fixed (anthropic transport selected by env).
+- 2026-10-11: Ops note: `git stash` with untracked fixtures was a bad way to
+  compare old code; use `git show <rev>:path` + exec instead.
+- 2026-10-11: M2 self-review (fresh-eyes adversarial subagent) found 12 ways
+  to slip an invented claim past the validator; the worst: "$" / "%" / counts
+  borrowed support from a shared pool of row indices + counts ("$50" passed
+  because row 50 was cited). Fixed by keeping claim kinds apart (money/percent
+  must match data values; row numbers must follow "row"; only bare numbers may
+  match counts or prefixed-id digits), walking the whole response tree
+  (numbers, keys, nested id lists), scale words, spelled-out numbers > 10,
+  case-insensitive refs, dates without a year, an approval regex, and a
+  Decimal crash. Each bypass is pinned by a unit test. Also: tests/conftest.py
+  clears LLM_* env at import (a dev shell with LLM_MODE=real made the suite
+  call the real provider - reproduced, then fixed); provider failures now keep
+  the deterministic run and mark the draft "AI draft unavailable"; freeform and
+  Q&A count the user's own text as grounding; LLM_EXTRA_BODY validated;
+  Anthropic transport takes the first text block; real_llm records fixtures
+  only with --record. Accepted limits: amount signs are ignored; vendor/fund
+  names are not checked; any figure in the data can be attached to the wrong
+  item; spelled-out numbers up to ten are unchecked.
+- 2026-10-11: A held-out batch run with the final validator found one more
+  false-positive shape (inline "(4) category" enumeration), fixed; noted
+  honestly in `docs/evaluation.md` as 22/24 -> 23/24.
+- 2026-10-11: M4 preview from a 5k-row scale run (`python -m src.eval.scale`):
+  bank 21s, budget 19s, report_review 209s, ap_duplicate 107s, po 41s -> must
+  fix before 50k. Also: thousands of findings would be sent to the LLM in one
+  prompt; needs a cap.

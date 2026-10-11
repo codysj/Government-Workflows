@@ -1,0 +1,12 @@
+{
+  "workflow_type": "je_upload_prep",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "prompt_template_version": "je_upload_prep.v2",
+  "response_json": {
+    "summary": "",
+    "categorized_exceptions": [],
+    "referenced_source_rows": [],
+    "suggested_review_steps": [],
+    "draft_memo": ""
+  }
+}
