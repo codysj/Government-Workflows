@@ -65,3 +65,18 @@ def test_missing_frontend_bundle_stops_cleanly(monkeypatch, stubbed):
     monkeypatch.setattr(launch_console, "ensure_frontend_dist", lambda: False)
     assert launch_console.run(port=9999) == 1
     assert served == []
+
+
+def test_failed_first_install_is_retried(monkeypatch, tmp_path):
+    """No marker (install never finished) -> install again, then mark."""
+    calls = []
+    monkeypatch.setattr(launch_console, "in_venv", lambda: True)
+    monkeypatch.setattr(launch_console, "INSTALLED_MARKER", tmp_path / "marker")
+    monkeypatch.setattr(launch_console.subprocess, "run",
+                        lambda cmd, check: calls.append(cmd))
+    launch_console.ensure_venv()
+    assert calls and "-e" in calls[0]
+    assert (tmp_path / "marker").exists()
+    calls.clear()
+    launch_console.ensure_venv()  # marker present -> nothing to do
+    assert calls == []

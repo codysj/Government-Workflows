@@ -5,7 +5,7 @@ subcommand here with no workflow-specific branching: the registry provides a
 uniform ``run(inputs, *, provider, ledger, audit, run_id, actor, export_dir,
 config) -> dict`` descriptor for each one, and this CLI dispatches generically.
 
-Spec: docs/Project_Outline_Master.md (sections 0.3, 1, Phase 2). This module is
+Design: docs/decisions.md (ADR-1, ADR-3, ADR-5). This module is
 the UI/CLI boundary only — it contains NO calculation logic and NO
 provider-specific code; all determinism lives in the workflow modules. The LLM
 defaults to the local mock provider (``--mock``, the default), so the CLI runs
@@ -399,7 +399,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     spec = registry.resolve(args.workflow)
     if spec is None:
         print(f"Unknown workflow: {args.workflow!r}", file=sys.stderr)
-        print(f"Run 'list' to see available workflows.", file=sys.stderr)
+        print("Run 'list' to see available workflows.", file=sys.stderr)
         return 2
 
     if getattr(args, "sample", False):

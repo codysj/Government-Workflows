@@ -95,17 +95,18 @@ def run_preflight(
 def _approved_mappings_from_report(
     report: PreflightReport,
 ) -> dict[str, dict[str, str]]:
-    """Every column preflight resolved (human choice, confident auto match, or
-    a best guess it flagged for checking), as ``{input_key: {semantic: column}}``.
+    """Columns a human chose or preflight matched confidently, as
+    ``{input_key: {semantic: column}}``.
 
-    Forwarded to the workflow so a PASS means the workflow reads the same
-    columns preflight checked. (Previously only human choices were forwarded;
-    a file preflight could read, e.g. "Posting Date" / "Transaction Amount",
-    then crashed in the workflow's own narrower column detection.)
+    Forwarded so the workflow reads the columns preflight confidently matched
+    (e.g. an ERP export's "Posting Date"). Uncertain best guesses are NOT
+    forwarded: the workflow's own detection decides those (it knows, e.g.,
+    that a combined budget-to-actual file's budget side is "Revised Budget",
+    not the only column containing "actual").
     """
     out: dict[str, dict[str, str]] = {}
     for m in report.column_mappings:
-        if m.mapped_column:  # human, auto, or a flagged best guess
+        if m.source in ("human", "auto") and m.mapped_column:
             out.setdefault(m.input_key, {})[m.semantic_name] = m.mapped_column
     return out
 

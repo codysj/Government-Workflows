@@ -129,25 +129,3 @@ def test_generate_review_packet_writes_and_records(tmp_path):
 def test_generate_review_packet_unknown_run_returns_empty(tmp_path):
     ledger = RunLedger(":memory:")
     assert rp.generate_review_packet(ledger, None, "nope", tmp_path) == []
-
-
-def test_source_formats_surfaced_in_packet_and_manifest(tmp_path):
-    ledger = RunLedger(":memory:")
-    run_id = _seed_run(ledger, summary={
-        "validation_status": "passed", "flagged_variances": 2,
-        "source_formats": {"budget": "generic_erp"}})
-    run = ledger.get_run(run_id)
-    md = rp.build_review_packet_markdown(run, [])
-    assert "Source-format presets applied" in md
-    assert "generic_erp" in md
-    manifest = rp.build_run_manifest(run, [])
-    assert manifest["source_formats"] == {"budget": "generic_erp"}
-
-
-def test_no_source_formats_omits_note(tmp_path):
-    ledger = RunLedger(":memory:")
-    run_id = _seed_run(ledger)  # default summary, no source_formats
-    run = ledger.get_run(run_id)
-    md = rp.build_review_packet_markdown(run, [])
-    assert "Source-format presets applied" not in md
-    assert rp.build_run_manifest(run, [])["source_formats"] == {}

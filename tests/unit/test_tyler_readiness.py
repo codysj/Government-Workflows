@@ -38,7 +38,6 @@ from src.core.preflight import (
 )
 from src.core.schemas import FindingType, PreflightStatus
 from src.ingest.excel_loader import load_table
-from src.ingest.presets import apply_preset
 from src.normalize.cleaning import (
     best_semantic_column,
     derive_signed_amount,
@@ -409,9 +408,9 @@ class TestFreeformTyler:
 
 
 # --------------------------------------------------------------------------- #
-# Loaders + presets
+# Loaders
 # --------------------------------------------------------------------------- #
-class TestLoadersAndPresets:
+class TestLoaders:
     def test_load_table_dispatches_by_extension(self, tmp_path):
         csv_parsed = load_table(TYLER_LEDGER)
         assert csv_parsed.file_type == "csv"
@@ -427,26 +426,3 @@ class TestLoadersAndPresets:
             csv_parsed.dataframe.columns
         )
 
-    def test_tyler_preset_maps_check_register_headers(self):
-        df = pd.DataFrame(
-            {
-                "Check Number": ["50100"],
-                "Check Date": ["02/05/2026"],
-                "Vendor Name": ["Acme Supply Co"],
-                "Check Amount": ["1,250.75"],
-            }
-        )
-        out = apply_preset(df, "tyler_munis_style")
-        assert "date" in out.columns
-        assert "amount" in out.columns
-        assert "description" in out.columns  # vendor_name -> description
-        assert "check_number" in out.columns  # reference field preserved
-
-    def test_tyler_preset_does_not_clobber_existing_canonicals(self):
-        df = pd.DataFrame(
-            {"Date": ["2026-01-01"], "Check Date": ["2026-02-01"], "Amount": ["1"]}
-        )
-        out = apply_preset(df, "tyler_munis_style")
-        # Existing canonical 'date'/'amount' win; check_date stays itself.
-        assert out["date"].tolist() == ["2026-01-01"]
-        assert "check_date" in out.columns

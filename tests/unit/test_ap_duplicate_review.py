@@ -927,3 +927,27 @@ class TestWorkflowMeta:
         assert SAMPLE_INPUTS["ap_invoices"].endswith("ap_invoice_detail.csv")
 
 
+
+
+def test_d8_credit_does_not_hide_a_split(tmp_path):
+    """Review finding: a credit at the start of the window pulled the sum
+    below the threshold and hid a real two-invoice split."""
+    import pandas as pd
+
+    src = pd.read_csv(AP_CSV, dtype=str, keep_default_na=False).head(3)
+    date_col = next(c for c in src.columns if "date" in c.lower() and "invoice" in c.lower())
+    amt_col = next(c for c in src.columns if "amount" in c.lower() and "invoice" in c.lower())
+    inv_col = next(c for c in src.columns if "invoice" in c.lower() and ("no" in c.lower() or "number" in c.lower()))
+    vend_col = next(c for c in src.columns if "vendor" in c.lower() and ("no" in c.lower() or "number" in c.lower()))
+    src[vend_col] = src[vend_col].iloc[0]
+    src[inv_col] = ["CR-1", "INV-2", "INV-3"]
+    src[date_col] = ["03/01/2026", "03/02/2026", "03/03/2026"]
+    src[amt_col] = ["-3000.00", "3000.00", "3000.00"]
+    path = tmp_path / "ap.csv"
+    src.to_csv(path, index=False)
+    ap = _load_tyler(path, "ap_invoice_detail", "ap_invoices")
+    det = run_deterministic(ap, config=APDuplicateConfig(
+        split_threshold=Decimal("5000.00"), split_window_days=3))
+    d8 = [f for f in det.findings if f.rule_used == "split_payment_pattern"]
+    assert len(d8) == 1
+    assert d8[0].computed_values["invoice_numbers"] == ["INV-2", "INV-3"]

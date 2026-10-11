@@ -187,14 +187,6 @@ def build_review_packet_markdown(run: dict, audit_events: list[dict]) -> str:
         ))
     else:
         lines.append("_No input file metadata recorded._")
-    source_formats = summary.get("source_formats") or {}
-    if source_formats:
-        lines.append("")
-        lines.append(
-            "Source-format presets applied before analysis (by input): "
-            + ", ".join(f"`{k}` -> `{v}`" for k, v in source_formats.items())
-            + ". The hashes above are of the ORIGINAL uploaded files; aliasing "
-            "only renamed columns to canonical names.")
     lines.append("")
 
     # 3. Deterministic findings.
@@ -364,7 +356,6 @@ def build_run_manifest(run: dict, audit_events: list[dict]) -> dict:
         "ai_draft_status": derive_draft_status(actions),
         "human_review_status": run.get("human_review_status"),
         "summary": run.get("summary") or {},
-        "source_formats": (run.get("summary") or {}).get("source_formats", {}),
         "source_files": [
             {"file_name": f.get("file_name"), "file_type": f.get("file_type"),
              "row_count": f.get("row_count"), "sha256": f.get("file_hash")}

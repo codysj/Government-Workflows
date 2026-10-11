@@ -121,7 +121,8 @@ def build_server(settings: Optional[ApiSettings] = None) -> MCPServer:
         result = pipeline.run_workflow(
             workflow_type, _inputs(workflow_type, files, text, use_sample),
             ledger=ledger, audit=audit, actor="mcp", export_dir=settings.export_dir,
-            config=config, retention_category=settings.default_retention_category)
+            config={**settings.run_defaults, **(config or {})} or None,
+            retention_category=settings.default_retention_category)
         detail = build_run_detail(ledger, result.run_id).model_dump(mode="json")
         findings = sorted(detail["findings"],
                           key=lambda f: _SEVERITY_ORDER.get(f.get("severity"), 5))

@@ -52,7 +52,7 @@ from src.core.schemas import (
 from src.core.exports import write_csv, write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
-from src.llm.provider import _extract_findings_from_prompt
+from src.llm.provider import _extract_findings_from_prompt, _extract_summary_from_prompt
 from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
 from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
@@ -426,7 +426,8 @@ class MockLLMProvider(_CoreMockLLMProvider):
         )
         return {
             "summary": (
-                f"{len(flagged)} budget line(s) exceed the configured variance "
+                f"{_extract_summary_from_prompt(prompt).get('flagged_variances', len(flagged))} "
+                "budget line(s) exceed the configured variance "
                 "thresholds and may need a staff explanation. See referenced "
                 "source rows for each item."
             ),

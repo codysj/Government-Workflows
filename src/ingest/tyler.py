@@ -27,8 +27,7 @@ Invariants (project hard rules):
     present a signed ``amount`` column is derived (``amount = debit -
     credit``) and the original debit/credit columns are KEPT.
 
-The column-alias maps below follow the conventions of
-``src/ingest/presets.py`` (snake_cased source variant -> canonical name) but
+The column-alias maps below (snake_cased source variant -> canonical name)
 are dataset-type specific, because the same header means different things in
 different exports (e.g. "Vendor Name" is a join key in AP, not a description).
 """
@@ -45,10 +44,10 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 from src.core.schemas import InputFile, SourceRowRef, make_id
 from src.ingest.csv_loader import file_sha256
-from src.ingest.presets import apply_aliases
 from src.normalize.cleaning import (
     detect_footer_total_rows,
     detect_repeated_header_rows,
+    normalize_columns,
     parse_amount,
     parse_date,
     to_snake_case,
@@ -370,7 +369,7 @@ class TylerNormalizedExport(BaseModel):
 def _canonical_header_set(columns: list[str], spec: TylerDatasetSpec) -> set[str]:
     """Snake-case ``columns`` and apply the spec aliases (first-wins).
 
-    Mirrors :func:`src.ingest.presets.apply_aliases`: an alias only applies
+    Mirrors :func:`apply_aliases`: an alias only applies
     when its canonical target is not already a column.
     """
     snake = [to_snake_case(c) for c in columns]
@@ -760,6 +759,25 @@ def _serialize_cell(value: Any) -> str:
     if isinstance(value, date):
         return value.isoformat()
     return str(value)
+
+
+def apply_aliases(
+    df: pd.DataFrame, aliases: dict[str, str], *, normalize: bool = True
+) -> pd.DataFrame:
+    """Return a copy of ``df`` with columns renamed via ``aliases``.
+
+    Columns are first snake-cased (so "Posting Date" matches ``posting_date``)
+    when ``normalize`` is True. Aliasing never drops or reorders data — it only
+    renames. A canonical target that already exists is not overwritten (the
+    existing canonical column wins, and the alias source is left as-is).
+    """
+    out = normalize_columns(df) if normalize else df.copy()
+    existing = set(out.columns)
+    rename: dict[str, str] = {}
+    for src, dst in aliases.items():
+        if src in existing and dst not in existing and dst not in rename.values():
+            rename[src] = dst
+    return out.rename(columns=rename)
 
 
 def source_ref_for_row(

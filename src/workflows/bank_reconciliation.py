@@ -55,7 +55,7 @@ from src.core.schemas import (
 from src.core.exports import write_csv, write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
-from src.llm.provider import _extract_findings_from_prompt
+from src.llm.provider import _extract_findings_from_prompt, _omitted_from_prompt
 from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import (
     derive_signed_amount,
@@ -861,6 +861,7 @@ class MockLLMProvider(_CoreMockLLMProvider):
             FindingType.DUPLICATE.value,
         }
         exceptions = [f for f in findings if f.get("finding_type") in exception_types]
+        omitted = _omitted_from_prompt(prompt)
         ref_ids: list[str] = []
         categorized = []
         for f in exceptions:
@@ -876,7 +877,9 @@ class MockLLMProvider(_CoreMockLLMProvider):
         return {
             "summary": (
                 f"Deterministic reconciliation flagged {len(exceptions)} "
-                "exception(s) for human review. See the categorized list; each "
+                "exception(s) for human review"
+                + (f" (the most severe; {omitted} more lower-severity findings are not listed)" if omitted else "")
+                + ". See the categorized list; each "
                 "item cites the source rows that triggered it."
             ),
             "categorized_exceptions": categorized,

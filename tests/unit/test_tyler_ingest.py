@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from src.core.schemas import FindingType, InputFile, SourceRowRef
-from src.ingest import presets, tyler
+from src.ingest import tyler
 
 DATA = Path(__file__).resolve().parents[2] / "data" / "synthetic" / "tyler"
 
@@ -405,21 +405,23 @@ def test_new_finding_types_added():
     assert FindingType.OTHER.value == "other"
 
 
-def test_tyler_munis_preset_extended_backward_compatible():
-    aliases = presets.PRESETS["tyler_munis_style"]
-    # Original mappings preserved (gl_amount/journal_amount/je_amount/invoice
-    # were dead aliases with no fixture or TYLER_DATASET_TYPES counterpart --
-    # removed by GW-30).
-    assert aliases["jrnl_date"] == "date"
-    assert "gl_amount" not in aliases  # GW-30: deleted dead alias
-    assert "journal_amount" not in aliases  # GW-30: deleted dead alias
-    assert "je_amount" not in aliases  # GW-30: deleted dead alias
-    assert "invoice" not in aliases  # GW-30: deleted dead alias (no fixture)
-    assert aliases["org"] == "department"
-    assert aliases["object"] == "account_code"
-    # New Munis-style variants present.
-    assert aliases["eff_date"] == "date"
-    assert aliases["vendor_no"] == "vendor_number"
-    assert aliases["invoice_no"] == "invoice_number"
-    assert aliases["po_no"] == "po_number"
-    assert aliases["check_no"] == "check_number"
+def test_apply_aliases_does_not_overwrite_existing_canonical():
+    df = pd.DataFrame({"Posting Date": ["2026-01-02"], "date": ["2026-01-01"]})
+    out = tyler.apply_aliases(df, {"posting_date": "date"})
+    assert out["date"].tolist() == ["2026-01-01"]  # existing canonical wins
+    assert "posting_date" in out.columns
+
+
+def test_preflight_auto_maps_erp_and_munis_header_variants():
+    """Header names the retired import presets knew now map automatically."""
+    from src.normalize.cleaning import best_semantic_column
+
+    for header, semantic in [("Posting Date", "date"), ("Eff Date", "date"),
+                             ("Check Date", "date"), ("Amt", "amount"),
+                             ("Net Amount", "amount"), ("Line Description", "description"),
+                             ("Cost Center", "department"), ("Statement Section", "section")]:
+        df = pd.DataFrame({header: ["2026-01-02" if semantic == "date" else "12.50"]})
+        best, conf, _ = best_semantic_column(df, semantic)
+        assert best == header and conf >= 0.85, (header, conf)
+
+

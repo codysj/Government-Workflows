@@ -223,3 +223,11 @@ def test_absurd_precision_does_not_crash():
     resp = {"summary": "Rate 0.000000000000000000000000000001 at ap_invoices:46.",
             "referenced_source_rows": ["ap_invoices:46"]}
     assert validate_llm_output(resp, _rich_det()).passed is False
+
+
+def test_capped_prompt_counts_are_supported():
+    """Over 150 findings the prompt lists 150 and says how many more exist."""
+    det = _Det([_finding("ledger", i) for i in range(160)])
+    resp = {"summary": "150 findings are listed; 10 more are summarized. See ledger:0.",
+            "referenced_source_rows": ["ledger:0"]}
+    assert validate_llm_output(resp, det).passed is True

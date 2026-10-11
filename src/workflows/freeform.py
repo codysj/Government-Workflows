@@ -558,7 +558,7 @@ def build_prompt(det: FreeformDeterministicOutput) -> str:
         + "TASK: Draft the requested output as plain language, summarize what "
         "the request is asking for, suggest human review steps, and list any "
         "clarifying questions. Do NOT compute values or invent data.\n\n"
-        + f"AUTO-INJECTED CONTEXT REFERENCES:\n"
+        + "AUTO-INJECTED CONTEXT REFERENCES:\n"
         + json.dumps(det.context_refs, default=str, indent=2)
         + "\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"

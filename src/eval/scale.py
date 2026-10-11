@@ -105,10 +105,12 @@ def run(rows: int, workflows: Optional[list[str]] = None) -> list[dict[str, Any]
                                  export_dir=work / "exports")
                 status = r.preflight_status
                 findings = len(r.findings)
+                draft_ok = bool(r.validation and r.validation.passed)
             except Exception as exc:  # report, keep going
                 status, findings = f"error: {type(exc).__name__}: {exc}"[:200], None
+                draft_ok = False
             results.append({"workflow": d.workflow_type, "rows": n, "status": status,
-                            "findings": findings,
+                            "findings": findings, "draft_validated": draft_ok,
                             "seconds": round(time.perf_counter() - start, 2)})
             print(results[-1], flush=True)
     return results

@@ -56,7 +56,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
 
@@ -74,7 +74,6 @@ from src.core.schemas import (
     FileProfile,
     FindingType,
     LLMResponse,
-    PreflightConditionCode,
     PreflightFinding,
     PreflightStatus,
     Severity,
@@ -85,7 +84,7 @@ from src.core.schemas import (
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.ingest.tyler import normalize_tyler_export
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
-from src.llm.provider import _extract_findings_from_prompt
+from src.llm.provider import _extract_findings_from_prompt, _extract_summary_from_prompt
 from src.normalize.cleaning import parse_amount, parse_date, to_snake_case
 from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
@@ -1039,8 +1038,11 @@ class MockLLMProvider(_CoreMockLLMProvider):
                     "referenced_source_rows": refs,
                 }
             )
-        n_blocking = len(blocking)
-        n_warn = len(warnings)
+        # Totals come from the deterministic summary: the prompt may list only
+        # the most severe findings.
+        summary = _extract_summary_from_prompt(prompt)
+        n_blocking = summary.get("blocking_findings", len(blocking))
+        n_warn = summary.get("warning_findings", len(warnings))
         return {
             "summary": (
                 f"Deterministic JE validation identified {n_blocking} blocking "

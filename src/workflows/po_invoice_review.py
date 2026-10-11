@@ -51,7 +51,6 @@ from src.core.schemas import (
     FileProfile,
     FindingType,
     LLMResponse,
-    PreflightConditionCode,
     PreflightFinding,
     Severity,
     SourceRowRef,
@@ -612,18 +611,15 @@ def run_deterministic(
         # Find the best-matching PO line for this invoice row
         # (prefer matching qty, else use line 1)
         best_po_line = None
-        best_po_df_idx: Optional[int] = None
-        for po_df_idx, po_r in po_rows_by_po.get(po_num, []):
+        for _, po_r in po_rows_by_po.get(po_num, []):
             po_line_qty = _safe_decimal(po_r.get("qty"))
             if po_line_qty is not None and po_line_qty == inv_qty:
                 best_po_line = dict(po_r)
-                best_po_df_idx = int(po_df_idx)
                 break
         if best_po_line is None:
             # Fall back to line 1
-            for po_df_idx, po_r in po_rows_by_po.get(po_num, []):
+            for _, po_r in po_rows_by_po.get(po_num, []):
                 best_po_line = dict(po_r)
-                best_po_df_idx = int(po_df_idx)
                 break
 
         if best_po_line is None:

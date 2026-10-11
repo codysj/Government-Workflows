@@ -100,7 +100,6 @@ def _norm_file_type(file_type: str) -> str:
 # Auto-map a semantic column only when confidence is at least this high AND
 # the mapping is unambiguous.
 HIGH_CONFIDENCE_THRESHOLD = 0.85
-UNIQUE_CANDIDATE_THRESHOLD = 0.8  # sole candidate: partial name match + full parse
 
 # Default synonym map for the semantic columns used by the 4 workflows.
 DEFAULT_SYNONYMS: dict[str, list[str]] = SEMANTIC_SYNONYMS
@@ -177,7 +176,6 @@ def profile_input(
     groups, and present/type checks. Row indices are 0-based positions in the
     parsed dataframe (preserved for traceability).
     """
-    accepted = _accepted_for(accepted_types, input_key)
     df, file_name, file_type = _load_df(path_or_parsed)
 
     if df is None:
@@ -310,11 +308,7 @@ def build_column_mappings(
             best, conf, ranked = best_semantic_column(
                 frame, semantic, synonyms=DEFAULT_SYNONYMS
             )
-            # A unique candidate that partly matches by name AND fully parses as
-            # the right type (date/amount score 0.5*0.6 + 0.5*1.0 = 0.8), e.g.
-            # "posting_date" or "budget_amount", is a confident match too.
-            unique_and_parses = len(ranked) == 1 and conf >= UNIQUE_CANDIDATE_THRESHOLD
-            if best is not None and (conf >= HIGH_CONFIDENCE_THRESHOLD or unique_and_parses):
+            if best is not None and conf >= HIGH_CONFIDENCE_THRESHOLD:
                 mappings.append(
                     ColumnMapping(
                         semantic_name=semantic,
@@ -599,29 +593,6 @@ def run_preflight(
                     )
                 )
 
-            # A required field resolved only by a best guess (one candidate,
-            # below the auto threshold): use it, but say so -> PARTIAL.
-            if is_required and m.source == "unmapped" and not ambiguous:
-                findings.append(
-                    PreflightFinding(
-                        code=PreflightConditionCode.NEEDS_HUMAN_CONFIGURATION,
-                        severity=Severity.MEDIUM,
-                        message=(
-                            f"Using column '{m.mapped_column}' as "
-                            f"'{_human(semantic)}' in {label(input_key)} "
-                            "(best match, not certain)."
-                        ),
-                        affected_input=input_key,
-                        affected_column=m.mapped_column,
-                        suggested_action=(
-                            f"Check that '{m.mapped_column}' is the "
-                            f"{_human(semantic)} column in {label(input_key)}, or "
-                            "choose another in the column-mapping step."
-                        ),
-                        blocks_run=False,
-                    )
-                )
-
             # Low parse confidence on date/amount columns.
             if semantic in _DATE_SEMANTICS:
                 pc = _parse_conf_for(profile, m.mapped_column)
@@ -723,16 +694,9 @@ def _classify(findings: list[PreflightFinding]) -> PreflightStatus:
 def _supported_checks(
     spec: CapabilitySpec, status: PreflightStatus, findings: list[PreflightFinding]
 ) -> list[str]:
-    if status == PreflightStatus.FAIL:
-        return []
-    # On PASS all supported patterns apply. On PARTIAL, drop any supported
-    # pattern that the domain detector explicitly flagged as unsupported.
-    flagged = {
-        f.affected_column or f.message for f in findings if f.blocks_run is False
-    }
-    if status == PreflightStatus.PASS:
-        return list(spec.supported_patterns)
-    return list(spec.supported_patterns)
+    # The supported checks all run on PASS and PARTIAL (PARTIAL only adds
+    # flagged conditions); none run on FAIL.
+    return [] if status == PreflightStatus.FAIL else list(spec.supported_patterns)
 
 
 def _next_steps(findings: list[PreflightFinding]) -> list[str]:

@@ -329,3 +329,17 @@ def test_excel_inputs_get_provenance_hashes(tmp_path):
     files = ledger.list_input_files(result.run_id)
     assert [f["file_name"] for f in files] == ["gl_detail.xlsx"]
     assert len(files[0]["file_hash"]) == 64
+
+
+def test_tyler_combined_budget_to_actual_through_the_pipeline(tmp_path):
+    """One Munis budget-to-actual export used for both sides: the workflow's own
+    column logic (Revised Budget vs YTD Actual) must win over preflight's
+    uncertain guesses (review finding: forwarding them gave 0 findings)."""
+    ledger, audit = _pipeline(tmp_path)
+    b2a = str(SD / "budget_variance" / "tyler_style_budget_to_actual.csv")
+    r = pipeline.run_workflow("budget_variance", {"budget": b2a, "actuals": b2a},
+                              ledger=ledger, audit=audit)
+    assert r.preflight_status == "pass"
+    assert r.summary["budget_amount_column"] == "revised_budget"
+    assert r.summary["actual_amount_column"] == "ytd_actual"
+    assert r.summary["flagged_variances"] == 4

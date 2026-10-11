@@ -49,8 +49,8 @@ def _pair_matches(
 def _by_magnitude(items: list[MatchCandidate]) -> tuple[list[Decimal], list[int]]:
     """Positions of items with an amount, sorted by |amount| (for range lookups)."""
     order = sorted((i for i, c in enumerate(items) if c.amount is not None),
-                   key=lambda i: abs(items[i].amount))
-    return [abs(items[i].amount) for i in order], order
+                   key=lambda i: abs(Decimal(str(items[i].amount))))
+    return [abs(Decimal(str(items[i].amount))) for i in order], order
 
 
 def match_records(
@@ -82,7 +82,7 @@ def match_records(
         for li, a in enumerate(left):
             if li in matched_left or a.amount is None:
                 continue
-            mag = abs(a.amount)
+            mag = abs(Decimal(str(a.amount)))
             lo, hi = bisect_left(keys, mag - tol), bisect_right(keys, mag + tol)
             best: Optional[tuple[int, bool]] = None
             for j in order[lo:hi]:

@@ -81,6 +81,20 @@ def _extract_findings_from_prompt(prompt: str) -> list[dict]:
     return []
 
 
+def _omitted_from_prompt(prompt: str) -> int:
+    """How many findings the prompt left out (its "NOTE: N more ..." line)."""
+    m = re.search(r"NOTE: (\d+) more lower-severity findings", prompt)
+    return int(m.group(1)) if m else 0
+
+
+def _extract_summary_from_prompt(prompt: str) -> dict:
+    """The JSON object after ``DETERMINISTIC SUMMARY:`` (or {})."""
+    idx = prompt.find("DETERMINISTIC SUMMARY:")
+    if idx == -1:
+        return {}
+    return _extract_json_object(prompt[idx:]) or {}
+
+
 def _extract_json_object(text: str) -> Optional[dict]:
     """Extract the first balanced ``{...}`` JSON object from a string.
 
@@ -148,6 +162,9 @@ class MockLLMProvider:
         if "RUN Q&A ASSISTANT" in prompt:
             return self._build_qa(prompt)
         findings = _extract_findings_from_prompt(prompt)
+        total = len(findings) + _omitted_from_prompt(prompt)
+        listed = (f" ({len(findings)} most severe listed below)"
+                  if total > len(findings) else "")
         ref_ids: list[str] = []
         categorized: list[dict] = []
         for f in findings:
@@ -162,8 +179,8 @@ class MockLLMProvider:
             )
         return {
             "summary": (
-                f"Deterministic analysis produced {len(findings)} finding(s) for "
-                "human review. Each categorized item cites the source rows that "
+                f"Deterministic analysis produced {total} finding(s) for "
+                f"human review{listed}. Each categorized item cites the source rows that "
                 "triggered it. No figures were computed or invented by the "
                 "assistant."
             ),

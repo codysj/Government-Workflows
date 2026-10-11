@@ -171,7 +171,6 @@ export function makeRunDetail(overrides: Partial<RunDetail> = {}): RunDetail {
     summary: {
       total_invoices: 120,
       flagged_payments: 2,
-      source_formats: { ap_invoices: "csv" },
     },
     preflight: makePreflight(),
     findings: [

@@ -32,6 +32,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VENV_DIR = REPO_ROOT / ".venv"
+INSTALLED_MARKER = VENV_DIR / ".govworkflows-installed"
 FRONTEND_DIR = REPO_ROOT / "frontend"
 FRONTEND_DIST = FRONTEND_DIR / "dist"
 
@@ -54,19 +55,25 @@ def in_venv() -> bool:
 
 
 def ensure_venv() -> None:
-    """Create .venv and install the app on first run, then re-exec inside it."""
-    if in_venv():
-        return
-    if not venv_python().exists():
-        if sys.version_info < (3, 11):
-            sys.exit("Python 3.11 or newer is required (python.org/downloads).")
-        _say("First run: creating .venv and installing the app (a few minutes)...")
-        subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)], check=True)
-        subprocess.run([str(venv_python()), "-m", "pip", "install", "-q", "-e", str(REPO_ROOT)],
+    """Run inside .venv with the app installed: create the venv and re-exec
+    into it if needed, then install once. The marker is written only after a
+    successful install, so a failed first run (e.g. no network) is retried."""
+    if not in_venv():
+        if os.environ.get("GOVWF_REEXEC"):
+            sys.exit("Could not start inside .venv. Delete the .venv folder and run again.")
+        if not venv_python().exists():
+            if sys.version_info < (3, 11):
+                sys.exit("Python 3.11 or newer is required (python.org/downloads).")
+            _say("First run: creating .venv ...")
+            subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)], check=True)
+        env = {**os.environ, "GOVWF_REEXEC": "1"}
+        raise SystemExit(subprocess.call(
+            [str(venv_python()), str(Path(__file__).resolve()), *sys.argv[1:]], env=env))
+    if not INSTALLED_MARKER.exists():
+        _say("Installing the app into .venv (a few minutes, first run only)...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", str(REPO_ROOT)],
                        check=True)
-    # Re-run this script with the venv's interpreter.
-    raise SystemExit(subprocess.call([str(venv_python()), str(Path(__file__).resolve()),
-                                      *sys.argv[1:]]))
+        INSTALLED_MARKER.write_text("installed\n", encoding="utf-8")
 
 
 def ensure_frontend_dist() -> bool:

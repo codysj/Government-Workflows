@@ -194,14 +194,20 @@ SEMANTIC_SYNONYMS: dict[str, list[str]] = {
     "date": [
         "date", "txn_date", "transaction_date", "posted_date", "post_date",
         "entry_date", "value_date", "effective_date",
+        # ERP / Tyler Munis / OpenGov header variants
+        "posting_date", "gl_date", "trans_date", "jrnl_date", "jnl_date", "je_date",
+        "eff_date", "check_date", "transaction_post_date",
     ],
     "amount": [
         "amount", "value", "txn_amount", "transaction_amount", "debit",
         "credit", "balance", "total", "actual", "amount_usd",
+        "net_amount", "amt", "reported_amount", "check_amount", "transaction_total",
+        "budget_amount", "actual_amount",
     ],
     "description": [
         "description", "memo", "payee", "vendor", "details", "narrative",
         "particulars", "name", "reference",
+        "line_description", "je_description", "comment", "account_label",
     ],
     "account_code": [
         "account_code", "account_number", "account_no", "acct", "acct_code",
@@ -209,13 +215,16 @@ SEMANTIC_SYNONYMS: dict[str, list[str]] = {
     ],
     "account_name": [
         "account_name", "account_title", "account_description", "gl_name",
-        "line_item",
+        "line_item", "acct_desc", "account_desc",
     ],
-    "section": ["section", "category", "group", "report_section", "heading"],
+    "section": ["section", "category", "group", "report_section", "heading",
+                "statement_section"],
     "line_type": ["line_type", "type", "row_type", "level", "indent"],
     "fund": ["fund", "fund_code", "fund_name", "fund_no"],
-    "department": ["department", "dept", "dept_code", "division", "unit"],
-    "object": ["object", "object_code", "obj", "obj_code", "expenditure_object"],
+    "department": ["department", "dept", "dept_code", "division", "unit",
+                   "department_name", "cost_center", "org", "org_code"],
+    "object": ["object", "object_code", "obj", "obj_code", "expenditure_object",
+               "object_class"],
 }
 
 _TOTAL_LABEL_RE = re.compile(

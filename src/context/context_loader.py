@@ -20,7 +20,7 @@ financial data (spec sections 0.3 / 1.1 / Phase 5 prohibited behavior).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from src.context.chart_of_accounts import ChartOfAccounts, load_chart_of_accounts
 from src.context.city_profile import CityProfile, load_city_profile

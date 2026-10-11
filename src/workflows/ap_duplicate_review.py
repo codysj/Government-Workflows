@@ -55,7 +55,7 @@ import difflib
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
@@ -65,7 +65,6 @@ import pandas as pd
 from src.core.exports import write_csv, write_json, write_markdown
 from src.core.preflight import render_preflight_summary_md, run_preflight
 from src.core.schemas import (
-    ArtifactType,
     CapabilitySpec,
     DeterministicFinding,
     ExportArtifact,
@@ -73,7 +72,6 @@ from src.core.schemas import (
     FindingType,
     LLMResponse,
     ColumnMapping,
-    PreflightConditionCode,
     PreflightFinding,
     PreflightStatus,
     Severity,
@@ -88,7 +86,7 @@ from src.ingest.tyler import (
     source_ref_for_row,
 )
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
-from src.llm.provider import _extract_findings_from_prompt
+from src.llm.provider import _extract_findings_from_prompt, _omitted_from_prompt
 from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 WORKFLOW_TYPE = "ap_duplicate_review"
@@ -312,8 +310,6 @@ def run_deterministic(
 
     ap_df = ap_export.dataframe
     ap_records = ap_df.to_dict("records")  # built once; every check reads rows from it
-    ap_file_id = ap_export.input_file.file_id
-    ap_table = ap_export.table_name
 
     def ap_ref(row_index: int, columns: Optional[list[str]] = None) -> SourceRowRef:
         return source_ref_for_row(ap_export, row_index, columns)
@@ -788,7 +784,11 @@ def run_deterministic(
 
     for vnum, rows in by_vendor.items():
         # Collect rows where each invoice is below the threshold.
-        under_rows = [r for r in rows if r["amount"] is not None and r["amount"] < cfg.split_threshold]
+        # Positive invoices only: a credit is not part of a split, and with
+        # positive amounts the widest window has the largest total, so the
+        # sweep below finds every qualifying window.
+        under_rows = [r for r in rows
+                      if r["amount"] is not None and 0 < r["amount"] < cfg.split_threshold]
         if len(under_rows) < 2:
             continue
         # Find subsets of 2+ rows where:
@@ -954,6 +954,7 @@ class _APMockLLMProvider(_CoreMockLLMProvider):
             "skip_d6_d7_no_vendor_list",
         }
         flagged = [f for f in findings if f.get("rule_used") not in skip_rules]
+        omitted = _omitted_from_prompt(prompt)
         ref_ids: list[str] = []
         categorized = []
         for f in flagged:
@@ -969,7 +970,9 @@ class _APMockLLMProvider(_CoreMockLLMProvider):
         return {
             "summary": (
                 f"Deterministic AP review flagged {len(flagged)} potential issue(s) "
-                "for human review. See the categorized list; each item cites the source "
+                "for human review"
+                + (f" (the most severe; {omitted} more lower-severity findings are not listed)" if omitted else "")
+                + ". See the categorized list; each item cites the source "
                 "rows that triggered it. No fraud conclusions are made."
             ),
             "categorized_exceptions": categorized,

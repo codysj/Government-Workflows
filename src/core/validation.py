@@ -301,8 +301,8 @@ def _derived_counts(findings: list[DeterministicFinding]) -> set[int]:
         out |= set(groups.values()) | {len(groups)}
     rows = {_short_ref(s) for f in findings for s in f.source_rows}
     out |= {len(rows), len({r.split(":")[0] for r in rows})}
-    if len(findings) > PROMPT_FINDINGS_LIMIT:  # "N more findings are not listed"
-        out.add(len(findings) - PROMPT_FINDINGS_LIMIT)
+    if len(findings) > PROMPT_FINDINGS_LIMIT:  # "150 listed, N more not listed"
+        out |= {PROMPT_FINDINGS_LIMIT, len(findings) - PROMPT_FINDINGS_LIMIT}
     return out
 
 

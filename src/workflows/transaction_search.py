@@ -71,11 +71,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional
 
-import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.core.schemas import (
-    ArtifactType,
     CapabilitySpec,
     DeterministicFinding,
     ExportArtifact,
@@ -91,13 +89,10 @@ from src.core.schemas import (
 )
 from src.core.exports import write_csv, write_json, write_markdown
 from src.core.preflight import run_preflight, render_preflight_summary_md, preflight_report_dict
-from src.core.run_ledger import RunLedger
-from src.core.audit_log import AuditLog
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.ingest.tyler import (
     normalize_tyler_export,
     source_ref_for_row,
-    TYLER_DATASET_TYPES,
 )
 from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
@@ -679,7 +674,7 @@ def _validate_criteria_dict(raw: dict[str, Any]) -> tuple[SearchCriteria, list[s
             continue
         # Try individual validator by constructing a partial
         try:
-            partial = SearchCriteria.model_validate({f: raw[f]})
+            SearchCriteria.model_validate({f: raw[f]})
             clean[f] = raw[f]
         except Exception as exc:
             unparsed.append(f"{f}={raw[f]!r} (rejected: {exc})")
@@ -1001,7 +996,6 @@ def run_deterministic(
 
         input_files_used.append(export.input_file)
         df = export.dataframe
-        table_name = export.table_name
 
         for i, row_series in zip(df.index, df.to_dict("records")):
             row = dict(row_series)
@@ -1207,7 +1201,6 @@ def mock_llm_response(det: TransactionSearchOutput) -> dict[str, Any]:
 
     Cites ONLY source-row ids from the deterministic findings.
     """
-    from src.llm.provider import _extract_findings_from_prompt
     refs: list[str] = []
     categorized: list[dict] = []
     for f in findings_for_prompt(det.findings):  # what the prompt shows
