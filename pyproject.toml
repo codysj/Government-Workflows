@@ -15,7 +15,6 @@ dependencies = [
     "pandas",
     "pydantic>=2",
     "openpyxl",
-    "streamlit",
     "pytest",
     "fastapi",
     "uvicorn",
