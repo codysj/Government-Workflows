@@ -40,13 +40,7 @@ Tool. This file is meant to be read and updated by both humans and LLM agents.
 
 ## Active — in progress / not finished (higher priority)
 
-### GW-46 — Portfolio hardening goal (one pipeline, real-model guardrails, retire Streamlit, MCP, polish)
-- **Status:** in_progress
-- **Priority:** P0
-- **Area:** core
-- **Why:** Make the tool genuinely useful for the pilot and portfolio-grade.
-- **Acceptance:** Every Definition of Done item in `docs/goal.md` checked.
-- **Files:** `docs/goal.md` (spec + live tracker — milestone state lives there, not here)
+_(none)_
 
 ---
 
