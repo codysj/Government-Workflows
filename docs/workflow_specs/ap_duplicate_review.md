@@ -47,7 +47,7 @@ When an optional file is absent its checks are skipped with an explicit
 | `payment_before_invoice_date` | D5: check date (from check_register) earlier than invoice date | medium | check_register |
 | `inactive_vendor_payment` | D6: invoice from a vendor with Status=Inactive in vendor_list | high | vendor_list |
 | `unknown_vendor_payment` | D7: vendor_number on invoice absent from vendor_list entirely | high | vendor_list |
-| `split_payment_pattern` | D8: 2+ invoices from same vendor each < `split_threshold`, totaling >= `split_threshold`, within `split_window_days` | high | — |
+| `split_payment_pattern` | D8: 2+ invoices from same vendor each < `split_threshold`, totaling >= `split_threshold`, within `split_window_days`; overlapping qualifying windows merge into ONE finding per cluster | high | — |
 
 Every finding is a `DeterministicFinding` carrying `source_rows`
 (`SourceRowRef` per involved AP row), `computed_values` (including a stable

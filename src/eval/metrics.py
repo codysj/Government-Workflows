@@ -271,7 +271,7 @@ KNOWN_ANSWERS: dict[str, dict[str, Any]] = {
     "ap_duplicate_review": {
         # Planted D1-D8 anomalies (known_answers.json ap_anomalies).
         "summary": {
-            "total_findings": 15,
+            "total_findings": 13,
         },
         "findings_by_rule": {
             "duplicate_invoice_number": 1,            # D1
@@ -282,10 +282,10 @@ KNOWN_ANSWERS: dict[str, dict[str, Any]] = {
             "payment_before_invoice_date": 1,         # D5
             "inactive_vendor_payment": 1,             # D6
             "unknown_vendor_payment": 1,              # D7
-            "split_payment_pattern": 3,               # D8
+            "split_payment_pattern": 1,               # D8 (one cluster of 3 invoices)
         },
         "findings_by_type": {
-            "duplicate_payment": 11,
+            "duplicate_payment": 9,
             "vendor_anomaly": 2,
             "missing_reference": 2,
         },

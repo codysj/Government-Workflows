@@ -58,10 +58,10 @@ from src.core.exports import write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
-from src.llm.prompts import OUTPUT_RULES
+from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 WORKFLOW_TYPE = "report_review"
-PROMPT_TEMPLATE_VERSION = "report_review.v2"  # v2: shared OUTPUT_RULES appended
+PROMPT_TEMPLATE_VERSION = "report_review.v3"  # v2: shared OUTPUT_RULES; v3: findings capped (PROMPT_FINDINGS_LIMIT)
 
 
 # --------------------------------------------------------------------------- #
@@ -449,8 +449,10 @@ def run_deterministic(
 
     findings: list[DeterministicFinding] = []
 
+    records = dict(zip(df.index, df.to_dict("records")))  # built once, not per ref
+
     def row_dict(i: int) -> dict[str, Any]:
-        return {c: df.at[i, c] for c in df.columns}
+        return records[i]
 
     def ref(i: int) -> SourceRowRef:
         return _src_ref("report", file_id, i, row_dict(i))
@@ -458,11 +460,11 @@ def run_deterministic(
     # --- Subtotal vs line-item sums ------------------------------------- #
     subtotal_mismatches = 0
     for sec, group in df.groupby(sec_col, sort=False):
-        line_idx = [i for i in group.index if str(group.at[i, type_col]).lower() == "line_item"]
-        sub_idx = [i for i in group.index if str(group.at[i, type_col]).lower() == "subtotal"]
-        line_sum = sum((_amt(df.at[i, amt_col]) or Decimal(0)) for i in line_idx)
+        line_idx = [i for i in group.index if str(records[i][type_col]).lower() == "line_item"]
+        sub_idx = [i for i in group.index if str(records[i][type_col]).lower() == "subtotal"]
+        line_sum = sum((_amt(records[i][amt_col]) or Decimal(0)) for i in line_idx)
         for si in sub_idx:
-            stated = _amt(df.at[si, amt_col]) or Decimal(0)
+            stated = _amt(records[si][amt_col]) or Decimal(0)
             if stated != line_sum:
                 subtotal_mismatches += 1
                 src = [ref(i) for i in line_idx] + [ref(si)]
@@ -488,12 +490,12 @@ def run_deterministic(
                 )
 
     # --- Grand total ties out to sum of subtotals ----------------------- #
-    grand_idx = [i for i in df.index if str(df.at[i, type_col]).lower() == "grand_total"]
-    sub_all_idx = [i for i in df.index if str(df.at[i, type_col]).lower() == "subtotal"]
+    grand_idx = [i for i in df.index if str(records[i][type_col]).lower() == "grand_total"]
+    sub_all_idx = [i for i in df.index if str(records[i][type_col]).lower() == "subtotal"]
     if grand_idx:
-        sub_sum = sum((_amt(df.at[i, amt_col]) or Decimal(0)) for i in sub_all_idx)
+        sub_sum = sum((_amt(records[i][amt_col]) or Decimal(0)) for i in sub_all_idx)
         for gi in grand_idx:
-            stated = _amt(df.at[gi, amt_col]) or Decimal(0)
+            stated = _amt(records[gi][amt_col]) or Decimal(0)
             if stated != sub_sum:
                 src = [ref(i) for i in sub_all_idx] + [ref(gi)]
                 findings.append(
@@ -540,7 +542,7 @@ def run_deterministic(
     dup_subset = [c for c in (sec_col, code_col, name_col, amt_col) if c in df.columns]
     seen: dict[tuple, int] = {}
     for i in line_df.index:
-        key = tuple(str(df.at[i, c]) for c in dup_subset)
+        key = tuple(str(records[i][c]) for c in dup_subset)
         if key in seen:
             first = seen[key]
             findings.append(
@@ -549,15 +551,15 @@ def run_deterministic(
                     severity=Severity.MEDIUM,
                     description=(
                         f"Duplicate account line: account "
-                        f"'{df.at[i, code_col]}' in section "
-                        f"'{df.at[i, sec_col]}' appears more than once with the "
+                        f"'{records[i][code_col]}' in section "
+                        f"'{records[i][sec_col]}' appears more than once with the "
                         f"same values."
                     ),
                     source_rows=[ref(first), ref(i)],
                     computed_values={
-                        "account_code": str(df.at[i, code_col]),
-                        "section": str(df.at[i, sec_col]),
-                        "amount": str(df.at[i, amt_col]),
+                        "account_code": str(records[i][code_col]),
+                        "section": str(records[i][sec_col]),
+                        "amount": str(records[i][amt_col]),
                     },
                     rule_used="no_duplicate_account_lines",
                     requires_human_review=True,
@@ -570,10 +572,10 @@ def run_deterministic(
     neg_sections = set(config.negative_not_allowed_sections)
     if neg_sections:
         for i in line_df.index:
-            sec = str(df.at[i, sec_col])
+            sec = str(records[i][sec_col])
             if sec not in neg_sections:
                 continue
-            amount = _amt(df.at[i, amt_col])
+            amount = _amt(records[i][amt_col])
             if amount is not None and amount < 0:
                 findings.append(
                     DeterministicFinding(
@@ -586,7 +588,7 @@ def run_deterministic(
                         source_rows=[ref(i)],
                         computed_values={
                             "section": sec,
-                            "account_code": str(df.at[i, code_col]),
+                            "account_code": str(records[i][code_col]),
                             "amount": str(amount),
                         },
                         rule_used="no_unexpected_negative_values",
@@ -608,7 +610,7 @@ def run_deterministic(
             str(c).strip() for c in coa_df[coa_code_col].tolist() if str(c).strip()
         }
         for i in line_df.index:
-            code = str(df.at[i, code_col]).strip()
+            code = str(records[i][code_col]).strip()
             if not code:
                 continue
             if code not in valid_codes:
@@ -630,8 +632,8 @@ def run_deterministic(
     # --- Inconsistent fund/account naming ------------------------------- #
     code_to_names: dict[str, dict[str, int]] = {}
     for i in line_df.index:
-        code = str(df.at[i, code_col]).strip()
-        name = str(df.at[i, name_col]).strip()
+        code = str(records[i][code_col]).strip()
+        name = str(records[i][name_col]).strip()
         if not code:
             continue
         code_to_names.setdefault(code, {})
@@ -677,17 +679,18 @@ def run_deterministic(
             prior_df[p_type_col].astype(str).str.lower() == "line_item"
         ]
         prior_by_code: dict[str, Decimal] = {}
+        prior_records = dict(zip(prior_df.index, prior_df.to_dict("records")))
         for i in prior_line.index:
-            code = str(prior_df.at[i, p_code_col]).strip()
+            code = str(prior_records[i][p_code_col]).strip()
             if code:
-                prior_by_code[code] = _amt(prior_df.at[i, p_amt_col]) or Decimal(0)
+                prior_by_code[code] = _amt(prior_records[i][p_amt_col]) or Decimal(0)
         thr_pct = Decimal(str(config.prior_change_pct_threshold))
         thr_min = Decimal(str(config.prior_change_min_amount))
         for i in line_df.index:
-            code = str(df.at[i, code_col]).strip()
+            code = str(records[i][code_col]).strip()
             if code not in prior_by_code:
                 continue
-            cur = _amt(df.at[i, amt_col]) or Decimal(0)
+            cur = _amt(records[i][amt_col]) or Decimal(0)
             prev = prior_by_code[code]
             change = cur - prev
             if abs(change) < thr_min:
@@ -760,7 +763,7 @@ _OUTPUT_CONTRACT = (
 
 def _findings_block(det: ReportReviewOutput) -> str:
     rows = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):
         rows.append(
             {
                 "finding_id": f.finding_id,
@@ -785,6 +788,7 @@ def build_report_review_prompt(det: ReportReviewOutput, context: Any = None) -> 
         "whether the report is correct.\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC FINDINGS:\n{_findings_block(det)}\n\n"
+        + omitted_note(det.findings)
         + _OUTPUT_CONTRACT
     )
 
@@ -801,7 +805,7 @@ def mock_llm_response(det: ReportReviewOutput) -> dict[str, Any]:
     """
     refs: list[str] = []
     categorized = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):  # what the prompt shows
         f_refs = [_short_ref(s) for s in f.source_rows]
         refs.extend(f_refs)
         categorized.append(

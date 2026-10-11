@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
+from src.core.env import load_env_file
 from src.core.pipeline import run_workflow
 from src.core.run_ledger import RunLedger
 from src.llm.provider import get_provider
@@ -27,19 +28,6 @@ from src.workflows.registry import list_descriptors
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RECORD_DIR = REPO_ROOT / "tests" / "fixtures" / "real_llm"
-
-
-def load_env_file(path: Path) -> None:
-    """Minimal ``KEY=VALUE`` loader; existing environment variables win."""
-    if not path.is_file():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        value = value.split(" #", 1)[0].strip()  # inline comment
-        os.environ.setdefault(key.strip(), value.strip('"').strip("'"))
 
 
 def openrouter_usage() -> Optional[float]:

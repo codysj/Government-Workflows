@@ -321,7 +321,7 @@ and the API endpoints. An evaluation harness runs known-answer datasets for each
 **Measured result:** the harness runs all seven tabular workflows end-to-end on synthetic
 data, passing **7/7 known-answer checks with 0 LLM outputs rejected** on the mock path —
 e.g. bank reconciliation yields 4 matched / 1 timing difference / 3 unmatched across 13
-transactions; AP duplicate review flags exactly 15 findings across D1–D8; JE upload prep
+transactions; AP duplicate review flags exactly 13 findings across D1–D8; JE upload prep
 produces an upload-ready workbook with 2 round-dollar warnings; PO/invoice review flags 9
 exceptions.
 

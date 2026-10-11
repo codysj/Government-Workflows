@@ -348,7 +348,7 @@ def test_pipeline_uses_real_provider_when_llm_mode_real(monkeypatch):
 
 
 def test_env_file_loader_strips_inline_comments(tmp_path, monkeypatch):
-    from src.eval.real_llm import load_env_file
+    from src.core.env import load_env_file
 
     env = tmp_path / ".env"
     env.write_text('A_KEY=abc   # comment\nB_JSON={"x":1}\n# whole line\nC_Q="q v"\n',

@@ -99,10 +99,10 @@ from src.ingest.tyler import (
     source_ref_for_row,
     TYLER_DATASET_TYPES,
 )
-from src.llm.prompts import OUTPUT_RULES
+from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 WORKFLOW_TYPE = "transaction_search"
-PROMPT_TEMPLATE_VERSION = "transaction_search.v2"  # v2: shared OUTPUT_RULES appended
+PROMPT_TEMPLATE_VERSION = "transaction_search.v3"  # v2: shared OUTPUT_RULES; v3: findings capped (PROMPT_FINDINGS_LIMIT)
 
 # Module name -> (inputs key, tyler dataset_type)
 _MODULE_MAP: dict[str, tuple[str, str]] = {
@@ -1003,8 +1003,8 @@ def run_deterministic(
         df = export.dataframe
         table_name = export.table_name
 
-        for i, row_series in df.iterrows():
-            row = row_series.to_dict()
+        for i, row_series in zip(df.index, df.to_dict("records")):
+            row = dict(row_series)
             src_row_idx = int(row.get("source_row_index", i))
             matched, matched_fields = _row_matches(row, criteria, dtype, config.fuzzy_threshold)
             if not matched:
@@ -1172,7 +1172,7 @@ def build_criteria_prompt(query: str) -> str:
 
 def _findings_block(det: TransactionSearchOutput) -> str:
     rows = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):
         rows.append({
             "finding_id": f.finding_id,
             "finding_type": f.finding_type.value,
@@ -1194,6 +1194,7 @@ def build_summary_prompt(det: TransactionSearchOutput) -> str:
         + f"SEARCH CRITERIA:\n{json.dumps(det.criteria.model_dump() if det.criteria else {}, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC FINDINGS:\n{_findings_block(det)}\n\n"
+        + omitted_note(det.findings)
         + _SUMMARY_CONTRACT
     )
 
@@ -1209,7 +1210,7 @@ def mock_llm_response(det: TransactionSearchOutput) -> dict[str, Any]:
     from src.llm.provider import _extract_findings_from_prompt
     refs: list[str] = []
     categorized: list[dict] = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):  # what the prompt shows
         f_refs = [_short_ref(s) for s in f.source_rows]
         refs.extend(f_refs)
         if f.finding_type == FindingType.SEARCH_MATCH:
@@ -1378,6 +1379,7 @@ def run(
     actor: str = "system",
     export_dir: str | Path | None = None,
     config: Any = None,
+    preflight_report: Any = None,  # reuse the pipeline's report
 ) -> dict[str, Any]:
     """End-to-end transaction search run.
 
@@ -1405,7 +1407,7 @@ def run(
     # ------------------------------------------------------------------ #
     # Preflight
     # ------------------------------------------------------------------ #
-    preflight_report = run_preflight(
+    preflight_report = preflight_report or run_preflight(
         CAPABILITY,
         inputs,
         config=config if isinstance(config, dict) else None,

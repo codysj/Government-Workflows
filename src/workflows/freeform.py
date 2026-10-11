@@ -62,18 +62,20 @@ from src.core.exports import write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
-from src.llm.prompts import OUTPUT_RULES
+from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 # --------------------------------------------------------------------------- #
 # Module constants / registry (single import line for the Integration agent)
 # --------------------------------------------------------------------------- #
 WORKFLOW_TYPE = "freeform"
-PROMPT_TEMPLATE_VERSION = "freeform.v2"  # v2: shared OUTPUT_RULES appended
+PROMPT_TEMPLATE_VERSION = "freeform.v3"  # v2: shared OUTPUT_RULES; v3: findings capped (PROMPT_FINDINGS_LIMIT)
 
 
 # Discovery log: task_type patterns are appended here for future workflow
 # discovery (spec Phase 5 "Discovery output").
-DISCOVERY_LOG_PATH = Path("docs/research/freeform_task_observations.md")
+# Runtime data, not documentation: runs/ is gitignored, so running the tool
+# never edits a tracked file.
+DISCOVERY_LOG_PATH = Path(__file__).resolve().parents[2] / "runs" / "freeform_task_observations.md"
 
 EXPORT_FILE_NAMES = (
     "freeform_summary.md",
@@ -185,8 +187,9 @@ def detect_conditions(
                 ),
                 affected_input="sensitivity_confirmation",
                 suggested_action=(
-                    "Confirm that no real sensitive data is included "
-                    "(set sensitivity_confirmation=True) before running."
+                    "Confirm that no real sensitive data is included (the "
+                    "\"No real sensitive data\" checkbox; on the CLI, "
+                    "--input sensitivity_confirmation=true), then run again."
                 ),
                 blocks_run=True,
             )
@@ -529,7 +532,7 @@ _OUTPUT_CONTRACT = (
 
 def _findings_block(det: FreeformDeterministicOutput) -> str:
     rows = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):
         rows.append(
             {
                 "finding_id": f.finding_id,
@@ -560,6 +563,7 @@ def build_prompt(det: FreeformDeterministicOutput) -> str:
         + "\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC FINDINGS:\n{_findings_block(det)}\n\n"
+        + omitted_note(det.findings)
         + _OUTPUT_CONTRACT
     )
 

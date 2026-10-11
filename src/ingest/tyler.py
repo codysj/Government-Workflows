@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from src.core.schemas import InputFile, SourceRowRef, make_id
 from src.ingest.csv_loader import file_sha256
@@ -360,6 +360,8 @@ class TylerNormalizedExport(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     # dataset_type -> score breakdown (populated when auto-detected).
     detection_scores: dict[str, Any] = Field(default_factory=dict)
+    # (dataframe, {source_row_index: row}) lookup for source_ref_for_row.
+    _row_cache: Any = PrivateAttr(default=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -771,13 +773,20 @@ def source_ref_for_row(
     ``ValueError`` for an unknown row index or column name.
     """
     df = export.dataframe
-    matches = df.index[df["source_row_index"] == row_index].tolist()
-    if not matches:
+    # source_row_index -> row, built once per frame (was a full column scan
+    # per call: O(n) each, O(n^2) for a run that cites many rows).
+    cache = export._row_cache
+    if cache is None or cache[0] is not df:
+        rows: dict[int, dict] = {}
+        for rec in df.to_dict("records"):
+            rows.setdefault(int(rec["source_row_index"]), rec)
+        cache = export._row_cache = (df, rows)
+    row = cache[1].get(int(row_index))
+    if row is None:
         raise ValueError(
             f"source_ref_for_row: row_index {row_index} not present in "
             f"normalized '{export.table_name}' ({export.dataset_type})."
         )
-    row = df.loc[matches[0]]
     selected = list(columns) if columns else [str(c) for c in df.columns]
     unknown = [c for c in selected if c not in df.columns]
     if unknown:

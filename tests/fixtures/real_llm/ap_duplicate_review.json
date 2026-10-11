@@ -1,13 +1,13 @@
 {
   "workflow_type": "ap_duplicate_review",
   "model": "deepseek/deepseek-v4.1-flash",
-  "prompt_template_version": "ap_duplicate_review.v2",
+  "prompt_template_version": "ap_duplicate_review.v3",
   "response_json": {
-    "summary": "This is a draft review summary for an AP duplicate/suspicious payment review. The deterministic findings list 15 findings across 9 rule types: duplicate_invoice_number (1), invoice_paid_by_multiple_checks (2), same_vendor_same_amount_near_date (4), similar_vendor_names_same_amount (1), missing_po_over_threshold (1), payment_before_invoice_date (1), inactive_vendor_payment (1), unknown_vendor_payment (1), and split_payment_pattern (3). Severity totals are high: 8 and medium: 7. All findings are marked requires_human_review = true. No fraud conclusion is made and no new figures are calculated in this draft.",
+    "summary": "DRAFT FOR HUMAN REVIEW \u2014 This is a summary of deterministic AP duplicate/suspicious payment findings, not a conclusion. There are 13 total findings: 6 high severity and 7 medium severity, across rule categories including duplicate_invoice_number (1), invoice_paid_by_multiple_checks (2), same_vendor_same_amount_near_date (4), similar_vendor_names_same_amount (1), missing_po_over_threshold (1), payment_before_invoice_date (1), inactive_vendor_payment (1), unknown_vendor_payment (1), and split_payment_pattern (1). All findings require human review.",
     "categorized_exceptions": [
       {
         "category": "Duplicate invoice number",
-        "description": "Draft note: vendor V-1001 invoice INV-10234 appears on 2 AP rows [46, 47], each with amount 1250.00. This requires human review to confirm whether the same invoice was entered or paid twice.",
+        "description": "Duplicate invoice number: vendor V-1001 invoice INV-10234 appears on 2 AP rows (rows [46, 47]) with amounts '1250.00' and '1250.00'.",
         "referenced_source_rows": [
           "ap_invoices:46",
           "ap_invoices:47"
@@ -15,28 +15,55 @@
       },
       {
         "category": "Invoice paid by multiple checks",
-        "description": "Draft note: invoice INV-10234 was paid by 2 different checks: ['50012', '50044'] on rows [46, 47]. Separately, invoice 5521 was paid by 2 different checks: ['50161', '50165'] on rows [50, 51]. This requires human review to verify whether multiple checks against one invoice are supported.",
+        "description": "Invoice INV-10234 was paid by 2 different checks: ['50012', '50044'].",
         "referenced_source_rows": [
           "ap_invoices:46",
-          "ap_invoices:47",
+          "ap_invoices:47"
+        ]
+      },
+      {
+        "category": "Invoice paid by multiple checks",
+        "description": "Invoice 5521 was paid by 2 different checks: ['50161', '50165'].",
+        "referenced_source_rows": [
           "ap_invoices:50",
           "ap_invoices:51"
         ]
       },
       {
         "category": "Same vendor, same amount, near date",
-        "description": "Draft note: vendor V-1003 has same amount 8400.00 with different invoice numbers INV-20881 and INV-20890 within 7 days (dates 2026-03-10 and 2026-03-13). Vendor V-1007 has same amount 4900.00 with different invoice numbers INV-88001, INV-88002, and INV-88003 within 7 days (dates 2026-02-17 and 2026-02-17). This requires human review to determine whether these are legitimate separate charges or duplicates.",
+        "description": "Same vendor V-1003, same amount 8400.00, different invoice numbers (INV-20881 and INV-20890) within 7 days (dates 2026-03-10 and 2026-03-13, days apart 3).",
         "referenced_source_rows": [
           "ap_invoices:48",
-          "ap_invoices:49",
+          "ap_invoices:49"
+        ]
+      },
+      {
+        "category": "Same vendor, same amount, near date",
+        "description": "Same vendor V-1007, same amount 4900.00, different invoice numbers (INV-88001 and INV-88002) within 7 days (dates 2026-02-17 and 2026-02-17, days apart 0).",
+        "referenced_source_rows": [
           "ap_invoices:56",
+          "ap_invoices:57"
+        ]
+      },
+      {
+        "category": "Same vendor, same amount, near date",
+        "description": "Same vendor V-1007, same amount 4900.00, different invoice numbers (INV-88001 and INV-88003) within 7 days (dates 2026-02-17 and 2026-02-17, days apart 0).",
+        "referenced_source_rows": [
+          "ap_invoices:56",
+          "ap_invoices:58"
+        ]
+      },
+      {
+        "category": "Same vendor, same amount, near date",
+        "description": "Same vendor V-1007, same amount 4900.00, different invoice numbers (INV-88002 and INV-88003) within 7 days (dates 2026-02-17 and 2026-02-17, days apart 0).",
+        "referenced_source_rows": [
           "ap_invoices:57",
           "ap_invoices:58"
         ]
       },
       {
         "category": "Similar vendor names, same amount",
-        "description": "Draft note: 'Riverbend Electric Co' (V-1002) and 'Riverbend Electric Company' (V-1019) have same-amount invoices (2200.00) within 7 days (name similarity 1.00). Invoice number 5521 appears for both, with invoice dates 2026-04-02 and 2026-04-04. This requires human review to confirm vendor identity and whether payment was duplicated across vendor records.",
+        "description": "Similar vendor names: 'Riverbend Electric Co' (V-1002) and 'Riverbend Electric Company' (V-1019) have same-amount invoices (2200.00) within 7 days (name similarity 1.00).",
         "referenced_source_rows": [
           "ap_invoices:50",
           "ap_invoices:51"
@@ -44,35 +71,35 @@
       },
       {
         "category": "Missing PO over threshold",
-        "description": "Draft note: invoice INV-44510 for vendor V-1004 amount 12000.00 has no PO number (threshold 5000.00). This requires human review to confirm whether a PO should exist or whether an exception was approved.",
+        "description": "Invoice INV-44510 for vendor V-1004 amount 12000.00 has no PO number (threshold 5000.00).",
         "referenced_source_rows": [
           "ap_invoices:52"
         ]
       },
       {
         "category": "Payment before invoice date",
-        "description": "Draft note: check 50190 date 2026-05-12 is before invoice INV-55003 date 2026-05-20 for vendor V-1006. This requires human review to confirm whether the payment date or invoice date is correct and whether any prepayment was authorized.",
+        "description": "Check 50190 date 2026-05-12 is before invoice INV-55003 date 2026-05-20 for vendor V-1006 (days early 8).",
         "referenced_source_rows": [
           "ap_invoices:53"
         ]
       },
       {
         "category": "Inactive vendor payment",
-        "description": "Draft note: invoice INV-66001 from vendor V-1005 (Old Town Hardware), whose status is Inactive, has amount 730.00. This requires human review to confirm whether payment to an inactive vendor was properly authorized.",
+        "description": "Invoice INV-66001 from vendor V-1005 (Old Town Hardware) whose status is Inactive.",
         "referenced_source_rows": [
           "ap_invoices:54"
         ]
       },
       {
         "category": "Unknown vendor payment",
-        "description": "Draft note: vendor V-9999 ('Unknown Vendor Services') on invoice INV-77001 is absent from the vendor list, with amount 4000.00. This requires human review to confirm vendor existence and whether payment should be held.",
+        "description": "Vendor V-9999 ('Unknown Vendor Services') on invoice INV-77001 is absent from the vendor list.",
         "referenced_source_rows": [
           "ap_invoices:55"
         ]
       },
       {
         "category": "Split payment pattern",
-        "description": "Draft note: vendor V-1007 has multiple invoices each below 5000.00 within 3 days: INV-88001 and INV-88002 totaling 9800.00; INV-88001, INV-88002, and INV-88003 totaling 14700.00; and INV-88002 and INV-88003 totaling 9800.00. All invoice dates are 2026-02-17. This requires human review to determine whether these are legitimate separate purchases or a split-payment pattern.",
+        "description": "Possible split-payment: vendor V-1007 has 3 invoices each below 5000.00 totaling 14700.00, dated 2026-02-17 to 2026-02-17 (each within 3 days of a neighbour) (invoices ['INV-88001', 'INV-88002', 'INV-88003']).",
         "referenced_source_rows": [
           "ap_invoices:56",
           "ap_invoices:57",
@@ -96,17 +123,20 @@
       "ap_invoices:58"
     ],
     "suggested_review_steps": [
-      "Draft follow-up: For duplicate invoice number finding on rows ap_invoices:46 and ap_invoices:47, confirm whether INV-10234 was entered twice and whether both rows were paid.",
-      "Draft follow-up: For multiple-check findings on rows ap_invoices:46, ap_invoices:47, ap_invoices:50, and ap_invoices:51, verify check copies and payment support to confirm whether checks ['50012', '50044'] and ['50161', '50165'] were each valid for the referenced invoices.",
-      "Draft follow-up: For same vendor/same amount near-date findings on rows ap_invoices:48, ap_invoices:49, ap_invoices:56, ap_invoices:57, and ap_invoices:58, obtain invoice copies and receiving documentation to confirm whether separate charges are legitimate.",
-      "Draft follow-up: For similar vendor names on rows ap_invoices:50 and ap_invoices:51, confirm whether 'Riverbend Electric Co' (V-1002) and 'Riverbend Electric Company' (V-1019) are distinct vendors and whether invoice 5521 was paid once or more.",
-      "Draft follow-up: For missing PO on row ap_invoices:52, confirm whether a PO exists or whether an approved exception applies for INV-44510 with amount 12000.00.",
-      "Draft follow-up: For payment-before-invoice-date on row ap_invoices:53, verify check 50190 date 2026-05-12 and invoice INV-55003 date 2026-05-20, and confirm whether any prepayment was authorized.",
-      "Draft follow-up: For inactive vendor payment on row ap_invoices:54, confirm whether payment to V-1005 (Old Town Hardware) was properly authorized despite Inactive status.",
-      "Draft follow-up: For unknown vendor payment on row ap_invoices:55, confirm whether V-9999 ('Unknown Vendor Services') exists and whether invoice INV-77001 should be paid or held.",
-      "Draft follow-up: For split-payment pattern findings on rows ap_invoices:56, ap_invoices:57, and ap_invoices:58, review purchase documentation and approval thresholds to determine whether the invoices were split to avoid limits.",
-      "Draft follow-up: Document human review conclusions, retain supporting evidence, and route to the appropriate approver for final disposition."
+      "DRAFT \u2014 Human review required. Verify the duplicate invoice number finding for vendor V-1001 invoice INV-10234 on rows ap_invoices:46 and ap_invoices:47, and confirm whether both rows represent the same liability.",
+      "DRAFT \u2014 Human review required. Confirm whether invoice INV-10234 was actually paid by both checks ['50012', '50044'] and whether one payment should be voided or recovered.",
+      "DRAFT \u2014 Human review required. Confirm whether invoice 5521 was actually paid by both checks ['50161', '50165'] and review supporting documentation.",
+      "DRAFT \u2014 Human review required. For vendor V-1003, compare invoices INV-20881 and INV-20890 and supporting documents to determine whether they are distinct obligations.",
+      "DRAFT \u2014 Human review required. For vendor V-1007, compare invoices INV-88001, INV-88002, and INV-88003 and supporting documents to determine whether they are distinct obligations or possible duplicates.",
+      "DRAFT \u2014 Human review required. Verify vendor identity and relationships for 'Riverbend Electric Co' (V-1002) and 'Riverbend Electric Company' (V-1019), and review invoices 5521 and 5521 for possible duplication.",
+      "DRAFT \u2014 Human review required. Obtain PO documentation or approval exception for invoice INV-44510 for vendor V-1004 amount 12000.00.",
+      "DRAFT \u2014 Human review required. Reconcile check 50190 date 2026-05-12 with invoice INV-55003 date 2026-05-20 for vendor V-1006 and document explanation.",
+      "DRAFT \u2014 Human review required. Confirm vendor status and approval for invoice INV-66001 from vendor V-1005 (Old Town Hardware) whose status is Inactive.",
+      "DRAFT \u2014 Human review required. Validate vendor record for V-9999 ('Unknown Vendor Services') on invoice INV-77001 and obtain supporting documentation.",
+      "DRAFT \u2014 Human review required. Review the possible split-payment pattern for vendor V-1007 involving invoices INV-88001, INV-88002, and INV-88003 and supporting documents.",
+      "DRAFT \u2014 Human review required. Document reviewer conclusions and retain evidence; do not treat any finding as final until reviewed by authorized personnel."
     ],
-    "draft_memo": "DRAFT MEMO - FOR HUMAN REVIEW ONLY. Subject: AP duplicate / suspicious payment review findings. This draft summarizes deterministic findings and is not a final conclusion. The review identified 15 findings, with 8 high severity and 7 medium severity, and all findings are marked requires_human_review = true. High-severity items include duplicate invoice number INV-10234 on rows ap_invoices:46 and ap_invoices:47; invoice INV-10234 paid by checks ['50012', '50044'] on rows ap_invoices:46 and ap_invoices:47; invoice 5521 paid by checks ['50161', '50165'] on rows ap_invoices:50 and ap_invoices:51; inactive vendor payment INV-66001 from V-1005 on row ap_invoices:54; unknown vendor payment INV-77001 from V-9999 on row ap_invoices:55; and split-payment patterns for V-1007 on rows ap_invoices:56, ap_invoices:57, and ap_invoices:58. Medium-severity items include same vendor/same amount near-date findings on rows ap_invoices:48, ap_invoices:49, ap_invoices:56, ap_invoices:57, and ap_invoices:58; similar vendor names on rows ap_invoices:50 and ap_invoices:51; missing PO on row ap_invoices:52; and payment before invoice date on row ap_invoices:53. No fraud conclusion is made, and no new figures are calculated in this draft. Next step: a human reviewer should perform the suggested follow-up steps, gather supporting documents, and document conclusions before any final action."
+    "draft_memo": "DRAFT FOR HUMAN REVIEW \u2014 AP Duplicate / Suspicious Payment Review\n\nPurpose: Summarize deterministic findings for human review. This memo does not determine fraud, does not calculate new figures, and does not approve or finalize any payment.\n\nFindings summary: 13 total findings; 6 high severity and 7 medium severity. Rule categories include duplicate_invoice_number (1), invoice_paid_by_multiple_checks (2), same_vendor_same_amount_near_date (4), similar_vendor_names_same_amount (1), missing_po_over_threshold (1), payment_before_invoice_date (1), inactive_vendor_payment (1), unknown_vendor_payment (1), and split_payment_pattern (1). All items require human review.\n\nKey exceptions:\n- Duplicate invoice number: vendor V-1001 invoice INV-10234 appears on 2 AP rows (rows [46, 47]) with amounts '1250.00' and '1250.00'. Referenced rows: ap_invoices:46, ap_invoices:47.\n- Invoice paid by multiple checks: invoice INV-10234 was paid by 2 different checks: ['50012', '50044']. Referenced rows: ap_invoices:46, ap_invoices:47.\n- Invoice paid by multiple checks: invoice 5521 was paid by 2 different checks: ['50161', '50165']. Referenced rows: ap_invoices:50, ap_invoices:51.\n- Same vendor, same amount, near date: vendor V-1003 amount 8400.00 for invoices INV-20881 and INV-20890, dates 2026-03-10 and 2026-03-13. Referenced rows: ap_invoices:48, ap_invoices:49.\n- Same vendor, same amount, near date: vendor V-1007 amount 4900.00 for invoices INV-88001 and INV-88002, dates 2026-02-17 and 2026-02-17. Referenced rows: ap_invoices:56, ap_invoices:57.\n- Same vendor, same amount, near date: vendor V-1007 amount 4900.00 for invoices INV-88001 and INV-88003, dates 2026-02-17 and 2026-02-17. Referenced rows: ap_invoices:56, ap_invoices:58.\n- Same vendor, same amount, near date: vendor V-1007 amount 4900.00 for invoices INV-88002 and INV-88003, dates 2026-02-17 and 2026-02-17. Referenced rows: ap_invoices:57, ap_invoices:58.\n- Similar vendor names, same amount: 'Riverbend Electric Co' (V-1002) and 'Riverbend Electric Company' (V-1019), amount 2200.00, invoices 5521 and 5521, dates 2026-04-02 and 2026-04-04. Referenced rows: ap_invoices:50, ap_invoices:51.\n- Missing PO over threshold: invoice INV-44510 for vendor V-1004 amount 12000.00 has no PO number (threshold 5000.00). Referenced row: ap_invoices:52.\n- Payment before invoice date: check 50190 date 2026-05-12 is before invoice INV-55003 date 2026-05-20 for vendor V-1006. Referenced row: ap_invoices:53.\n- Inactive vendor payment: invoice INV-66001 from vendor V-1005 (Old Town Hardware) whose status is Inactive. Referenced row: ap_invoices:54.\n- Unknown vendor payment: vendor V-9999 ('Unknown Vendor Services') on invoice INV-77001 is absent from the vendor list. Referenced row: ap_invoices:55.\n- Split payment pattern: vendor V-1007 has 3 invoices each below 5000.00 totaling 14700.00, dated 2026-02-17 to 2026-02-17, invoices ['INV-88001', 'INV-88002', 'INV-88003']. Referenced rows: ap_invoices:56, ap_invoices:57, ap_invoices:58.\n\nSuggested review steps: Verify source documents for each referenced row; confirm whether duplicate or multiple payments occurred; obtain PO/approval documentation where missing; confirm vendor status and vendor master data; document reviewer conclusions and retain evidence. Human review is required before any action.",
+    "requires_human_review": true
   }
 }

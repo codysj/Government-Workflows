@@ -319,3 +319,38 @@ def test_llm_allowed_false_only_on_fail(tmp_path):
     fail = run_preflight(_spec(), {"bank": bank})
     assert fail.llm_allowed is False
     assert fail.status == PreflightStatus.FAIL
+
+
+def test_vectorized_footer_detection_matches_row_loop():
+    """detect_footer_total_rows (column-wise) == the original per-row rules."""
+    import random
+
+    import pandas as pd
+
+    from src.normalize.cleaning import (
+        _TOTAL_LABEL_RE, _is_blank, detect_footer_total_rows, detect_repeated_header_rows,
+        parse_amount)
+
+    def reference(df):
+        out = []
+        n_cols = max(len(df.columns), 1)
+        for pos, (_, row) in enumerate(df.iterrows()):
+            cells = row.tolist()
+            if any(not _is_blank(v) and _TOTAL_LABEL_RE.search(str(v)) for v in cells):
+                out.append(pos)
+                continue
+            if (sum(1 for v in cells if _is_blank(v)) >= n_cols - 1
+                    and any(not _is_blank(v) and parse_amount(v) is not None for v in cells)):
+                out.append(pos)
+        return out
+
+    rng = random.Random(3)
+    pool = ["", " ", None, "Total", "grand total", "Subtotal:", "sum", "summary",
+            "12.50", "(40.00)", "abc", "Vendor", "date", "amount", "2026-01-03"]
+    for _ in range(300):
+        cols = ["date", "description", "amount"][: rng.randint(1, 3)]
+        rows = [[rng.choice(pool) for _ in cols] for _ in range(rng.randint(0, 8))]
+        df = pd.DataFrame(rows, columns=cols, dtype=object)
+        assert detect_footer_total_rows(df) == reference(df), rows
+        hdr = [list(cols)] + rows
+        assert detect_repeated_header_rows(pd.DataFrame(hdr, columns=cols, dtype=object))[:1] == [0]

@@ -135,13 +135,13 @@ def test_known_answer_ap_duplicate_review(tmp_path):
     assert res.ran and res.known_answer.passed
     s = res.metrics.summary
     # Planted D1-D8 anomalies in the Riverbend AP export.
-    assert s["total_findings"] == 15
+    assert s["total_findings"] == 13  # D1-D8; the D8 split is one cluster of 3 invoices
     by_rule = s["findings_by_rule"]
     assert by_rule["duplicate_invoice_number"] == 1
     assert by_rule["inactive_vendor_payment"] == 1
     assert by_rule["unknown_vendor_payment"] == 1
-    assert by_rule["split_payment_pattern"] == 3
-    assert res.metrics.findings_by_type["duplicate_payment"] == 11
+    assert by_rule["split_payment_pattern"] == 1
+    assert res.metrics.findings_by_type["duplicate_payment"] == 9
 
 
 def test_known_answer_je_upload_prep(tmp_path):

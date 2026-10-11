@@ -166,9 +166,9 @@ questions in chat, never in the repo.
 | --- | --- | --- | --- |
 | Setup: create branch, commit this file + `CLAUDE.md` | done | (setup commit) | venv on Python 3.12; baselines recorded |
 | M1 One pipeline | done | bc482c4 | one registry + `src/core/pipeline.py`; eval/CLI/API share it; non-test LOC 27469 |
-| M2 Real-model guardrails | done | (M2 commit) | final held-out 23/24, the 1 rejection correct; hallucinated invoice caught (`docs/evaluation.md`) |
+| M2 Real-model guardrails | done | c7077db | final held-out 23/24, the 1 rejection correct; hallucinated invoice caught (`docs/evaluation.md`) |
 | M3 Retire Streamlit | done | 475418d + bc482c4 | UI removed first, then `app/` deleted when the pipeline moved |
-| M4 Real-use robustness | in_progress | | 5k-row scale run: report_review 209s, ap_dup 107s -> O(n^2) hot spots |
+| M4 Real-use robustness | self_review | (M4 commit) | 50k rows: all workflows 4-12 s (were up to >10 min); in-process launcher; plain-language preflight |
 | M5 MCP front end | not_started | | |
 | M6 Portfolio polish | not_started | | |
 | Final whole-branch review | not_started | | |
@@ -290,3 +290,28 @@ and why. One dated bullet per entry.
   bank 21s, budget 19s, report_review 209s, ap_duplicate 107s, po 41s -> must
   fix before 50k. Also: thousands of findings would be sent to the LLM in one
   prompt; needs a cap.
+- 2026-10-11: M4 performance. 50k-row timings (docs/evaluation.md "Scale"):
+  bank 6s, budget 7s, report 9s, search 4s, AP 12s, JE 6s, PO 9s (from up to
+  >10 min). Root causes were all-pairs loops (bank matcher, AP D2/D3, budget
+  rollup), per-reference table rescans (Tyler source refs, PO, report cells),
+  iterrows, duplicated preflight, and an O(k^3) D8. Algorithmic rewrites are
+  pinned by equivalence tests against the original definitions. AP is 12s
+  (slightly over the ~10s target); left as is - remaining cost is spread
+  across preflight profiling and record building.
+- 2026-10-11: D8 behavior change (deliberate): one finding per cluster of
+  split invoices, not one per overlapping window; known answers 15 -> 13.
+- 2026-10-11: Scaler realism matters: three "slow workflows" were partly
+  benchmark artifacts (identical sections across copies, piled-up dates,
+  colliding whole-dollar offsets, unsuffixed numeric check numbers). Each was
+  fixed in src/eval/scale.py, then the code was optimized against realistic
+  data.
+- 2026-10-11: M4 usability: in-process launcher (no orphaned server: GW-43)
+  with first-run setup (.venv + npm build) and .env loading; plain-language
+  preflight next steps (upload labels, the file's real columns, "may not be
+  the right file", blocking-only steps on FAIL); best-guess column mappings
+  are used AND flagged (PARTIAL) instead of silently passing, and preflight's
+  resolved mappings are forwarded so a PASS can't crash in the workflow
+  (ERP-headed files now reconcile); Settings tolerances are applied as run
+  defaults; Excel inputs get provenance hashes; freeform's discovery log moved
+  to runs/ (it was editing a tracked doc on every run); LLM prompts capped at
+  150 findings.

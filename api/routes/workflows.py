@@ -105,7 +105,7 @@ async def create_run(workflow_type: str, request: Request) -> RunDetail:
             audit=audit,
             actor=actor,
             export_dir=settings.export_dir,
-            config=config,
+            config={**settings.run_defaults, **(config or {})} or None,
             retention_category=settings.default_retention_category,
         )
     except Exception:

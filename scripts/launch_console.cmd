@@ -1,19 +1,20 @@
 @echo off
-REM GovWorkflows Console Launcher
-REM Double-click this file from the repo root to start the console.
-REM It must live inside the repo; the repo root is computed automatically.
-
+REM GovWorkflows console: double-click to set up (first run) and launch.
+REM Needs Python 3.11+ and, for the first run only, Node.js LTS.
 cd /d "%~dp0.."
 
-if not exist ".venv\Scripts\python.exe" (
-    echo ERROR: Python virtual environment not found.
-    echo Please run the following from the repo root:
-    echo.
-    echo     python -m venv .venv
-    echo     .venv\Scripts\python.exe -m pip install -e .
-    echo.
-    pause
-    exit /b 1
+if exist ".venv\Scripts\python.exe" (
+    set "PY=.venv\Scripts\python.exe"
+) else (
+    where py >nul 2>nul && (set "PY=py -3") || (
+        where python >nul 2>nul && (set "PY=python") || (
+            echo Python 3.11 or newer is required: https://www.python.org/downloads/
+            echo Tick "Add python.exe to PATH" during install, then run this again.
+            pause
+            exit /b 1
+        )
+    )
 )
 
-.venv\Scripts\python.exe scripts\launch_console.py %*
+%PY% scripts\launch_console.py %*
+if errorlevel 1 pause

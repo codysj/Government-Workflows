@@ -63,10 +63,10 @@ from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
 from src.ingest.tyler import normalize_tyler_export, source_ref_for_row
-from src.llm.prompts import OUTPUT_RULES
+from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 WORKFLOW_TYPE = "po_invoice_review"
-PROMPT_TEMPLATE_VERSION = "po_invoice_review.v2"  # v2: shared OUTPUT_RULES appended
+PROMPT_TEMPLATE_VERSION = "po_invoice_review.v3"  # v2: shared OUTPUT_RULES; v3: findings capped (PROMPT_FINDINGS_LIMIT)
 
 
 EXPORT_FILE_NAMES = (
@@ -305,7 +305,7 @@ def run_deterministic(
             vendor_list_path, dataset_type="vendor_list"
         )
         vdf = vendor_export.dataframe
-        for _, vrow in vdf.iterrows():
+        for vrow in vdf.to_dict("records"):
             vnum = str(vrow.get("vendor_number", "")).strip()
             if vnum:
                 vendor_map[vnum] = str(vrow.get("vendor_name", "")).strip()
@@ -315,12 +315,27 @@ def run_deterministic(
     exception_rows: list[dict] = []
     matched_rows: list[dict] = []
 
+    # Rows are materialized once and indexed by PO number, so per-PO lookups
+    # replace whole-table rescans inside loops (was O(n*m) at scale).
+    ap_rows = list(zip(ap_df.index, ap_df.to_dict("records")))
+    po_rows = list(zip(po_df.index, po_df.to_dict("records")))
+    ap_rows_by_po: dict[str, list] = {}
+    for item in ap_rows:
+        ap_rows_by_po.setdefault(str(item[1].get("po_number", "")).strip(), []).append(item)
+    po_rows_by_po: dict[str, list] = {}
+    for item in po_rows:
+        po_rows_by_po.setdefault(str(item[1].get("po_number", "")).strip(), []).append(item)
+    ap_po_vendor = {
+        (str(r.get("po_number", "")).strip(), str(r.get("vendor_number", "")).strip())
+        for _, r in ap_rows
+    }
+
     # Build PO lookup: po_number -> list of row dicts (lines)
     po_lines_by_number: dict[str, list[dict]] = {}
-    for _, po_row in po_df.iterrows():
+    for _, po_row in po_rows:
         po_num = str(po_row.get("po_number", "")).strip()
         if po_num:
-            po_lines_by_number.setdefault(po_num, []).append(po_row.to_dict())
+            po_lines_by_number.setdefault(po_num, []).append(dict(po_row))
 
     # Build PO total per PO number (sum of line_amount across all lines)
     po_total_by_number: dict[str, Decimal] = {}
@@ -334,7 +349,7 @@ def run_deterministic(
 
     # Build running total of AP invoiced per PO number (for P1)
     ap_invoiced_by_po: dict[str, Decimal] = {}
-    for _, ap_row in ap_df.iterrows():
+    for _, ap_row in ap_rows:
         po_num = str(ap_row.get("po_number", "")).strip()
         if po_num:
             amt = _safe_decimal(ap_row.get("invoice_amount"))
@@ -353,7 +368,7 @@ def run_deterministic(
     # -------------------------------------------------------------------- #
     tolerance_pct = Decimal(str(cfg.invoice_over_po_tolerance_pct)) / Decimal("100")
     po_nums_processed_p1: set[str] = set()
-    for _, ap_row in ap_df.iterrows():
+    for _, ap_row in ap_rows:
         po_num = str(ap_row.get("po_number", "")).strip()
         if not po_num or po_num in po_nums_processed_p1:
             continue
@@ -366,16 +381,14 @@ def run_deterministic(
         if invoiced > allowed:
             # Collect all AP rows for this PO
             ap_refs: list[SourceRowRef] = []
-            for ap_idx, ap_r in ap_df.iterrows():
-                if str(ap_r.get("po_number", "")).strip() == po_num:
-                    ap_refs.append(source_ref_for_row(ap_export, int(ap_r["source_row_index"])))
-                    flagged_ap_indices.add(int(ap_idx))
+            for ap_idx, ap_r in ap_rows_by_po.get(po_num, []):
+                ap_refs.append(source_ref_for_row(ap_export, int(ap_r["source_row_index"])))
+                flagged_ap_indices.add(int(ap_idx))
             # Collect all PO rows for this PO number
             po_refs: list[SourceRowRef] = []
-            for po_idx, po_r in po_df.iterrows():
-                if str(po_r.get("po_number", "")).strip() == po_num:
-                    po_refs.append(source_ref_for_row(po_export, int(po_r["source_row_index"])))
-                    flagged_po_indices.add(int(po_idx))
+            for po_idx, po_r in po_rows_by_po.get(po_num, []):
+                po_refs.append(source_ref_for_row(po_export, int(po_r["source_row_index"])))
+                flagged_po_indices.add(int(po_idx))
             diff = invoiced - po_total
             findings.append(
                 DeterministicFinding(
@@ -405,7 +418,7 @@ def run_deterministic(
     # -------------------------------------------------------------------- #
     # P2: wrong_vendor
     # -------------------------------------------------------------------- #
-    for ap_idx, ap_row in ap_df.iterrows():
+    for ap_idx, ap_row in ap_rows:
         po_num = str(ap_row.get("po_number", "")).strip()
         if not po_num or po_num not in po_lines_by_number:
             continue
@@ -430,9 +443,8 @@ def run_deterministic(
                     )
             ap_ref = source_ref_for_row(ap_export, int(ap_row["source_row_index"]))
             po_refs = [
-                source_ref_for_row(po_export, int(po_df.loc[po_idx, "source_row_index"]))
-                for po_idx in po_df.index
-                if str(po_df.loc[po_idx, "po_number"]).strip() == po_num
+                source_ref_for_row(po_export, int(r["source_row_index"]))
+                for _, r in po_rows_by_po.get(po_num, [])
             ]
             flagged_ap_indices.add(int(ap_idx))
             findings.append(
@@ -461,7 +473,7 @@ def run_deterministic(
     # -------------------------------------------------------------------- #
     # P3a: missing_po (invoice references a PO that does not exist in PO file)
     # -------------------------------------------------------------------- #
-    for ap_idx, ap_row in ap_df.iterrows():
+    for ap_idx, ap_row in ap_rows:
         po_num = str(ap_row.get("po_number", "")).strip()
         if not po_num:
             continue
@@ -493,7 +505,7 @@ def run_deterministic(
     # -------------------------------------------------------------------- #
     # P3b: missing_po_over_threshold (blank PO with amount >= threshold)
     # -------------------------------------------------------------------- #
-    for ap_idx, ap_row in ap_df.iterrows():
+    for ap_idx, ap_row in ap_rows:
         po_num = str(ap_row.get("po_number", "")).strip()
         if po_num:
             continue  # only blank PO rows
@@ -531,7 +543,7 @@ def run_deterministic(
     # P4: closed_po_usage
     # -------------------------------------------------------------------- #
     import datetime
-    for ap_idx, ap_row in ap_df.iterrows():
+    for ap_idx, ap_row in ap_rows:
         po_num = str(ap_row.get("po_number", "")).strip()
         if not po_num or po_num not in po_lines_by_number:
             continue
@@ -549,9 +561,8 @@ def run_deterministic(
         if invoice_date > cutoff:
             ap_ref = source_ref_for_row(ap_export, int(ap_row["source_row_index"]))
             po_refs = [
-                source_ref_for_row(po_export, int(po_df.loc[po_idx, "source_row_index"]))
-                for po_idx in po_df.index
-                if str(po_df.loc[po_idx, "po_number"]).strip() == po_num
+                source_ref_for_row(po_export, int(r["source_row_index"]))
+                for _, r in po_rows_by_po.get(po_num, [])
             ]
             flagged_ap_indices.add(int(ap_idx))
             findings.append(
@@ -588,7 +599,7 @@ def run_deterministic(
     # line; otherwise we use the first matching-qty or first-line heuristic.
     up_tol = Decimal(str(cfg.unit_price_tolerance_pct)) / Decimal("100")
 
-    for ap_idx, ap_row in ap_df.iterrows():
+    for ap_idx, ap_row in ap_rows:
         po_num = str(ap_row.get("po_number", "")).strip()
         if not po_num or po_num not in po_lines_by_number:
             continue
@@ -602,20 +613,16 @@ def run_deterministic(
         # (prefer matching qty, else use line 1)
         best_po_line = None
         best_po_df_idx: Optional[int] = None
-        for po_df_idx, po_r in po_df.iterrows():
-            if str(po_r.get("po_number", "")).strip() != po_num:
-                continue
+        for po_df_idx, po_r in po_rows_by_po.get(po_num, []):
             po_line_qty = _safe_decimal(po_r.get("qty"))
             if po_line_qty is not None and po_line_qty == inv_qty:
-                best_po_line = po_r.to_dict()
+                best_po_line = dict(po_r)
                 best_po_df_idx = int(po_df_idx)
                 break
         if best_po_line is None:
             # Fall back to line 1
-            for po_df_idx, po_r in po_df.iterrows():
-                if str(po_r.get("po_number", "")).strip() != po_num:
-                    continue
-                best_po_line = po_r.to_dict()
+            for po_df_idx, po_r in po_rows_by_po.get(po_num, []):
+                best_po_line = dict(po_r)
                 best_po_df_idx = int(po_df_idx)
                 break
 
@@ -632,7 +639,7 @@ def run_deterministic(
                 ap_ref = source_ref_for_row(ap_export, int(ap_row["source_row_index"]))
                 po_ref = source_ref_for_row(
                     po_export,
-                    int(po_df.loc[best_po_df_idx, "source_row_index"]),
+                    int(best_po_line["source_row_index"]),
                 )
                 flagged_ap_indices.add(int(ap_idx))
                 findings.append(
@@ -671,7 +678,7 @@ def run_deterministic(
                 ap_ref = source_ref_for_row(ap_export, int(ap_row["source_row_index"]))
                 po_ref = source_ref_for_row(
                     po_export,
-                    int(po_df.loc[best_po_df_idx, "source_row_index"]),
+                    int(best_po_line["source_row_index"]),
                 )
                 flagged_ap_indices.add(int(ap_idx))
                 findings.append(
@@ -708,10 +715,10 @@ def run_deterministic(
     # -------------------------------------------------------------------- #
     # PO line received_qty > 0 and invoiced_qty == 0, with no matching AP invoice
     po_invoiced_invoice_numbers: set[str] = set()
-    for _, ap_row in ap_df.iterrows():
+    for _, ap_row in ap_rows:
         po_invoiced_invoice_numbers.add(str(ap_row.get("invoice_number", "")).strip())
 
-    for po_idx, po_row in po_df.iterrows():
+    for po_idx, po_row in po_rows:
         received = _safe_decimal(po_row.get("received_qty"))
         invoiced = _safe_decimal(po_row.get("invoiced_qty"))
         if received is None or received <= 0:
@@ -721,11 +728,7 @@ def run_deterministic(
         # Check no AP invoice row references this PO number + vendor
         po_num = str(po_row.get("po_number", "")).strip()
         po_vendor = str(po_row.get("vendor_number", "")).strip()
-        has_ap_invoice = any(
-            str(ap_row.get("po_number", "")).strip() == po_num
-            and str(ap_row.get("vendor_number", "")).strip() == po_vendor
-            for _, ap_row in ap_df.iterrows()
-        )
+        has_ap_invoice = (po_num, po_vendor) in ap_po_vendor
         if not has_ap_invoice:
             po_ref = source_ref_for_row(po_export, int(po_row["source_row_index"]))
             flagged_po_indices.add(int(po_idx))
@@ -761,7 +764,7 @@ def run_deterministic(
     # P8: invoiced_not_received
     # -------------------------------------------------------------------- #
     # Either: PO line invoiced_qty > received_qty, or AP invoice qty > received_qty
-    for po_idx, po_row in po_df.iterrows():
+    for po_idx, po_row in po_rows:
         po_num = str(po_row.get("po_number", "")).strip()
         po_vendor = str(po_row.get("vendor_number", "")).strip()
         received = _safe_decimal(po_row.get("received_qty"))
@@ -772,12 +775,11 @@ def run_deterministic(
             continue
         # Find the relevant AP rows
         ap_refs: list[SourceRowRef] = []
-        for ap_idx_inner, ap_row in ap_df.iterrows():
-            if str(ap_row.get("po_number", "")).strip() == po_num:
-                ap_refs.append(
-                    source_ref_for_row(ap_export, int(ap_row["source_row_index"]))
-                )
-                flagged_ap_indices.add(int(ap_idx_inner))
+        for ap_idx_inner, ap_row in ap_rows_by_po.get(po_num, []):
+            ap_refs.append(
+                source_ref_for_row(ap_export, int(ap_row["source_row_index"]))
+            )
+            flagged_ap_indices.add(int(ap_idx_inner))
         po_ref = source_ref_for_row(po_export, int(po_row["source_row_index"]))
         flagged_po_indices.add(int(po_idx))
         findings.append(
@@ -845,7 +847,7 @@ def run_deterministic(
     # -------------------------------------------------------------------- #
     # Build matched (clean join) table
     # -------------------------------------------------------------------- #
-    for ap_idx, ap_row in ap_df.iterrows():
+    for ap_idx, ap_row in ap_rows:
         if int(ap_idx) in flagged_ap_indices:
             continue
         po_num = str(ap_row.get("po_number", "")).strip()
@@ -932,7 +934,7 @@ _OUTPUT_CONTRACT = (
 
 def _findings_block(det: POInvoiceReviewOutput) -> str:
     rows = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):
         rows.append(
             {
                 "finding_id": f.finding_id,
@@ -958,6 +960,7 @@ def build_prompt(det: POInvoiceReviewOutput) -> str:
         "language.\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC FINDINGS:\n{_findings_block(det)}\n\n"
+        + omitted_note(det.findings)
         + _OUTPUT_CONTRACT
     )
 
@@ -1021,7 +1024,7 @@ def mock_llm_response(det: POInvoiceReviewOutput) -> dict[str, Any]:
     exception_types = {FindingType.PO_MISMATCH.value, FindingType.MISSING_REFERENCE.value}
     refs: list[str] = []
     categorized = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):  # what the prompt shows
         f_refs = [_short_ref(s) for s in f.source_rows]
         refs.extend(f_refs)
         if f.finding_type.value in exception_types:
@@ -1230,6 +1233,7 @@ def run(
     actor: str = "system",
     export_dir: str | Path | None = None,
     config: Any = None,
+    preflight_report: Any = None,  # reuse the pipeline's report
 ) -> dict[str, Any]:
     """End-to-end PO/invoice mismatch review run.
 
@@ -1263,7 +1267,7 @@ def run(
         audit.run_created(run_id, actor, workflow_type=WORKFLOW_TYPE)
 
     # Preflight
-    preflight_report = _run_preflight(inputs, config_dict)
+    preflight_report = preflight_report or _run_preflight(inputs, config_dict)
     preflight_dict = preflight_report.model_dump(mode="json")
 
     if ledger is not None and hasattr(ledger, "store_preflight"):

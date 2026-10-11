@@ -6,6 +6,7 @@ whitespace cleanup, duplicate-row detection, and source-row preservation.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
@@ -19,7 +20,12 @@ from src.core.schemas import NormalizedRecord, ParsedTable, SourceRowRef
 # Column names
 # --------------------------------------------------------------------------- #
 def to_snake_case(name: str) -> str:
-    s = str(name).strip()
+    return _snake(str(name))
+
+
+@lru_cache(maxsize=65536)  # pure; the same headers/values repeat endlessly
+def _snake(name: str) -> str:
+    s = name.strip()
     s = re.sub(r"[^\w\s]", " ", s)          # punctuation -> space
     s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)  # camelCase boundary
     s = re.sub(r"\s+", "_", s.strip())
@@ -65,7 +71,11 @@ def parse_date(value: Any) -> Optional[date]:
         return value.date()
     if isinstance(value, date):
         return value
-    s = clean_whitespace(str(value))
+    return _parse_date_text(clean_whitespace(str(value)))
+
+
+@lru_cache(maxsize=65536)  # pure; exports repeat the same date strings
+def _parse_date_text(s: str) -> Optional[date]:
     if not s:
         return None
     for fmt in _DATE_FORMATS:
@@ -209,7 +219,7 @@ SEMANTIC_SYNONYMS: dict[str, list[str]] = {
 }
 
 _TOTAL_LABEL_RE = re.compile(
-    r"\b(total|subtotal|grand\s*total|sum|totals)\b", re.IGNORECASE
+    r"\b(?:total|subtotal|grand\s*total|sum|totals)\b", re.IGNORECASE
 )
 
 
@@ -279,9 +289,11 @@ def detect_repeated_header_rows(df: pd.DataFrame) -> list[int]:
     """
     cols = [to_snake_case(c) for c in df.columns]
     matches: list[int] = []
-    for pos, (_, row) in enumerate(df.iterrows()):
-        values = [to_snake_case(str(v)) for v in row.tolist()]
-        if values == cols:
+    for pos, row in enumerate(df.itertuples(index=False, name=None)):
+        # Cheap first-cell check before normalizing the whole row.
+        if not row or to_snake_case(str(row[0])) != cols[0]:
+            continue
+        if [to_snake_case(str(v)) for v in row] == cols:
             matches.append(pos)
     return matches
 
@@ -291,27 +303,26 @@ def detect_footer_total_rows(df: pd.DataFrame) -> list[int]:
 
     A row qualifies when any cell label contains total/subtotal/grand total,
     OR when most cells are blank but at least one numeric value is present
-    (a typical trailing total line).
+    (a typical trailing total line). Column-wise (vectorized); only the few
+    mostly-blank rows are checked cell by cell for an amount.
     """
-    matches: list[int] = []
+    if df.empty:
+        return []
     n_cols = max(len(df.columns), 1)
-    for pos, (_, row) in enumerate(df.iterrows()):
-        cells = row.tolist()
-        if any(
-            isinstance(v, str) and _TOTAL_LABEL_RE.search(v) for v in cells
-        ) or any(
-            (not _is_blank(v)) and _TOTAL_LABEL_RE.search(str(v)) for v in cells
+    text = df.astype(str)
+    blank = df.isna() | text.apply(lambda col: col.str.strip() == "")
+    label = text.apply(lambda col: col.str.contains(_TOTAL_LABEL_RE, na=False)) & ~blank
+    is_label = label.any(axis=1).to_numpy()
+    mostly_blank = (blank.sum(axis=1) >= n_cols - 1).to_numpy()
+    matches: list[int] = []
+    for pos in range(len(df)):
+        if is_label[pos]:
+            matches.append(pos)
+        elif mostly_blank[pos] and any(
+            not _is_blank(v) and parse_amount(v) is not None for v in df.iloc[pos]
         ):
             matches.append(pos)
-            continue
-        blanks = sum(1 for v in cells if _is_blank(v))
-        has_amount = any(
-            (not _is_blank(v)) and parse_amount(v) is not None for v in cells
-        )
-        if has_amount and blanks >= n_cols - 1:
-            matches.append(pos)
     return matches
-
 
 def normalize_description(value: Any) -> str:
     """Collapse whitespace and strip for fuzzy description comparison.

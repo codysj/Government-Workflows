@@ -182,7 +182,7 @@ def test_tyler_descriptor_example_run_matches_known_answers(tmp_path):
     ap = pipeline.run_workflow("ap_duplicate_review", _ap_duplicate_inputs(),
                           ledger=ledger, audit=audit,
                           export_dir=tmp_path / "ap")
-    assert ap.summary["total_findings"] == 15
+    assert ap.summary["total_findings"] == 13
     po = pipeline.run_workflow("po_invoice_review", _po_invoice_inputs(),
                           ledger=ledger, audit=audit,
                           export_dir=tmp_path / "po")
@@ -284,13 +284,27 @@ def _erp_bank_inputs():
     }
 
 
-def test_erp_file_requires_preset(tmp_path):
-    """Without a source-format preset, an ERP-style file has no detectable
-    date column and the run fails — proving the preset is doing real work."""
+def test_erp_headers_reconcile_like_the_clean_file(tmp_path):
+    """An ERP export with different headers ("Posting Date", "Transaction
+    Amount") reconciles to the same result as the clean file: preflight
+    resolves the columns and the workflow uses exactly what preflight
+    resolved (previously preflight said PASS and the workflow crashed)."""
     ledger, audit = _pipeline(tmp_path)
-    with pytest.raises(Exception):
-        pipeline.run_workflow("bank_reconciliation", _erp_bank_inputs(),
-                         ledger=ledger, audit=audit, export_dir=tmp_path / "ex")
+    erp_inputs = _erp_bank_inputs()
+    renamed = tmp_path / "bank_clean_headers.csv"
+    lines = Path(erp_inputs["bank"]).read_text(encoding="utf-8").splitlines()
+    renamed.write_text("\n".join(["date,description,amount"] + lines[1:]) + "\n",
+                       encoding="utf-8")
+    clean = pipeline.run_workflow(
+        "bank_reconciliation", {**erp_inputs, "bank": str(renamed)},
+        ledger=ledger, audit=audit, export_dir=tmp_path / "a")
+    erp = pipeline.run_workflow("bank_reconciliation", _erp_bank_inputs(),
+                                ledger=ledger, audit=audit, export_dir=tmp_path / "b")
+    assert not erp.blocked
+    assert erp.summary["column_mappings_used"]["bank"]["date"] == "posting_date"
+    for key in ("matched", "unmatched_bank", "unmatched_ledger"):
+        assert erp.summary[key] == clean.summary[key], key
+    assert len(erp.findings) == len(clean.findings)
 
 
 def test_uploaded_threshold_file_takes_precedence_over_settings(tmp_path):
@@ -304,3 +318,14 @@ def test_uploaded_threshold_file_takes_precedence_over_settings(tmp_path):
         config={"variance_dollar_threshold": 1.0, "variance_threshold_pct": 0.1})
     # thresholds.json uses 10000 / 10.0 -> exactly 2 flagged (not "everything").
     assert result.summary["flagged_variances"] == 2
+
+
+def test_excel_inputs_get_provenance_hashes(tmp_path):
+    ledger, audit = _pipeline(tmp_path)
+    result = pipeline.run_workflow(
+        "transaction_search",
+        {"query": "payments over 5000", "gl_detail": str(SD / "tyler" / "gl_detail.xlsx")},
+        ledger=ledger, audit=audit)
+    files = ledger.list_input_files(result.run_id)
+    assert [f["file_name"] for f in files] == ["gl_detail.xlsx"]
+    assert len(files[0]["file_hash"]) == 64

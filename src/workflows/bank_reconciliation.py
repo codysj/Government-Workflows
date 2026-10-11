@@ -26,6 +26,8 @@ Mock mode is the DEFAULT path (no API key, no internet).
 """
 from __future__ import annotations
 
+from bisect import bisect_left
+
 import json
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -67,10 +69,10 @@ from src.normalize.matching import (
     detect_duplicates,
     match_records,
 )
-from src.llm.prompts import OUTPUT_RULES
+from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 WORKFLOW_TYPE = "bank_reconciliation"
-PROMPT_TEMPLATE_VERSION = "bank_reconciliation.v2"  # v2: shared OUTPUT_RULES appended
+PROMPT_TEMPLATE_VERSION = "bank_reconciliation.v3"  # v2: shared OUTPUT_RULES; v3: findings capped (PROMPT_FINDINGS_LIMIT)
 
 
 EXPORT_FILE_NAMES = (
@@ -140,6 +142,7 @@ CAPABILITY = CapabilitySpec(
 # demo never trips them.
 _SIGN_MISMATCH_MIN_OVERLAP = 4  # need this many shared |amounts| to claim a pattern
 _SIGN_MISMATCH_MIN_FRACTION = 0.6  # ...and this fraction opposite-signed
+_SUBSET_MAX = 18  # subset-sum search size cap (bounded, conservative)
 _BATCH_MIN_COMPONENTS = 3  # one side total == sum of >= this many of the other
 _PRIOR_PERIOD_GAP_DAYS = 45  # date this far outside the bulk window = prior-period
 
@@ -289,11 +292,18 @@ def detect_conditions(
     ) -> Optional[Decimal]:
         many_set = [a for a in many_side if a != 0]
         one_singletons = set(many_set)
+        # _subset_sums_to gives up above _SUBSET_MAX values, so count the
+        # smaller-magnitude items first (O(log n)) and only build the list
+        # when the search can actually run.
+        mags = sorted(abs(a) for a in many_set)
         for total in one_side:
             if total == 0:
                 continue
             # Skip totals that already have a 1:1 partner (that's supported).
             if total in one_singletons:
+                continue
+            n_smaller = bisect_left(mags, abs(total))
+            if n_smaller < _BATCH_MIN_COMPONENTS or n_smaller > _SUBSET_MAX:
                 continue
             components = [a for a in many_set if abs(a) < abs(total)]
             if len(components) < _BATCH_MIN_COMPONENTS:
@@ -386,7 +396,7 @@ def _subset_sums_to(
     search so it never runs long on real inputs (returns False if too large).
     """
     pool = [v for v in values if v != 0]
-    if len(pool) > 18:  # keep it cheap; large inputs won't be flagged here
+    if len(pool) > _SUBSET_MAX:  # keep it cheap; large inputs won't be flagged here
         return False
     # DP over reachable sums tracking the minimum number of terms is overkill;
     # a bounded DFS is clearer for these tiny lists.
@@ -464,8 +474,8 @@ def _short_ref(ref: SourceRowRef) -> str:
     return f"{ref.table_name}:{ref.row_index}"
 
 
-def _row_ref(file_id: str, table_name: str, row_index: int, row: pd.Series) -> SourceRowRef:
-    cols = list(row.index)
+def _row_ref(file_id: str, table_name: str, row_index: int, row: dict) -> SourceRowRef:
+    cols = list(row)
     return SourceRowRef(
         file_id=file_id,
         table_name=table_name,
@@ -478,17 +488,15 @@ def _row_ref(file_id: str, table_name: str, row_index: int, row: pd.Series) -> S
 def _candidates(
     df: pd.DataFrame, amount_col: str, date_col: str
 ) -> list[MatchCandidate]:
-    cands: list[MatchCandidate] = []
-    for i, row in df.iterrows():
-        cands.append(
-            MatchCandidate(
-                index=int(i),
-                amount=parse_amount(row[amount_col]),
-                txn_date=parse_date(row[date_col]),
-                raw=row.to_dict(),
-            )
+    return [
+        MatchCandidate(
+            index=int(i),
+            amount=parse_amount(row[amount_col]),
+            txn_date=parse_date(row[date_col]),
+            raw=row,
         )
-    return cands
+        for i, row in zip(df.index, df.to_dict("records"))
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -589,11 +597,14 @@ def reconcile(
     unmatched_bank_rows: list[dict] = []
     unmatched_ledger_rows: list[dict] = []
 
+    b_records = dict(zip(b_src_df.index, b_src_df.to_dict("records")))
+    l_records = dict(zip(l_src_df.index, l_src_df.to_dict("records")))
+
     def bank_ref(idx: int) -> SourceRowRef:
-        return _row_ref(b_parsed.file_id, "bank", idx, b_src_df.loc[idx])
+        return _row_ref(b_parsed.file_id, "bank", idx, b_records[idx])
 
     def ledger_ref(idx: int) -> SourceRowRef:
-        return _row_ref(l_parsed.file_id, "ledger", idx, l_src_df.loc[idx])
+        return _row_ref(l_parsed.file_id, "ledger", idx, l_records[idx])
 
     # --- Matched (exact amount + date) ---------------------------------- #
     for a, b in result.matched_pairs:
@@ -797,7 +808,7 @@ _OUTPUT_CONTRACT = (
 
 def _findings_block(det: ReconciliationOutput) -> str:
     rows = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):
         rows.append(
             {
                 "finding_id": f.finding_id,
@@ -822,6 +833,7 @@ def build_prompt(det: ReconciliationOutput) -> str:
         "language. Do NOT perform matching or compute any figure.\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC FINDINGS:\n{_findings_block(det)}\n\n"
+        + omitted_note(det.findings)
         + _OUTPUT_CONTRACT
     )
 

@@ -1,6 +1,6 @@
 # Guided Freeform — Task Observations
 
-Append-only discovery log (spec Phase 5 "Discovery output"). Each guided freeform run records its `task_type` here so recurring patterns can be promoted into dedicated, deterministic workflow templates later. No task payloads or sensitive data are stored — only the task type and lightweight metadata.
+Snapshot of the guided-freeform discovery log (spec Phase 5 "Discovery output"). The live log is written at runtime to `runs/freeform_task_observations.md` (gitignored), so using the tool never edits this tracked file. Each guided freeform run records its `task_type` here so recurring patterns can be promoted into dedicated, deterministic workflow templates later. No task payloads or sensitive data are stored — only the task type and lightweight metadata.
 
 ## Example entry
 

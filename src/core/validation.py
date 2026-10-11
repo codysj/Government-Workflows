@@ -40,6 +40,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Optional
 
 from src.core.schemas import DeterministicFinding, ValidationResult
+from src.llm.prompts import PROMPT_FINDINGS_LIMIT, findings_for_prompt
 
 # Spec (d): banned final-approval phrases. Matched case-insensitively against the
 # concatenated prose fields of the response.
@@ -300,6 +301,8 @@ def _derived_counts(findings: list[DeterministicFinding]) -> set[int]:
         out |= set(groups.values()) | {len(groups)}
     rows = {_short_ref(s) for f in findings for s in f.source_rows}
     out |= {len(rows), len({r.split(":")[0] for r in rows})}
+    if len(findings) > PROMPT_FINDINGS_LIMIT:  # "N more findings are not listed"
+        out.add(len(findings) - PROMPT_FINDINGS_LIMIT)
     return out
 
 
@@ -339,7 +342,10 @@ def unsupported_claims(
     ``grounding`` is any extra material the model was shown (e.g. the user's
     own request text); it is JSON-serialized and treated as supported.
     """
-    allowed = _Allowed(_grounding_text(findings, summary, grounding), _derived_counts(findings))
+    # Ground on what the prompt actually showed (summary + the capped findings
+    # list); counts may still describe ALL findings.
+    shown = findings_for_prompt(findings)
+    allowed = _Allowed(_grounding_text(shown, summary, grounding), _derived_counts(findings))
     claims = _extract_claims("\n".join(_prose_strings(response_json)))
     bad = [f"row {r}" for r in sorted(claims.rows) if r not in allowed.rows]
     bad += [f"date {d}" for d in sorted(claims.dates) if d not in allowed.dates]

@@ -40,6 +40,9 @@ class ApiSettings:
     default_actor: str = "finance_staff"
     default_retention_category: str = "draft_working"
     llm_mode: str = "mock"  # "mock" | "real" (mock is the default provider)
+    # Settings-page tolerances applied to every run; a run's own config (form
+    # field or uploaded config file) overrides them.
+    run_defaults: dict = field(default_factory=dict)
     app_version: str = field(default=APP_VERSION)
 
     @classmethod
@@ -51,6 +54,12 @@ class ApiSettings:
             default_actor=s.default_actor,
             default_retention_category=s.default_retention_category,
             llm_mode=llm_mode(),
+            run_defaults={
+                "date_tolerance_days": s.date_tolerance_days,
+                "amount_tolerance": s.amount_tolerance,
+                "variance_threshold_pct": s.variance_threshold_pct,
+                "variance_dollar_threshold": s.variance_dollar_threshold,
+            },
         )
 
     def __post_init__(self) -> None:

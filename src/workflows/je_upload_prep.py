@@ -87,10 +87,10 @@ from src.ingest.tyler import normalize_tyler_export
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
 from src.normalize.cleaning import parse_amount, parse_date, to_snake_case
-from src.llm.prompts import OUTPUT_RULES
+from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 WORKFLOW_TYPE = "je_upload_prep"
-PROMPT_TEMPLATE_VERSION = "je_upload_prep.v2"  # v2: shared OUTPUT_RULES appended
+PROMPT_TEMPLATE_VERSION = "je_upload_prep.v3"  # v2: shared OUTPUT_RULES; v3: findings capped (PROMPT_FINDINGS_LIMIT)
 
 # Munis JE upload template headers (exact, in order).
 UPLOAD_SHEET_NAME = "JE Upload"
@@ -398,7 +398,7 @@ def _load_coa(coa_path: str | Path) -> tuple[set[str], set[str], set[str], dict[
     valid_orgs: set[str] = set()
     valid_objects: set[str] = set()
     account_details: dict[str, dict] = {}
-    for _, row in df.iterrows():
+    for row in df.to_dict("records"):
         fund = str(row.get("fund", "")).strip()
         org = str(row.get("org", "")).strip()
         obj = str(row.get("object", "")).strip()
@@ -421,7 +421,7 @@ def _load_gl_combos(gl_path: str | Path) -> set[str]:
     exp = normalize_tyler_export(str(gl_path), dataset_type="gl_detail")
     df = exp.dataframe
     combos: set[str] = set()
-    for _, row in df.iterrows():
+    for row in df.to_dict("records"):
         fund = str(row.get("fund", "")).strip()
         org = str(row.get("org", "")).strip()
         obj = str(row.get("object", "")).strip()
@@ -980,7 +980,7 @@ _OUTPUT_CONTRACT = (
 
 def _findings_block(det: JEUploadOutput) -> str:
     rows = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):
         rows.append(
             {
                 "finding_id": f.finding_id,
@@ -1004,6 +1004,7 @@ def build_je_upload_prep_prompt(det: JEUploadOutput) -> str:
         "draft a review memo. Do NOT fix data, calculate, or certify the JE.\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC FINDINGS:\n{_findings_block(det)}\n\n"
+        + omitted_note(det.findings)
         + _OUTPUT_CONTRACT
     )
 
@@ -1266,6 +1267,7 @@ def run(
     actor: str = "system",
     export_dir: str | Path | None = None,
     config: Any = None,
+    preflight_report: Any = None,  # reuse the pipeline's report
 ) -> dict[str, Any]:
     """End-to-end JE upload prep run.
 
@@ -1302,7 +1304,7 @@ def run(
         audit.run_created(run_id, actor, workflow_type=WORKFLOW_TYPE)
 
     # --- Preflight -------------------------------------------------------- #
-    preflight_report = run_preflight(
+    preflight_report = preflight_report or run_preflight(
         CAPABILITY,
         inputs,
         config={

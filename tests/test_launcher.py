@@ -1,47 +1,67 @@
-"""GW-23: the console launcher opens the browser at the health-checked URL.
+"""Launcher: browser opening, already-running detection, and .env loading.
 
-No real subprocess or browser is spawned: start_server / wait_for_health /
-ensure_frontend_dist are monkeypatched, and the fake server proc's wait() is a
-no-op so run() returns immediately.
+Nothing here starts a real server: ``serve`` and the health check are stubbed.
 """
 from __future__ import annotations
 
-from scripts import launch_console
+import importlib.util
+import time
+from pathlib import Path
+
+import pytest
+
+_PATH = Path(__file__).resolve().parents[1] / "scripts" / "launch_console.py"
+_spec = importlib.util.spec_from_file_location("launch_console", _PATH)
+launch_console = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(launch_console)
 
 
-class _FakeProc:
-    """Stand-in for the uvicorn Popen handle."""
-
-    def poll(self):
-        return 0  # already exited -> stop_server is a no-op
-
-    def wait(self, timeout=None):
-        return 0
+def _wait_for(cond, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not cond() and time.monotonic() < deadline:
+        time.sleep(0.01)
 
 
-def test_launcher_opens_browser_at_health_url(monkeypatch):
-    opened: list[str] = []
+@pytest.fixture
+def stubbed(monkeypatch, tmp_path):
+    opened, served = [], []
     monkeypatch.setattr(launch_console, "ensure_frontend_dist", lambda: True)
-    monkeypatch.setattr(launch_console, "start_server", lambda port: _FakeProc())
-    monkeypatch.setattr(
-        launch_console, "wait_for_health", lambda port, timeout=0: True)
+    monkeypatch.setattr(launch_console, "serve", served.append)
     monkeypatch.setattr(launch_console.webbrowser, "open", opened.append)
+    monkeypatch.setattr(launch_console, "REPO_ROOT", tmp_path)  # no real .env
+    return opened, served
 
-    rc = launch_console.run(port=9999, open_browser=True)
 
-    assert rc == 0
+def test_serves_in_process_then_opens_browser_when_healthy(monkeypatch, stubbed):
+    opened, served = stubbed
+    health = iter([False])  # not running yet; healthy afterwards
+    monkeypatch.setattr(launch_console, "is_healthy", lambda port: next(health, True))
+    assert launch_console.run(port=9999, open_browser=True) == 0
+    assert served == [9999]
+    _wait_for(lambda: opened)  # the health-watcher thread opens the browser
     assert opened == ["http://127.0.0.1:9999"]
 
 
-def test_launcher_skips_browser_when_disabled(monkeypatch):
-    opened: list[str] = []
-    monkeypatch.setattr(launch_console, "ensure_frontend_dist", lambda: True)
-    monkeypatch.setattr(launch_console, "start_server", lambda port: _FakeProc())
-    monkeypatch.setattr(
-        launch_console, "wait_for_health", lambda port, timeout=0: True)
-    monkeypatch.setattr(launch_console.webbrowser, "open", opened.append)
+def test_skips_browser_when_disabled(monkeypatch, stubbed):
+    opened, served = stubbed
+    monkeypatch.setattr(launch_console, "is_healthy", lambda port: False)
+    monkeypatch.setattr(launch_console, "wait_for_health", lambda port, timeout=0: True)
+    assert launch_console.run(port=9999, open_browser=False) == 0
+    time.sleep(0.2)  # give the watcher thread a chance (it must not open)
+    assert served == [9999] and opened == []
 
-    rc = launch_console.run(port=9999, open_browser=False)
 
-    assert rc == 0
-    assert opened == []
+def test_already_running_just_opens_browser(monkeypatch, stubbed):
+    opened, served = stubbed
+    monkeypatch.setattr(launch_console, "is_healthy", lambda port: True)
+    assert launch_console.run(port=9999, open_browser=True) == 0
+    assert served == []  # no second server
+    assert opened == ["http://127.0.0.1:9999"]
+
+
+def test_missing_frontend_bundle_stops_cleanly(monkeypatch, stubbed):
+    _, served = stubbed
+    monkeypatch.setattr(launch_console, "is_healthy", lambda port: False)
+    monkeypatch.setattr(launch_console, "ensure_frontend_dist", lambda: False)
+    assert launch_console.run(port=9999) == 1
+    assert served == []

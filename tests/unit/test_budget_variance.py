@@ -213,3 +213,41 @@ def test_thresholds_dict_override(tmp_path):
     # All 4 joined lines exceed 400 dollars: 5001 (+500), 5002 (+35000),
     # 5003 (+1000), 6001 (-1000).
     assert det.summary["flagged_variances"] == 4
+
+
+def test_rollup_detector_matches_brute_force_definition():
+    """The O(n log n) rollup signal agrees with the original O(n^2) loop."""
+    import random
+    from decimal import Decimal
+
+    from src.workflows.budget_variance import (
+        _ROLLUP_MIN_CHILDREN, _ROLLUP_REL_TOL, _has_subtotal_rollup)
+
+    def brute(amounts):
+        vals = [a for a in amounts if a != 0]
+        n = len(vals)
+        if n < _ROLLUP_MIN_CHILDREN + 1:
+            return False
+        total = sum(vals)
+        for i, c in enumerate(vals):
+            others = total - c
+            if others != 0 and abs(c - others) / abs(c) <= _ROLLUP_REL_TOL:
+                return True
+            run, children = Decimal("0"), 0
+            for j in range(n):
+                if j == i:
+                    continue
+                run += vals[j]
+                children += 1
+                if children >= _ROLLUP_MIN_CHILDREN and abs(c - run) / abs(c) <= _ROLLUP_REL_TOL:
+                    return True
+        return False
+
+    rng = random.Random(11)
+    hits = 0
+    for _ in range(2000):
+        vals = [Decimal(rng.randint(-50, 400)) for _ in range(rng.randint(0, 12))]
+        expected = brute(vals)
+        hits += expected
+        assert _has_subtotal_rollup(vals) == expected, vals
+    assert 0 < hits < 2000  # both outcomes exercised

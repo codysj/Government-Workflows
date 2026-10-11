@@ -49,6 +49,8 @@ review_notes_draft.md, validation_report.json, audit_log.json
 """
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
+
 import difflib
 import json
 import re
@@ -87,10 +89,10 @@ from src.ingest.tyler import (
 )
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
-from src.llm.prompts import OUTPUT_RULES
+from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 WORKFLOW_TYPE = "ap_duplicate_review"
-PROMPT_TEMPLATE_VERSION = "ap_duplicate_review.v2"  # v2: shared OUTPUT_RULES appended
+PROMPT_TEMPLATE_VERSION = "ap_duplicate_review.v3"  # v2: shared OUTPUT_RULES; v3: findings capped (PROMPT_FINDINGS_LIMIT)
 
 # Repo-relative default sample input paths (for the wiring agent / demo UI).
 SAMPLE_INPUTS: dict[str, str] = {
@@ -309,6 +311,7 @@ def run_deterministic(
     findings: list[DeterministicFinding] = []
 
     ap_df = ap_export.dataframe
+    ap_records = ap_df.to_dict("records")  # built once; every check reads rows from it
     ap_file_id = ap_export.input_file.file_id
     ap_table = ap_export.table_name
 
@@ -322,7 +325,7 @@ def run_deterministic(
     vendor_map: dict[str, dict[str, str]] = {}
     if vendor_export is not None:
         vdf = vendor_export.dataframe
-        for _, vrow in vdf.iterrows():
+        for vrow in vdf.to_dict("records"):
             vnum = str(vrow.get("vendor_number", "")).strip()
             if vnum:
                 vendor_map[vnum] = {
@@ -338,7 +341,7 @@ def run_deterministic(
     invoice_to_checks: dict[str, list[str]] = {}
     if check_export is not None:
         cdf = check_export.dataframe
-        for _, crow in cdf.iterrows():
+        for crow in cdf.to_dict("records"):
             cnum = str(crow.get("check_number", "")).strip()
             cstatus = str(crow.get("status", "")).strip().lower()
             cdate = crow.get("check_date")
@@ -393,7 +396,7 @@ def run_deterministic(
     # ------------------------------------------------------------------ #
     seen_inv: dict[tuple[str, str], int] = {}  # (vendor_number, invoice_number) -> first row_idx
     dup_groups_d1: dict[tuple[str, str], list[int]] = {}
-    for _, row in ap_df.iterrows():
+    for row in ap_records:
         vnum = str(row.get("vendor_number", "")).strip()
         inv = str(row.get("invoice_number", "")).strip()
         ridx = int(row["source_row_index"])
@@ -439,15 +442,16 @@ def run_deterministic(
     # D1b  Invoice paid by multiple checks (requires check_register)
     # ------------------------------------------------------------------ #
     if check_export is not None:
+        # AP source rows per invoice number, built once (was a full-table
+        # scan per multi-check invoice).
+        ap_rows_by_invoice: dict[str, list[int]] = {}
+        for inv_no, src_idx in zip(ap_df["invoice_number"], ap_df["source_row_index"]):
+            ap_rows_by_invoice.setdefault(str(inv_no).strip(), []).append(int(src_idx))
         for inv, check_list in invoice_to_checks.items():
             if len(check_list) <= 1:
                 continue
             grp_id = _group_id("D1b", inv)
-            # Find AP rows matching this invoice number
-            ap_rows = ap_df[
-                ap_df["invoice_number"].apply(lambda x: str(x).strip()) == inv
-            ]
-            refs = [ap_ref(int(r["source_row_index"])) for _, r in ap_rows.iterrows()]
+            refs = [ap_ref(i) for i in ap_rows_by_invoice.get(inv, [])]
             findings.append(
                 DeterministicFinding(
                     finding_type=FindingType.DUPLICATE_PAYMENT,
@@ -470,62 +474,65 @@ def run_deterministic(
     # ------------------------------------------------------------------ #
     # D2  Same vendor + same amount + different invoice within window
     # ------------------------------------------------------------------ #
-    ap_rows_list = list(ap_df.iterrows())
-    for i in range(len(ap_rows_list)):
-        _, row_i = ap_rows_list[i]
-        vnum_i = str(row_i.get("vendor_number", "")).strip()
-        inv_i = str(row_i.get("invoice_number", "")).strip()
-        amt_i = _dec(row_i.get("invoice_amount"))
-        d_i = _date(row_i.get("invoice_date"))
-        ridx_i = int(row_i["source_row_index"])
-        if not vnum_i or amt_i is None:
+    # Pairs only make sense within a vendor; within a vendor, sort by amount so
+    # each row is compared only to rows inside the amount tolerance (was all
+    # pairs of the whole file: O(n^2)). Pairs are emitted in the original
+    # (i, j) row order, so the findings are identical.
+    d2_rows: dict[str, list[tuple[int, str, Decimal, Optional[date], int]]] = {}
+    for pos, rec in enumerate(ap_records):
+        vnum = str(rec.get("vendor_number", "") or "").strip()
+        amt = _dec(rec.get("invoice_amount"))
+        if not vnum or amt is None:
             continue
-        for j in range(i + 1, len(ap_rows_list)):
-            _, row_j = ap_rows_list[j]
-            vnum_j = str(row_j.get("vendor_number", "")).strip()
-            inv_j = str(row_j.get("invoice_number", "")).strip()
-            amt_j = _dec(row_j.get("invoice_amount"))
-            d_j = _date(row_j.get("invoice_date"))
-            ridx_j = int(row_j["source_row_index"])
-            if vnum_i != vnum_j:
-                continue
-            if inv_i == inv_j:
-                continue  # already caught by D1
-            if not _amounts_equal(amt_i, amt_j, cfg.amount_tolerance):
-                continue
-            if not _date_within(d_i, d_j, cfg.near_date_window_days):
-                continue
-            grp_id = _group_id("D2", f"{vnum_i}|{amt_i}|{min(ridx_i, ridx_j)}")
-            findings.append(
-                DeterministicFinding(
-                    finding_type=FindingType.DUPLICATE_PAYMENT,
-                    severity=Severity.MEDIUM,
-                    description=(
-                        f"Same vendor {vnum_i}, same amount {amt_i}, different invoice "
-                        f"numbers ({inv_i} and {inv_j}) within "
-                        f"{cfg.near_date_window_days} days "
-                        f"(dates {d_i} and {d_j})."
-                    ),
-                    source_rows=[ap_ref(ridx_i), ap_ref(ridx_j)],
-                    computed_values={
-                        "group_id": grp_id,
-                        "vendor_number": vnum_i,
-                        "amount": str(amt_i),
-                        "invoice_numbers": [inv_i, inv_j],
-                        "invoice_dates": [str(d_i), str(d_j)],
-                        "days_apart": abs((d_i - d_j).days) if d_i and d_j else "",
-                    },
-                    rule_used="same_vendor_same_amount_near_date",
-                    requires_human_review=True,
-                )
+        d2_rows.setdefault(vnum, []).append((
+            pos, vnum, str(rec.get("invoice_number", "") or "").strip(), amt,
+            _date(rec.get("invoice_date")), int(rec["source_row_index"])))
+    d2_pairs = []
+    for rows in d2_rows.values():
+        rows.sort(key=lambda r: r[3])
+        for a in range(len(rows)):
+            for b in range(a + 1, len(rows)):
+                if rows[b][3] - rows[a][3] > cfg.amount_tolerance:
+                    break
+                d2_pairs.append(tuple(sorted((rows[a], rows[b]))))
+    for (_, vnum_i, inv_i, amt_i, d_i, ridx_i), (_, _, inv_j, amt_j, d_j, ridx_j) in sorted(d2_pairs):
+        if inv_i == inv_j:
+            continue  # already caught by D1
+        if not _amounts_equal(amt_i, amt_j, cfg.amount_tolerance):
+            continue
+        if not _date_within(d_i, d_j, cfg.near_date_window_days):
+            continue
+        grp_id = _group_id("D2", f"{vnum_i}|{amt_i}|{min(ridx_i, ridx_j)}")
+        findings.append(
+            DeterministicFinding(
+                finding_type=FindingType.DUPLICATE_PAYMENT,
+                severity=Severity.MEDIUM,
+                description=(
+                    f"Same vendor {vnum_i}, same amount {amt_i}, different invoice "
+                    f"numbers ({inv_i} and {inv_j}) within "
+                    f"{cfg.near_date_window_days} days "
+                    f"(dates {d_i} and {d_j})."
+                ),
+                source_rows=[ap_ref(ridx_i), ap_ref(ridx_j)],
+                computed_values={
+                    "group_id": grp_id,
+                    "vendor_number": vnum_i,
+                    "amount": str(amt_i),
+                    "invoice_numbers": [inv_i, inv_j],
+                    "invoice_dates": [str(d_i), str(d_j)],
+                    "days_apart": abs((d_i - d_j).days) if d_i and d_j else "",
+                },
+                rule_used="same_vendor_same_amount_near_date",
+                requires_human_review=True,
             )
+        )
 
     # ------------------------------------------------------------------ #
     # D3  Similar vendor names with same-amount invoices within window
     # ------------------------------------------------------------------ #
     # Build unique (vendor_number, vendor_name) pairs with their invoice rows.
     vendor_inv_rows: dict[str, list[dict[str, Any]]] = {}
-    for _, row in ap_df.iterrows():
+    for row in ap_records:
         vnum = str(row.get("vendor_number", "")).strip()
         vname = str(row.get("vendor_name", "")).strip()
         if not vnum:
@@ -546,6 +553,7 @@ def run_deterministic(
         vnum_a = vendor_numbers[vi]
         vname_a = vendor_inv_rows[vnum_a][0]["vendor_name"] if vendor_inv_rows[vnum_a] else ""
         stripped_a = _strip_suffix(vname_a)
+        matcher = difflib.SequenceMatcher(None, "", stripped_a)  # seq2 cached once
         for vj in range(vi + 1, len(vendor_numbers)):
             vnum_b = vendor_numbers[vj]
             if frozenset([vnum_a, vnum_b]) in checked_pairs:
@@ -554,14 +562,30 @@ def run_deterministic(
             stripped_b = _strip_suffix(vname_b)
             if not stripped_a or not stripped_b:
                 continue
+            # Cheap upper bounds first; only near-matches pay for ratio().
+            matcher.set_seq1(stripped_b)
+            if (matcher.real_quick_ratio() < cfg.vendor_similarity_threshold
+                    or matcher.quick_ratio() < cfg.vendor_similarity_threshold):
+                continue
             ratio = difflib.SequenceMatcher(None, stripped_a, stripped_b).ratio()
             if ratio < cfg.vendor_similarity_threshold:
                 continue
             checked_pairs.add(frozenset([vnum_a, vnum_b]))
-            # Find invoice pairs from both vendors where amount matches within window
+            # Invoice pairs from both vendors with matching amounts within the
+            # date window. Vendor B's invoices are indexed by amount, so each A
+            # invoice only looks at B invoices inside the amount tolerance
+            # (was every A x B pair); pairs keep the original (a, b) order.
+            rows_b = vendor_inv_rows[vnum_b]
+            b_order = sorted((i for i, r in enumerate(rows_b) if r["amount"] is not None),
+                             key=lambda i: rows_b[i]["amount"])
+            b_amts = [rows_b[i]["amount"] for i in b_order]
             for row_a in vendor_inv_rows[vnum_a]:
-                for row_b in vendor_inv_rows[vnum_b]:
-                    amt_a = row_a["amount"]
+                amt_a = row_a["amount"]
+                if amt_a is None:
+                    continue
+                lo = bisect_left(b_amts, amt_a - cfg.amount_tolerance)
+                hi = bisect_right(b_amts, amt_a + cfg.amount_tolerance)
+                for row_b in (rows_b[i] for i in sorted(b_order[lo:hi])):
                     amt_b = row_b["amount"]
                     d_a = row_a["invoice_date"]
                     d_b = row_b["invoice_date"]
@@ -608,7 +632,7 @@ def run_deterministic(
     # ------------------------------------------------------------------ #
     # D4  Missing/blank PO number on invoices >= missing_po_min_amount
     # ------------------------------------------------------------------ #
-    for _, row in ap_df.iterrows():
+    for row in ap_records:
         po_num = str(row.get("po_number", "") or "").strip()
         amt = _dec(row.get("invoice_amount"))
         ridx = int(row["source_row_index"])
@@ -642,7 +666,7 @@ def run_deterministic(
     # D5  Check date earlier than invoice date (requires check_register)
     # ------------------------------------------------------------------ #
     if check_export is not None:
-        for _, row in ap_df.iterrows():
+        for row in ap_records:
             inv_date = _date(row.get("invoice_date"))
             cnum = str(row.get("check_number", "") or "").strip()
             ridx = int(row["source_row_index"])
@@ -680,7 +704,7 @@ def run_deterministic(
     # D6  Invoice for an Inactive vendor (requires vendor_list)
     # ------------------------------------------------------------------ #
     if vendor_export is not None:
-        for _, row in ap_df.iterrows():
+        for row in ap_records:
             vnum = str(row.get("vendor_number", "")).strip()
             ridx = int(row["source_row_index"])
             if not vnum or vnum not in vendor_map:
@@ -715,7 +739,7 @@ def run_deterministic(
     # D7  Vendor number absent from vendor_list entirely
     # ------------------------------------------------------------------ #
     if vendor_export is not None:
-        for _, row in ap_df.iterrows():
+        for row in ap_records:
             vnum = str(row.get("vendor_number", "")).strip()
             ridx = int(row["source_row_index"])
             if not vnum or vnum in vendor_map:
@@ -749,7 +773,7 @@ def run_deterministic(
     # ------------------------------------------------------------------ #
     # Group AP rows by vendor_number.
     by_vendor: dict[str, list[dict[str, Any]]] = {}
-    for _, row in ap_df.iterrows():
+    for row in ap_records:
         vnum = str(row.get("vendor_number", "")).strip()
         if not vnum:
             continue
@@ -775,52 +799,60 @@ def run_deterministic(
         if len(dated) < 2:
             continue
         dated_sorted = sorted(dated, key=lambda r: r["invoice_date"])
-        n = len(dated_sorted)
-        for start in range(n):
-            window_rows = [dated_sorted[start]]
-            for end in range(start + 1, n):
-                d_start = dated_sorted[start]["invoice_date"]
-                d_end = dated_sorted[end]["invoice_date"]
-                if (d_end - d_start).days > cfg.split_window_days:
-                    break
-                window_rows.append(dated_sorted[end])
-                if len(window_rows) < 2:
-                    continue
-                total = sum(r["amount"] for r in window_rows)
-                if total >= cfg.split_threshold:
-                    grp_id = _group_id(
-                        "D8",
-                        vnum + "|" + "|".join(str(r["source_row_index"]) for r in window_rows),
-                    )
-                    refs = [ap_ref(r["source_row_index"]) for r in window_rows]
-                    inv_nums = [r["invoice_number"] for r in window_rows]
-                    amounts = [str(r["amount"]) for r in window_rows]
-                    dates = [str(r["invoice_date"]) for r in window_rows]
-                    findings.append(
-                        DeterministicFinding(
-                            finding_type=FindingType.DUPLICATE_PAYMENT,
-                            severity=Severity.HIGH,
-                            description=(
-                                f"Possible split-payment: vendor {vnum} has "
-                                f"{len(window_rows)} invoices each below "
-                                f"{cfg.split_threshold} totaling {total} within "
-                                f"{cfg.split_window_days} days "
-                                f"(invoices {inv_nums})."
-                            ),
-                            source_rows=refs,
-                            computed_values={
-                                "group_id": grp_id,
-                                "vendor_number": vnum,
-                                "invoice_numbers": inv_nums,
-                                "amounts": amounts,
-                                "total": str(total),
-                                "split_threshold": str(cfg.split_threshold),
-                                "invoice_dates": dates,
-                            },
-                            rule_used="split_payment_pattern",
-                            requires_human_review=True,
-                        )
-                    )
+        # Two-pointer sweep: for each end, the widest window of invoices
+        # within split_window_days. Every window with 2+ invoices totaling
+        # >= split_threshold is merged with any overlapping one, so a cluster
+        # of split invoices is ONE finding (was one per overlapping window,
+        # O(k^3): 3 invoices -> 3 findings; 30 in a week -> hundreds).
+        clusters: list[list[int]] = []  # [first, last] index ranges
+        lo, running = 0, Decimal(0)
+        for hi, row in enumerate(dated_sorted):
+            running += row["amount"]
+            while (row["invoice_date"] - dated_sorted[lo]["invoice_date"]).days > cfg.split_window_days:
+                running -= dated_sorted[lo]["amount"]
+                lo += 1
+            if hi - lo >= 1 and running >= cfg.split_threshold:
+                if clusters and lo <= clusters[-1][1]:
+                    clusters[-1][1] = hi
+                else:
+                    clusters.append([lo, hi])
+        for first, last in clusters:
+            window_rows = dated_sorted[first:last + 1]
+            total = sum(r["amount"] for r in window_rows)
+            grp_id = _group_id(
+                "D8",
+                vnum + "|" + "|".join(str(r["source_row_index"]) for r in window_rows),
+            )
+            refs = [ap_ref(r["source_row_index"]) for r in window_rows]
+            inv_nums = [r["invoice_number"] for r in window_rows]
+            amounts = [str(r["amount"]) for r in window_rows]
+            dates = [str(r["invoice_date"]) for r in window_rows]
+            findings.append(
+                DeterministicFinding(
+                    finding_type=FindingType.DUPLICATE_PAYMENT,
+                    severity=Severity.HIGH,
+                    description=(
+                        f"Possible split-payment: vendor {vnum} has "
+                        f"{len(window_rows)} invoices each below "
+                        f"{cfg.split_threshold} totaling {total}, dated "
+                        f"{dates[0]} to {dates[-1]} (each within "
+                        f"{cfg.split_window_days} days of a neighbour) "
+                        f"(invoices {inv_nums})."
+                    ),
+                    source_rows=refs,
+                    computed_values={
+                        "group_id": grp_id,
+                        "vendor_number": vnum,
+                        "invoice_numbers": inv_nums,
+                        "amounts": amounts,
+                        "total": str(total),
+                        "split_threshold": str(cfg.split_threshold),
+                        "invoice_dates": dates,
+                    },
+                    rule_used="split_payment_pattern",
+                    requires_human_review=True,
+                )
+            )
 
     summary = _build_summary(findings, cfg)
     return APDuplicateOutput(findings=findings, summary=summary)
@@ -880,7 +912,7 @@ _OUTPUT_CONTRACT = (
 
 def _findings_block(det: APDuplicateOutput) -> str:
     rows = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):
         rows.append(
             {
                 "finding_id": f.finding_id,
@@ -904,6 +936,7 @@ def build_prompt(det: APDuplicateOutput) -> str:
         "Do NOT conclude fraud or produce approval language.\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC FINDINGS:\n{_findings_block(det)}\n\n"
+        + omitted_note(det.findings)
         + _OUTPUT_CONTRACT
     )
 
@@ -968,7 +1001,7 @@ def mock_llm_response(det: APDuplicateOutput) -> dict[str, Any]:
     }
     refs: list[str] = []
     categorized = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):  # what the prompt shows
         if f.rule_used in skip_rules:
             continue
         f_refs = [_short_ref(s) for s in f.source_rows]
@@ -1203,6 +1236,7 @@ def run(
     actor: str = "system",
     export_dir: str | Path | None = None,
     config: Any = None,
+    preflight_report: Any = None,  # reuse the pipeline's report
 ) -> dict[str, Any]:
     """End-to-end AP duplicate / suspicious payment review run.
 
@@ -1248,7 +1282,7 @@ def run(
         "check_register": inputs.get("check_register"),
         "purchase_orders": inputs.get("purchase_orders"),
     }
-    preflight = run_preflight(
+    preflight = preflight_report or run_preflight(
         CAPABILITY,
         preflight_inputs,
         detect_conditions=detect_conditions,

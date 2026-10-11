@@ -100,6 +100,7 @@ def _norm_file_type(file_type: str) -> str:
 # Auto-map a semantic column only when confidence is at least this high AND
 # the mapping is unambiguous.
 HIGH_CONFIDENCE_THRESHOLD = 0.85
+UNIQUE_CANDIDATE_THRESHOLD = 0.8  # sole candidate: partial name match + full parse
 
 # Default synonym map for the semantic columns used by the 4 workflows.
 DEFAULT_SYNONYMS: dict[str, list[str]] = SEMANTIC_SYNONYMS
@@ -309,7 +310,11 @@ def build_column_mappings(
             best, conf, ranked = best_semantic_column(
                 frame, semantic, synonyms=DEFAULT_SYNONYMS
             )
-            if best is not None and conf >= HIGH_CONFIDENCE_THRESHOLD:
+            # A unique candidate that partly matches by name AND fully parses as
+            # the right type (date/amount score 0.5*0.6 + 0.5*1.0 = 0.8), e.g.
+            # "posting_date" or "budget_amount", is a confident match too.
+            unique_and_parses = len(ranked) == 1 and conf >= UNIQUE_CANDIDATE_THRESHOLD
+            if best is not None and (conf >= HIGH_CONFIDENCE_THRESHOLD or unique_and_parses):
                 mappings.append(
                     ColumnMapping(
                         semantic_name=semantic,
@@ -400,8 +405,12 @@ def run_preflight(
     approved_mappings: Optional[dict[str, dict[str, str]]] = None,
     config: Optional[dict] = None,
     detect_conditions: Optional[DetectConditionsFn] = None,
+    labels: Optional[dict[str, str]] = None,
 ) -> PreflightReport:
     """Run preflight for ``spec`` against ``inputs`` (input_key -> path/ParsedTable).
+
+    ``labels`` maps input keys to the names staff saw when uploading (e.g.
+    ``bank`` -> "Bank statement (CSV)"), so messages read in their terms.
 
     ``detect_conditions`` is the workflow's optional domain detector; it
     receives ``(profiles, mappings, inputs, config)`` and returns domain
@@ -417,6 +426,9 @@ def run_preflight(
 
     findings: list[PreflightFinding] = []
 
+    def label(key: str) -> str:
+        return f"'{(labels or {}).get(key, key)}'"
+
     # 2) Generic file-level findings.
     for input_key in spec.required_inputs:
         profile = profiles[input_key]
@@ -426,10 +438,10 @@ def run_preflight(
                 PreflightFinding(
                     code=PreflightConditionCode.MISSING_REQUIRED_FILE,
                     severity=Severity.CRITICAL,
-                    message=f"Required input '{input_key}' is missing.",
+                    message=f"Required file {label(input_key)} is missing.",
                     affected_input=input_key,
                     suggested_action=(
-                        f"Upload the '{input_key}' file "
+                        f"Upload the {label(input_key)} file "
                         f"({'/'.join(accepted)})."
                     ),
                     blocks_run=True,
@@ -442,12 +454,12 @@ def run_preflight(
                     code=PreflightConditionCode.UNSUPPORTED_FILE_TYPE,
                     severity=Severity.CRITICAL,
                     message=(
-                        f"Input '{input_key}' is a .{profile.file_type} file; "
+                        f"{label(input_key)} is a .{profile.file_type} file; "
                         f"accepted: {', '.join(accepted)}."
                     ),
                     affected_input=input_key,
                     suggested_action=(
-                        f"Convert '{input_key}' to one of: {', '.join(accepted)}."
+                        f"Save {label(input_key)} as one of: {', '.join(accepted)}."
                     ),
                     blocks_run=True,
                 )
@@ -465,12 +477,12 @@ def run_preflight(
                     code=PreflightConditionCode.UNSUPPORTED_FILE_TYPE,
                     severity=Severity.LOW,
                     message=(
-                        f"Optional input '{input_key}' is a .{profile.file_type} "
+                        f"Optional file {label(input_key)} is a .{profile.file_type} "
                         f"file; accepted: {', '.join(accepted)}. It will be skipped."
                     ),
                     affected_input=input_key,
                     suggested_action=(
-                        f"Convert '{input_key}' to {', '.join(accepted)} to use it."
+                        f"Save {label(input_key)} as {', '.join(accepted)} to use it."
                     ),
                     blocks_run=False,
                 )
@@ -485,8 +497,35 @@ def run_preflight(
     for m in mappings:
         if m.mapped_column and m.semantic_name in (_DATE_SEMANTICS + _AMOUNT_SEMANTICS):
             pc = _parse_conf_for(profiles.get(m.input_key), m.mapped_column)
-            if pc is not None and m.source != "human":
-                m.confidence = round(min(m.confidence, pc) if m.source == "auto" else pc, 4)
+            # Parse quality can only lower an auto match's confidence; it must
+            # never turn an uncertain name match into a confident one.
+            if pc is not None and m.source == "auto":
+                m.confidence = round(min(m.confidence, pc), 4)
+
+    # One plain-language next step per file listing every missing column and
+    # the columns the file actually has (shared by that file's findings, so
+    # next_steps shows it once).
+    missing_action: dict[str, str] = {}
+    for input_key in spec.required_inputs + spec.optional_inputs:
+        profile = profiles.get(input_key)
+        if profile is None or not profile.present:
+            continue
+        req, _ = _semantic_fields(spec, input_key)
+        missing = [sem for sem in req
+                   if (m := mapping_index.get(input_key, {}).get(sem)) is not None
+                   and m.mapped_column is None]
+        if not missing:
+            continue
+        cols = ", ".join(profile.detected_columns[:12]) or "(none found)"
+        if len(profile.detected_columns) > 12:
+            cols += ", ..."
+        wrong_file = (f"This may not be the right file for {label(input_key)}. "
+                      if len(missing) >= 2 and len(missing) * 2 >= len(req) else "")
+        missing_action[input_key] = (
+            f"{wrong_file}{label(input_key)} has no column for "
+            f"{', '.join(_human(sem) for sem in missing)}. Its columns are: {cols}. "
+            "Rename the matching columns, or choose them in the column-mapping step."
+        )
 
     for input_key in spec.required_inputs + spec.optional_inputs:
         profile = profiles.get(input_key)
@@ -507,15 +546,12 @@ def run_preflight(
                             code=PreflightConditionCode.MISSING_REQUIRED_COLUMN,
                             severity=Severity.HIGH,
                             message=(
-                                f"No column in '{input_key}' maps to required "
-                                f"field '{semantic}'."
+                                f"No column in {label(input_key)} could be used "
+                                f"as '{_human(semantic)}'."
                             ),
                             affected_input=input_key,
                             affected_column=semantic,
-                            suggested_action=(
-                                f"Add or rename a column for '{semantic}' in "
-                                f"'{input_key}', or provide a human mapping."
-                            ),
+                            suggested_action=missing_action[input_key],
                             blocks_run=True,
                         )
                     )
@@ -524,14 +560,12 @@ def run_preflight(
                             code=PreflightConditionCode.NEEDS_HUMAN_CONFIGURATION,
                             severity=Severity.HIGH,
                             message=(
-                                f"Required mapping '{input_key}.{semantic}' is "
-                                "unresolved."
+                                f"'{_human(semantic)}' in {label(input_key)} needs "
+                                "a column chosen."
                             ),
                             affected_input=input_key,
                             affected_column=semantic,
-                            suggested_action=(
-                                f"Map '{semantic}' to a column in '{input_key}'."
-                            ),
+                            suggested_action=missing_action[input_key],
                             blocks_run=True,
                         )
                     )
@@ -552,15 +586,39 @@ def run_preflight(
                         code=PreflightConditionCode.AMBIGUOUS_COLUMN_MAPPING,
                         severity=Severity.HIGH if is_required else Severity.LOW,
                         message=(
-                            f"Field '{semantic}' in '{input_key}' is ambiguous "
-                            f"between candidates: {', '.join(m.candidates[:3])}."
+                            f"'{_human(semantic)}' in {label(input_key)} could be "
+                            f"any of: {', '.join(m.candidates[:3])}."
                         ),
                         affected_input=input_key,
                         affected_column=m.mapped_column,
                         suggested_action=(
-                            f"Confirm which column is '{semantic}' in '{input_key}'."
+                            f"Choose which column is '{_human(semantic)}' in "
+                            f"{label(input_key)} in the column-mapping step."
                         ),
                         blocks_run=is_required,
+                    )
+                )
+
+            # A required field resolved only by a best guess (one candidate,
+            # below the auto threshold): use it, but say so -> PARTIAL.
+            if is_required and m.source == "unmapped" and not ambiguous:
+                findings.append(
+                    PreflightFinding(
+                        code=PreflightConditionCode.NEEDS_HUMAN_CONFIGURATION,
+                        severity=Severity.MEDIUM,
+                        message=(
+                            f"Using column '{m.mapped_column}' as "
+                            f"'{_human(semantic)}' in {label(input_key)} "
+                            "(best match, not certain)."
+                        ),
+                        affected_input=input_key,
+                        affected_column=m.mapped_column,
+                        suggested_action=(
+                            f"Check that '{m.mapped_column}' is the "
+                            f"{_human(semantic)} column in {label(input_key)}, or "
+                            "choose another in the column-mapping step."
+                        ),
+                        blocks_run=False,
                     )
                 )
 
@@ -573,14 +631,15 @@ def run_preflight(
                             code=PreflightConditionCode.LOW_DATE_PARSE_CONFIDENCE,
                             severity=Severity.HIGH if is_required else Severity.LOW,
                             message=(
-                                f"Date column '{m.mapped_column}' in '{input_key}' "
-                                f"parses at {pc:.0%} (< {spec.min_date_confidence:.0%})."
+                                f"Only {pc:.0%} of the dates in column "
+                                f"'{m.mapped_column}' of {label(input_key)} could be "
+                                f"read (need {spec.min_date_confidence:.0%})."
                             ),
                             affected_input=input_key,
                             affected_column=m.mapped_column,
                             suggested_action=(
-                                "Standardize the date format (e.g. YYYY-MM-DD) "
-                                f"in '{input_key}'."
+                                f"Use one date format (e.g. 2026-03-31) in column "
+                                f"'{m.mapped_column}' of {label(input_key)}."
                             ),
                             blocks_run=is_required,
                         )
@@ -593,15 +652,15 @@ def run_preflight(
                             code=PreflightConditionCode.LOW_AMOUNT_PARSE_CONFIDENCE,
                             severity=Severity.HIGH if is_required else Severity.LOW,
                             message=(
-                                f"Amount column '{m.mapped_column}' in "
-                                f"'{input_key}' parses at {pc:.0%} "
-                                f"(< {spec.min_amount_confidence:.0%})."
+                                f"Only {pc:.0%} of the amounts in column "
+                                f"'{m.mapped_column}' of {label(input_key)} could be "
+                                f"read (need {spec.min_amount_confidence:.0%})."
                             ),
                             affected_input=input_key,
                             affected_column=m.mapped_column,
                             suggested_action=(
-                                "Remove non-numeric characters / standardize the "
-                                f"amount column in '{input_key}'."
+                                f"Remove text and symbols other than $ , . - ( ) from "
+                                f"column '{m.mapped_column}' of {label(input_key)}."
                             ),
                             blocks_run=is_required,
                         )
@@ -646,6 +705,11 @@ def run_preflight(
     )
 
 
+def _human(semantic: str) -> str:
+    """'vendor_number' -> 'vendor number'."""
+    return semantic.replace("_", " ")
+
+
 def _classify(findings: list[PreflightFinding]) -> PreflightStatus:
     if any(f.blocks_run for f in findings):
         return PreflightStatus.FAIL
@@ -672,10 +736,14 @@ def _supported_checks(
 
 
 def _next_steps(findings: list[PreflightFinding]) -> list[str]:
+    """Deduplicated actions. When something blocks the run, only the blocking
+    actions are listed: optional advice is noise until the file is usable."""
     steps: list[str] = []
     seen: set[str] = set()
-    # Blocking actions first, then advisory.
+    blocking = any(f.blocks_run for f in findings)
     for f in sorted(findings, key=lambda x: (not x.blocks_run,)):
+        if blocking and not f.blocks_run:
+            continue
         action = f.suggested_action.strip()
         if action and action not in seen:
             seen.add(action)

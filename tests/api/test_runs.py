@@ -385,3 +385,21 @@ def test_rehydration_after_restart(api_settings, ap_run):
         # Artifact downloads still work from the rehydrated instance.
         artifact = body["artifacts"][0]
         assert c2.get(artifact["download_url"]).status_code == 200
+
+
+def test_settings_tolerances_are_run_defaults_and_run_config_wins(client, monkeypatch):
+    """Settings-page tolerances reach runs; a run's own config overrides them."""
+    import api.routes.workflows as routes
+
+    seen = {}
+
+    def fake_execute_run(workflow_type, inputs, **kw):
+        seen["config"] = kw["config"]
+        raise RuntimeError("stop here")  # -> 500; we only inspect the config
+
+    monkeypatch.setattr(routes, "execute_run", fake_execute_run)
+    monkeypatch.setattr(client.app.state.settings, "run_defaults",
+                        {"date_tolerance_days": 7, "amount_tolerance": 0.05})
+    client.post("/api/workflows/bank_reconciliation/runs",
+                data={"use_sample": "true", "config": '{"date_tolerance_days": 2}'})
+    assert seen["config"] == {"date_tolerance_days": 2, "amount_tolerance": 0.05}

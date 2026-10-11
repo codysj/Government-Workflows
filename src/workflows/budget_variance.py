@@ -24,6 +24,7 @@ module-level ``run()`` follows the shared workflow contract (see
 from __future__ import annotations
 
 import json
+from bisect import bisect_left, bisect_right, insort
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -54,7 +55,7 @@ from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt
 from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
-from src.llm.prompts import OUTPUT_RULES
+from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 # --------------------------------------------------------------------------- #
 # Config
@@ -66,7 +67,7 @@ DEFAULT_PCT_THRESHOLD = Decimal("10")  # percent
 KEY_COLUMNS = ("fund", "account", "department", "object")
 
 WORKFLOW_TYPE = "budget_variance"
-PROMPT_TEMPLATE_VERSION = "budget_variance.v2"  # v2: shared OUTPUT_RULES appended
+PROMPT_TEMPLATE_VERSION = "budget_variance.v3"  # v2: shared OUTPUT_RULES; v3: findings capped (PROMPT_FINDINGS_LIMIT)
 
 
 # --------------------------------------------------------------------------- #
@@ -170,33 +171,48 @@ def _has_subtotal_rollup(amounts: list[Decimal]) -> bool:
     a parent/subtotal line was concatenated into the detail rows (a rollup the
     deterministic join cannot net out). Only large, non-zero candidates are
     considered to avoid coincidental small-number matches.
+
+    For each candidate ``c`` (row i) the "others" are summed in file order,
+    skipping i, and every running total with enough children is compared to
+    ``c``. With prefix sums P (P[k] = first k values) those running totals
+    are P[k] for k <= i, and P[m] - c for m >= i+2 - so two sorted sweeps
+    answer it in O(n log n) instead of re-summing per candidate (O(n^2)).
     """
     vals = [a for a in amounts if a != 0]
     n = len(vals)
     if n < _ROLLUP_MIN_CHILDREN + 1:
         return False
     total = sum(vals)
-    for i, candidate in enumerate(vals):
-        if candidate == 0:
-            continue
-        others = total - candidate
-        # candidate could be the subtotal of all the others...
-        if n - 1 >= _ROLLUP_MIN_CHILDREN and others != 0:
-            rel = abs(candidate - others) / abs(candidate)
-            if rel <= _ROLLUP_REL_TOL:
-                return True
-        # ...or of a contiguous block immediately following it (typical layout:
-        # a subtotal row preceding/following its detail children).
-        run = Decimal("0")
-        children = 0
-        for j in range(n):
-            if j == i:
-                continue
-            run += vals[j]
-            children += 1
-            if children >= _ROLLUP_MIN_CHILDREN and candidate != 0:
-                if abs(candidate - run) / abs(candidate) <= _ROLLUP_REL_TOL:
-                    return True
+    prefix = [Decimal("0")]
+    for v in vals:
+        prefix.append(prefix[-1] + v)
+
+    def window(c: Decimal, shift: Decimal) -> tuple[Decimal, Decimal]:
+        slack = abs(c) * _ROLLUP_REL_TOL
+        return c + shift - slack, c + shift + slack
+
+    # The candidate is the subtotal of ALL the others.
+    for c in vals:
+        others = total - c
+        if others != 0 and abs(c - others) / abs(c) <= _ROLLUP_REL_TOL:
+            return True
+    # Running totals before the candidate: P[k], MIN <= k <= i.
+    seen: list[Decimal] = []
+    for i, c in enumerate(vals):
+        if i >= _ROLLUP_MIN_CHILDREN:
+            insort(seen, prefix[i])
+        lo, hi = window(c, Decimal("0"))
+        if seen and bisect_left(seen, lo) < bisect_right(seen, hi):
+            return True
+    # Running totals past the candidate: P[m] - c, m >= i+2 and m-1 >= MIN.
+    seen = []
+    for i in range(n - 1, -1, -1):
+        m = i + 2
+        if m <= n and m - 1 >= _ROLLUP_MIN_CHILDREN:
+            insort(seen, prefix[m])
+        lo, hi = window(vals[i], vals[i])  # P[m] - c in [c +- slack]
+        if seen and bisect_left(seen, lo) < bisect_right(seen, hi):
+            return True
     return False
 
 
@@ -524,9 +540,9 @@ def _resolve_join_keys(
 
 
 def _source_ref(
-    parsed_file_id: str, table_name: str, row_index: int, row: pd.Series
+    parsed_file_id: str, table_name: str, row_index: int, row: Any
 ) -> SourceRowRef:
-    cols = list(row.index)
+    cols = list(row.keys())  # a row dict or a Series
     return SourceRowRef(
         file_id=parsed_file_id,
         table_name=table_name,
@@ -618,10 +634,10 @@ def analyze(
 
     # Index rows by key.
     b_by_key: dict[tuple, tuple[int, pd.Series]] = {}
-    for i, row in b_df.iterrows():
+    for i, row in zip(b_df.index, b_df.to_dict("records")):
         b_by_key[_key_tuple(row, keys)] = (i, row)
     a_by_key: dict[tuple, tuple[int, pd.Series]] = {}
-    for i, row in a_df.iterrows():
+    for i, row in zip(a_df.index, a_df.to_dict("records")):
         a_by_key[_key_tuple(row, keys)] = (i, row)
 
     findings: list[DeterministicFinding] = []
@@ -749,7 +765,7 @@ def analyze(
         coa_join = [k for k in keys if k in coa_keys]
         if coa_join:
             present = b_keys_set | a_keys_set
-            for i, row in coa_df.iterrows():
+            for i, row in zip(coa_df.index, coa_df.to_dict("records")):
                 ckey = _key_tuple(row, coa_join)
                 # Compare on the same key columns used for present-set membership.
                 if coa_join == keys:
@@ -851,7 +867,7 @@ _GUARDRAILS = (
 
 def build_prompt(det: DeterministicOutput) -> str:
     rows = []
-    for f in det.findings:
+    for f in findings_for_prompt(det.findings):
         rows.append(
             {
                 "finding_id": f.finding_id,
@@ -873,6 +889,7 @@ def build_prompt(det: DeterministicOutput) -> str:
         "into themes. Do NOT calculate any variance.\n\n"
         + f"DETERMINISTIC SUMMARY:\n{json.dumps(det.summary, default=str, indent=2)}\n\n"
         + f"DETERMINISTIC FINDINGS:\n{json.dumps(rows, default=str, indent=2)}\n\n"
+        + omitted_note(det.findings)
         + "Return JSON with keys: summary, categorized_exceptions "
         "(list of {category, description, referenced_source_rows}), "
         "referenced_source_rows, suggested_review_steps, follow_up_questions, "

@@ -41,7 +41,8 @@ from src.core.schemas import (
     WorkflowRun,
     make_id,
 )
-from src.ingest.csv_loader import load_csv, to_input_file
+from src.ingest.csv_loader import to_input_file
+from src.ingest.excel_loader import load_table
 from src.llm.provider import get_provider, llm_mode
 from src.workflows.freeform import SensitivityNotConfirmedError
 from src.workflows.registry import DESCRIPTORS, WorkflowDescriptor, get_descriptor
@@ -80,27 +81,31 @@ def run_preflight(
 
     Raises KeyError for an unknown workflow type.
     """
-    module = get_descriptor(workflow_type).module
+    descriptor = get_descriptor(workflow_type)
     return preflight_engine.run_preflight(
-        module.CAPABILITY,
+        descriptor.module.CAPABILITY,
         inputs,
         approved_mappings=column_mappings,
         config=config,
-        detect_conditions=getattr(module, "detect_conditions", None),
+        detect_conditions=getattr(descriptor.module, "detect_conditions", None),
+        labels={u.key: u.label for u in descriptor.uploads},
     )
 
 
 def _approved_mappings_from_report(
     report: PreflightReport,
 ) -> dict[str, dict[str, str]]:
-    """HUMAN-approved ``{input_key: {semantic: column}}`` overrides only.
+    """Every column preflight resolved (human choice, confident auto match, or
+    a best guess it flagged for checking), as ``{input_key: {semantic: column}}``.
 
-    The engine's own ``auto`` guesses are NOT forced on the workflow; each
-    workflow keeps its own auto-detection as the default path.
+    Forwarded to the workflow so a PASS means the workflow reads the same
+    columns preflight checked. (Previously only human choices were forwarded;
+    a file preflight could read, e.g. "Posting Date" / "Transaction Amount",
+    then crashed in the workflow's own narrower column detection.)
     """
     out: dict[str, dict[str, str]] = {}
     for m in report.column_mappings:
-        if m.source == "human" and m.mapped_column:
+        if m.mapped_column:  # human, auto, or a flagged best guess
             out.setdefault(m.input_key, {})[m.semantic_name] = m.mapped_column
     return out
 
@@ -160,15 +165,15 @@ def _record_preflight_metadata(
 # Run helpers
 # --------------------------------------------------------------------------- #
 def _input_files_for(inputs: dict[str, Any]) -> list:
-    """InputFile provenance (name, hash, rows) for any CSV paths in ``inputs``."""
+    """InputFile provenance (name, hash, rows) for every CSV/Excel input."""
     out = []
     for key, val in inputs.items():
         if not isinstance(val, (str, Path)):
             continue
         p = Path(val)
-        if p.is_file() and p.suffix.lower() == ".csv":
+        if p.is_file() and p.suffix.lower() in (".csv", ".xlsx", ".xls"):
             try:
-                out.append(to_input_file(p, load_csv(p, table_name=key)))
+                out.append(to_input_file(p, load_table(p, table_name=key)))
             except Exception:
                 pass  # provenance is best-effort; never block a run on it
     return out
@@ -313,9 +318,10 @@ def _call_workflow(
 ) -> UniformRunResult:
     """Call the module's shared ``run()`` and normalize its result dict.
 
-    Only ``config`` / ``column_mappings`` may be skipped (freeform takes no
-    config; the Tyler-era modules take no mappings). Any other keyword the
-    module does not accept is a contract bug and raises.
+    Only ``config`` / ``column_mappings`` / ``preflight_report`` may be
+    skipped (freeform takes no config; the Tyler-era modules take no mappings;
+    only they reuse the pipeline's preflight). Any other keyword the module
+    does not accept is a contract bug and raises.
     """
     if run_export_dir is None:
         wf_export = None
@@ -324,7 +330,7 @@ def _call_workflow(
     else:
         wf_export = run_export_dir
     params = inspect.signature(descriptor.module.run).parameters
-    missing = set(kwargs) - set(params) - {"config", "column_mappings"}
+    missing = set(kwargs) - set(params) - {"config", "column_mappings", "preflight_report"}
     if missing:
         raise TypeError(f"{descriptor.workflow_type}.run() lacks {sorted(missing)}")
     res = descriptor.module.run(
@@ -474,6 +480,7 @@ def run_workflow(
             export_dir=export_dir, run_export_dir=run_export_dir,
             provider=provider, ledger=ledger, audit=wf_audit, run_id=run_id,
             actor=actor, config=wf_config, column_mappings=approved or None,
+            preflight_report=report,
         )
     except SensitivityNotConfirmedError as exc:
         ledger.update_run_status(run_id, RunStatus.FAILED.value)
