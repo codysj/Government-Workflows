@@ -213,7 +213,12 @@ def run_eval(
     Returns the structured report dict.
     """
     names = list(workflows or DEFAULT_WORKFLOWS)
-    base_out = Path(out_dir) if out_dir is not None else (REPO_ROOT / "runs")
+    if out_dir is not None:
+        base_out = Path(out_dir)
+    elif report_path is not None:
+        base_out = Path(report_path).parent  # exports sit next to an explicit report
+    else:
+        base_out = REPO_ROOT / "runs"
     if report_path is None:
         report_path = base_out / "eval_report.json"
     else:

@@ -14,7 +14,7 @@ always grounded in that run's own data, validated the same way, and logged.
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-902%20py%20%2B%2057%20fe%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-903%20py%20%2B%2057%20fe%20passing-brightgreen)
 ![Runs offline](https://img.shields.io/badge/AI-mock%20by%20default%20%C2%B7%20runs%20offline-blue)
 ![Data](https://img.shields.io/badge/data-synthetic%20only-orange)
 
@@ -63,7 +63,7 @@ The whole design rests on one line:
 This is enforced two ways. Each workflow builds the LLM prompt **only** from the
 deterministic findings, and a deterministic validator checks every number, date,
 identifier, and row reference in the response against those findings: anything that
-isn't there **rejects the draft**. The AI's output is always labelled a **draft** and
+isn't there **rejects the draft** ([exact rules](docs/evaluation.md#real-model-guardrail-results)). The AI's output is always labelled a **draft** and
 shown in a visually distinct trust boundary until a human approves it.
 
 <p align="center">
@@ -79,8 +79,9 @@ exact same guardrails, [measured below](#measured-results).
 
 ## A run, end to end
 
-The React console guides a non-technical user through four steps — **upload → file check →
-run → review** — with progressive disclosure so they're never staring at a blank form.
+The React console guides a non-technical user through four steps — **choose a workflow →
+provide inputs → file check → run** — then opens the review page, with progressive
+disclosure so they're never staring at a blank form.
 
 <table>
   <tr>
@@ -94,15 +95,16 @@ run → review** — with progressive disclosure so they're never staring at a b
 </table>
 
 Expanding any finding shows the **actual cell values** of every source row it cites —
-grouped by document, with the driving fields highlighted and full provenance (file name,
-absolute row index, recorded SHA-256 hash) on every row. The UI never computes anything;
-it only renders what the backend decided.
+grouped by document, with the driving fields highlighted and provenance (file name and
+absolute row index on every row, the file's recorded SHA-256 hash per document). The UI
+does no financial math: every amount, variance, match, and finding comes from the
+backend; the browser only groups and counts findings for display.
 
 <p align="center">
   <img src="docs/media/evidence.png" alt="Expanded finding showing the two source rows with cell values, highlighted driving fields, file name and recorded hash" width="88%">
 </p>
 
-Every AI interaction — workflow drafts and run-scoped Q&A alike — lands in a searchable
+Every AI interaction — workflow drafts and run-scoped Q&A alike — lands in the
 **AI usage log** with its model, prompt-template version, validation status, and
 draft-vs-approved state: a CPRA-style review surface for AI usage.
 
@@ -166,15 +168,18 @@ every number, date, identifier, and row reference in each draft was checked:
 - **72 adversarial edits** of real drafts (an invented amount, percent, count, date,
   identifier, or row) are replayed offline on every test run, and all must fail.
 
-**Scale.** Every workflow processes a **50,000-row** export in **3–8 seconds** on a
-laptop (bank reconciliation was over two minutes, PO review six, AP review over ten).
+**Scale.** Every workflow that takes files (7 of 8; freeform takes a written request)
+processes a **50,000-row** export in **under 10 seconds** on a laptop (3–8 s measured on
+an idle machine; bank reconciliation was over two minutes, PO review six, AP review over
+ten).
 The rewritten algorithms with an independent definition (bank matcher, budget rollup
 detector, footer detection) are pinned by randomized equivalence tests; the other
-speed-ups (row indexes, cached lookups) were checked old-vs-new on perturbed and
-1,500-row inputs during review, with identical findings.
+speed-ups (row indexes, cached lookups) were checked old-vs-new during review, the last
+round with `python -m src.eval.scale --rows 20000 --digest` (a hash of every finding):
+identical findings.
 
 Method, per-workflow tables, and the tuning history (including what went wrong):
-[`docs/evaluation.md`](docs/evaluation.md). Total spent on real-model calls: about $0.12.
+[`docs/evaluation.md`](docs/evaluation.md). Total spent on real-model calls: $0.125 ([spend log](docs/goal.md#spend-log-append-only)).
 
 ## Architecture
 
@@ -203,7 +208,7 @@ Method, per-workflow tables, and the tuning history (including what went wrong):
 | --- | --- | --- |
 | Core (`src/`) | Parsing, every calculation and match, preflight, validation, source-row tracking, exports, audit log | Delegates a calculation to the LLM or a UI |
 | Front ends (`api/`, `cli/`, `mcp_server.py`) | Transport and input handling | Business logic; each calls `pipeline.run_workflow` |
-| React console (`frontend/`) | Rendering, review actions, downloads | Computes **any** value, even a display-only sum |
+| React console (`frontend/`) | Rendering, review actions, downloads | Financial math: every amount, variance, and match comes from the backend |
 
 The console and the MCP server share one ledger, so a run started from a chat
 assistant shows up in the console's history (the CLI uses an in-memory ledger unless
@@ -212,7 +217,7 @@ retired in favor of the guided console.
 
 ## Getting started
 
-Requires **Python 3.11+** and **Node.js LTS** (first run only). Runs fully offline by default.
+Requires **Python 3.11+** (CI tests 3.12) and **Node.js LTS** (first run only). Runs fully offline by default.
 
 ### Deployment status
 
@@ -269,7 +274,7 @@ To measure a model yourself: `python -m src.eval.real_llm --repeat 3`.
 cd frontend && npm test && npm run typecheck && npm run lint
 ```
 
-**902 backend + 57 frontend tests pass.** CI (`.github/workflows/ci.yml`) runs all of
+**903 backend + 57 frontend tests pass.** CI (`.github/workflows/ci.yml`) runs all of
 the above except the scale benchmark. The backend suite includes offline replays of
 recorded real-model drafts (`tests/integration/test_real_llm_replay.py`), MCP protocol
 tests, and randomized equivalence tests for the rewritten matching, rollup, and

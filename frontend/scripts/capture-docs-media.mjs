@@ -101,13 +101,8 @@ try {
   await page.getByRole("heading", { name: /What the checks found/i }).waitFor({ timeout: 60_000 });
   await dismissToasts();
   await page.evaluate(() => window.scrollTo(0, 0));
-  await shot("review-run-top.png");
-  await frame(2200);
-
-  // Split-payment section (the planted 3-invoice split, one finding).
-  await page.getByText(/Possible split-payment: vendor/).first().scrollIntoViewIfNeeded();
-  await page.evaluate(() => window.scrollBy(0, -200));
-  await frame(1100);
+  await shot("review-run-top.png");  // already shows the one split-payment finding
+  await frame(3300);
 
   // AI draft inside its trust boundary.
   const ai = page.getByRole("region", { name: /AI-drafted commentary/i });

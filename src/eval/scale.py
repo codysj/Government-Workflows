@@ -1,6 +1,10 @@
 """Scale benchmark: time every workflow on ~50k-row synthetic inputs.
 
-    .venv\\Scripts\\python.exe -m src.eval.scale [--rows 50000] [--workflow NAME ...]
+    .venv\\Scripts\\python.exe -m src.eval.scale [--rows 50000] [--workflow NAME ...] [--digest]
+
+``--digest`` adds a hash of every finding and the preflight report (random ids,
+timestamps, and temp paths masked): run it on two revisions to check that a
+speed-up changed nothing.
 
 Each workflow's bundled sample is multiplied into ``copies`` blocks. Copy ``i``
 shifts dates by ``30*(i mod 120)`` days, adds ``0.37*i`` to amounts, and suffixes
@@ -14,6 +18,8 @@ written to the repo.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 import re
 import tempfile
@@ -41,6 +47,10 @@ _KEEP_AS_IS = {"chart_of_accounts"}  # reference data: codes must stay valid
 # / fund / department, as in a real file (not one giant section).
 _GROUP_COLUMNS = {"section", "fund", "department"}
 _ID_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9_-]+$")
+_VOLATILE_RE = re.compile(
+    r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}"  # uuids
+    r"|\d{4}-\d{2}-\d{2}T[\d:.]+(?:[+-]\d{2}:\d{2}|Z)?"  # timestamps
+)
 _AMOUNT_HINTS = ("amount", "total", "debit", "credit", "budget", "actual", "price", "cost")
 
 
@@ -91,7 +101,23 @@ def scale_inputs(sample: dict[str, Any], rows: int, work: Path) -> tuple[dict[st
     return out, largest
 
 
-def run(rows: int, workflows: Optional[list[str]] = None) -> list[dict[str, Any]]:
+def _digest(result: Any, tmp: str) -> str:
+    """Order-independent hash of a run's findings + preflight, volatile parts masked."""
+    paths = {tmp, tmp.replace("\\", "/"), json.dumps(tmp)[1:-1]}
+
+    def clean(obj: Any) -> str:
+        text = json.dumps(obj, sort_keys=True, default=str)
+        for path in paths:
+            text = text.replace(path, "TMP")
+        return _VOLATILE_RE.sub("X", text)
+
+    parts = sorted(clean(f.model_dump(mode="json")) for f in result.findings)
+    parts.append(clean(result.preflight.model_dump(mode="json") if result.preflight else None))
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
+
+
+def run(rows: int, workflows: Optional[list[str]] = None,
+        digest: bool = False) -> list[dict[str, Any]]:
     results = []
     for d in list_descriptors():
         if not d.has_sample or (workflows and d.workflow_type not in workflows):
@@ -106,12 +132,17 @@ def run(rows: int, workflows: Optional[list[str]] = None) -> list[dict[str, Any]
                 status = r.preflight_status
                 findings = len(r.findings)
                 draft_ok = bool(r.validation and r.validation.passed)
+                seconds = round(time.perf_counter() - start, 2)
+                fingerprint = _digest(r, tmp) if digest else None
             except Exception as exc:  # report, keep going
                 status, findings = f"error: {type(exc).__name__}: {exc}"[:200], None
-                draft_ok = False
+                draft_ok, fingerprint = False, None
+                seconds = round(time.perf_counter() - start, 2)
             results.append({"workflow": d.workflow_type, "rows": n, "status": status,
                             "findings": findings, "draft_validated": draft_ok,
-                            "seconds": round(time.perf_counter() - start, 2)})
+                            "seconds": seconds})
+            if digest:
+                results[-1]["digest"] = fingerprint
             print(results[-1], flush=True)
     return results
 
@@ -120,8 +151,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="src.eval.scale")
     ap.add_argument("--rows", type=int, default=50_000)
     ap.add_argument("--workflow", action="append", dest="workflows")
+    ap.add_argument("--digest", action="store_true",
+                    help="also print a hash of findings + preflight per workflow")
     args = ap.parse_args(argv)
-    run(args.rows, args.workflows)
+    run(args.rows, args.workflows, args.digest)
     return 0
 
 

@@ -28,7 +28,7 @@ sections after it are the state.
 **Outcome so far:** one pipeline behind four front ends (React console, CLI,
 MCP server, eval harness); claim validator that caught a real model's invented
 invoice number (final real batch 22/24 as run, 23/24 after a fix); every
-workflow handles 50,000 rows in 3-8 s (was up to > 10 min); Streamlit retired;
+file-based workflow handles 50,000 rows in under 10 s (3-8 s idle; was up to > 10 min); Streamlit retired;
 CI added; non-test source lines below baseline. Details below and in
 [`evaluation.md`](evaluation.md) / [`decisions.md`](decisions.md).
 
@@ -406,3 +406,30 @@ and why. One dated bullet per entry.
   on HEAD vs the working tree: identical for all 7 workflows. Full 50k run:
   bank 6.0, budget 6.9, report 7.2, search 2.9, AP 7.3, JE 5.6, PO 6.4 s.
   README now says 3-8 s.
+- 2026-10-11: Fresh claim-by-claim audit of README, scripts/README, mcp.md,
+  evaluation.md, .env.example (fresh-eyes subagent, after all edits above;
+  ~75 claims confirmed). Findings and resolutions:
+  FALSE - "searchable" AI usage log (no search exists): word removed. "The UI
+  never computes anything / not even a display-only sum": the console counts
+  findings by severity; claim rewritten to the true one (no financial math in
+  the browser; it only groups and counts findings). "3-8 s" timings: the
+  auditor's run overlapped a clean-clone test run (bank 8.5, budget 9.2 s);
+  quiet re-run 2.9-7.3 s, so the README now says "under 10 seconds (3-8 s on
+  an idle machine)" and evaluation.md states the conditions.
+  STALE - screenshots predated the label fixes: re-captured and checked
+  (titles, "check results"); the GIF's split-payment frame duplicated the
+  review frame, so that capture step was removed. evaluation.md called the
+  final batch "held-out" with "shipped prompts": now "final batch", 22/24 as
+  run, 23/24 only after a fix tuned on it, and the AP prompt difference stated.
+  MISLEADING - "every workflow" (7 of 8 take files) and "SHA-256 on every row"
+  (per document) reworded; wizard steps named as the UI shows them;
+  validator's extra allowances (derived counts, data years, 100) documented;
+  Python "3.11+ (CI tests 3.12)" since 3.11 is not tested here.
+  UNVERIFIABLE - real-model batch numbers: evaluation.md now says the raw
+  recordings stay in gitignored runs/ and which fixtures are committed; spend
+  stated as $0.125 linked to the spend log; the old-vs-new claim is now backed
+  by a command, `python -m src.eval.scale --digest` (hash of every finding +
+  preflight, ids masked; stability test added).
+  Out of scope but fixed: the eval harness wrote exports into runs/ even with
+  `--out` (now next to the report; evaluation.md said "no on-disk state");
+  messy-fixture description matched to what exists. pytest 903.

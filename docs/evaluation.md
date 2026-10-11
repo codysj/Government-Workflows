@@ -14,8 +14,9 @@ The harness runs each MVP workflow on its bundled synthetic known-answer dataset
 through `src.core.pipeline.run_workflow` -- the same entry point the API and CLI use -- with the
 default mock LLM provider (no API key / no internet), an in-memory `RunLedger`,
 and a non-JSONL `AuditLog`. It exercises the real pipeline (preflight → deterministic analysis →
-mock LLM → validation → export → review packet) and leaves no shared on-disk
-state. It imports no provider-specific code.
+mock LLM → validation → export → review packet). It writes only its report and
+export packets: under the gitignored `runs/` by default, or next to the `--out`
+report. It imports no provider-specific code.
 
 ### Run it
 
@@ -137,7 +138,7 @@ pass. It always uses the offline mock, whatever `LLM_MODE` says.
 Per Phase 7 "Automated tests", the suite covers CSV/Excel ingestion, date/amount
 parsing, source-row preservation, bank matching, variance calculations, report
 consistency checks, LLM mock responses, LLM validation, run-ledger writes,
-audit-log writes, and export generation (902 tests at the time of writing;
+audit-log writes, and export generation (903 tests at the time of writing;
 `pytest` is the source of truth). Key coverage for the Tyler/Munis-era workflows:
 
 - `tests/unit/test_tyler_ingest.py` — `normalize_tyler_export`,
@@ -200,23 +201,24 @@ all on synthetic data only:
   into the deterministic findings and rejecting LLM resolution-claims.
 
 Synthetic messy-data fixtures live under
-`data/synthetic/<workflow>/messy/` and cover, per workflow: a FAIL case (missing
-required column/file), PARTIAL cases (bank sign-convention mismatch and batch
-deposit; budget embedded-subtotal rollup; report unrecognized line types / wide
-pivot), and a clean PASS case. Each fixture directory's `README.md` states the
-data is synthetic only with no real PII.
+`data/synthetic/<workflow>/messy/` (bank, budget, report, freeform) and cover a
+FAIL case (missing required column/file) and PARTIAL cases (bank sign-convention
+mismatch and batch deposit; budget embedded-subtotal rollup; report
+unrecognized line types) per workflow; report and freeform also have a clean
+PASS case. All of it is synthetic, with no real PII.
 
 ## Real-model guardrail results
 
 Measured 2026-10-11 against a real model (`deepseek/deepseek-v4.1-flash` via
-OpenRouter, hidden reasoning off, prompts `*.v2`; the shipped `*.v3` adds only
-the 150-finding cap, so prompts are identical at these sizes) on the bundled
-synthetic data.
+OpenRouter, hidden reasoning off, prompts `*.v2`) on the bundled synthetic data.
+The shipped `*.v3` prompts add only the 150-finding cap, which these samples
+never reach; the AP sample has since changed (split payments reported per
+cluster: 15 → 13 findings), so its prompt content differs slightly.
 Reproduce with `python -m src.eval.real_llm --repeat 3 --record <dir>` (loads
 the gitignored `.env`; about $0.03 per 24 responses).
 
-**Final held-out batch** (24 fresh responses, 3 per workflow, shipped
-validator and prompts; 1,345 numbers / dates / identifiers / row references
+**Final batch** (24 fresh responses, 3 per workflow, run after the
+adversarial-review fixes; 1,345 numbers / dates / identifiers / row references
 checked):
 
 | Workflow | Responses | Accepted | Claims checked |
@@ -234,8 +236,13 @@ checked):
   citing nothing.
 - The po_invoice_review rejection was a false positive (inline enumeration
   "(4) missing_po_over_threshold" read as the number 4). Fixed afterwards;
-  replaying that response now passes. Net: **23/24 accepted, the 1 rejection
-  correct, 0 false positives remaining.**
+  replaying that response now passes. As run: **22/24**; replayed after the
+  fix: 23/24 with the 1 rejection correct. The fix was tuned on this batch, so
+  23/24 is not a held-out number.
+- The raw recordings of these batches are not committed (they stay in the
+  gitignored `runs/real_llm`); what is committed is 8 accepted drafts and 2
+  rejected ones under `tests/fixtures/real_llm`, replayed on every test run.
+  Spend is logged per batch in [`goal.md`](goal.md).
 - Across all 96 real responses recorded during this work, replayed through the
   final validator, the only rejections are correct ones: a hallucinated invoice
   number (`INV-90065`, exists nowhere in the data), the empty draft, and a
@@ -256,7 +263,10 @@ response and from the material the model was shown (summary + findings), using
 the same normalizer on both sides (`$12,450.00` = `12450`, `17.5%` = `17.5000`,
 `March 10, 2026` = `2026-03-10`, `INV-10234` is an identifier, `7-row` is the
 number 7). A claim must match the data at the precision it was written;
-whole numbers only round-match values of 100 or more. Any miss is an error.
+whole numbers only round-match values of 100 or more. Besides values in the
+findings, a few things always count as supported: counts derived from the
+findings (e.g. how many are high severity), years that appear in the data, and
+the number 100 (as in "100%"). Any other miss is an error.
 
 **Tuning history** (each fix found on one batch, confirmed on the next):
 
@@ -283,7 +293,8 @@ are kept and the draft is marked "AI draft unavailable".
 ~50k rows (copy *i* shifts dates a month, offsets amounts by $0.37·*i*, and
 suffixes identifiers the same way in every file, so cross-file joins still line
 up; vendors stay the same) and times the full pipeline (preflight → workflow →
-mock draft → validation → exports), offline. Measured 2026-10-11 on a laptop:
+mock draft → validation → exports), offline. Measured 2026-10-11 on an idle laptop
+(single run; the same run under other load was up to ~35% slower, still under 10 s):
 
 | Workflow | Rows | Before | After | Main fix |
 | --- | --- | --- | --- | --- |
@@ -305,9 +316,10 @@ definition are pinned by randomized equivalence tests against the original
 (`test_matching.py`, the budget rollup and footer-detection tests); the
 remaining rewrites (row indexes, cached lookups) were checked old-vs-new on
 perturbed and 1,500-row inputs during review, with identical findings. The
-last round (header check, cached column names) was checked by hashing every
-finding and preflight report, IDs and timestamps masked, at 20k rows: identical
-before and after for all 7 workflows. At 50k rows
+last round (header check, cached column names) was checked with
+`python -m src.eval.scale --rows 20000 --digest` on the old and new revisions
+(a hash of every finding and the preflight report): identical for all 7
+workflows. At 50k rows
 every workflow's draft still passes validation: prompts list the 150 most severe
 findings, and drafts state the true totals from the deterministic summary.
 
