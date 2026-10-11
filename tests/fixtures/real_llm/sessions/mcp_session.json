@@ -1,0 +1,49 @@
+{
+  "run": {
+    "status": "completed",
+    "findings_total": 9,
+    "ai_validation": {
+      "passed": true,
+      "errors": [],
+      "warnings": [],
+      "invented_reference_detected": false,
+      "numeric_claims_checked": 73
+    },
+    "ai_draft_excerpt": "This is a draft summary for human review of 9 flagged PO/invoice mismatches in the po_invoice_review workflow. The findings span rule categories invoice_exceeds_po, wrong_vendor, missing_po, missing_po_over_threshold, closed_po_usage, unit_price_mismatch, quantity_mismatch, received_not_invoiced, and invoiced_not_received, with severity counts of 3 high, 5 medium, and 1 low. These are exceptions f"
+  },
+  "qa": [
+    {
+      "question": "Which purchase order was invoiced above its total, and by how much?",
+      "answer": "PO-3001 was invoiced above its total: total invoiced 11500.00 exceeds the PO total 10000.00 by an overage of 1500.00 (tolerance 0.0%). This is per the 'invoice_exceeds_po' finding.",
+      "answerable": true,
+      "referenced_source_rows": [
+        "ap_invoice_detail:59",
+        "purchase_orders:1"
+      ],
+      "validation": {
+        "passed": true,
+        "errors": [],
+        "warnings": [],
+        "invented_reference_detected": false,
+        "numeric_claims_checked": 5
+      }
+    },
+    {
+      "question": "What is the city sales tax rate for next fiscal year?",
+      "answer": "This question cannot be answered from the run data. The run covers a PO/invoice review workflow, and the only available reference data is a city profile (city_name 'Sample City', default_actor 'finance_staff'). No sales tax rate for any fiscal year is present in the findings, source rows, reference data, or run metadata.",
+      "answerable": false,
+      "referenced_source_rows": [],
+      "validation": {
+        "passed": true,
+        "errors": [],
+        "warnings": [],
+        "invented_reference_detected": false,
+        "numeric_claims_checked": 0
+      }
+    }
+  ],
+  "model": "deepseek/deepseek-v4.1-flash",
+  "spend_usd": 0.0,
+  "usage_before": 0.120928302,
+  "usage_after": 0.120928302
+}

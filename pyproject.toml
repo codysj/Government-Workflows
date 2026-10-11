@@ -20,6 +20,7 @@ dependencies = [
     "uvicorn",
     "httpx",
     "python-multipart",
+    "mcp>=2.3",
 ]
 
 [tool.setuptools]

@@ -22,7 +22,7 @@ sections after it are the state.
 | Current milestone | M4 Real-use robustness |
 | Branch | `goal/portfolio-hardening` |
 | Baseline commit | `4a5767a` |
-| OpenRouter spend so far | $0.115 of $1.50 cap |
+| OpenRouter spend so far | $0.121 of $1.50 cap |
 | Last updated | 2026-10-11 (M2 done) |
 
 ---
@@ -168,8 +168,8 @@ questions in chat, never in the repo.
 | M1 One pipeline | done | bc482c4 | one registry + `src/core/pipeline.py`; eval/CLI/API share it; non-test LOC 27469 |
 | M2 Real-model guardrails | done | c7077db | final held-out 23/24, the 1 rejection correct; hallucinated invoice caught (`docs/evaluation.md`) |
 | M3 Retire Streamlit | done | 475418d + bc482c4 | UI removed first, then `app/` deleted when the pipeline moved |
-| M4 Real-use robustness | self_review | (M4 commit) | 50k rows: all workflows 4-12 s (were up to >10 min); in-process launcher; plain-language preflight |
-| M5 MCP front end | not_started | | |
+| M4 Real-use robustness | self_review | 7d3d078 | 50k rows: all workflows 4-12 s (were up to >10 min); in-process launcher; plain-language preflight |
+| M5 MCP front end | done | (M5 commit) | `mcp_server.py` (5 tools, stdio), protocol tests, one recorded real session (`docs/mcp.md`) |
 | M6 Portfolio polish | not_started | | |
 | Final whole-branch review | not_started | | |
 
@@ -182,7 +182,7 @@ questions in chat, never in the repo.
 - [x] `app/` (Streamlit) removed
 - [ ] Launcher shuts down cleanly; 50k-row timings recorded; plain-language
       FAIL/PARTIAL guidance tested
-- [ ] MCP server with tests and one recorded real call
+- [x] MCP server with tests and one recorded real call
 - [ ] CI file valid; all suites green from a clean checkout; every README claim
       backed by a command
 - [ ] Non-test source lines below baseline (see Baselines)
@@ -214,6 +214,7 @@ git ls-files '*.py' '*.ts' '*.tsx' | grep -v -E '^tests/|^frontend/e2e/|\.test\.
 | 2026-10-11 | Held-out 2: 8 x2 | deepseek/deepseek-v4.1-flash | $0.0452 | $0.0572 | $0.0121 |
 | 2026-10-11 | Re-record fixtures v2 (8) + final held-out 8 x3 | deepseek/deepseek-v4.1-flash | $0.0640 | $0.0914 | $0.0274 |
 | 2026-10-11 | Final held-out after review fixes: 8 x3 | deepseek/deepseek-v4.1-flash | $0.0961 | $0.1146 | $0.0185 |
+| 2026-10-11 | Re-record AP fixture after D8 change + MCP real session (run + 2 Q&A) | deepseek/deepseek-v4.1-flash | $0.1146 | $0.1209 | $0.0063 |
 
 ## Log (append-only)
 
@@ -315,3 +316,11 @@ and why. One dated bullet per entry.
   defaults; Excel inputs get provenance hashes; freeform's discovery log moved
   to runs/ (it was editing a tracked doc on every run); LLM prompts capped at
   150 findings.
+- 2026-10-11: M5. `mcp_server.py` (mcp 2.3 `MCPServer`, stdio): list_workflows,
+  preflight, run_workflow, get_run, ask_about_run, sharing the console's
+  ledger/audit/exports. Anticipated failures raise `ToolError` so the host sees
+  the plain message (2.x hides other exception text). Real session through
+  the protocol: draft validated (73 claims); an answerable question answered
+  with the exact figures and rows; an unanswerable one declined with no
+  invented figure. Trust boundary for MCP documented in docs/mcp.md (host
+  model's own prose is outside it).
