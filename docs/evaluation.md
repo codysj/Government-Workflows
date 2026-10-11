@@ -8,7 +8,7 @@ document describes (1) the automated evaluation metrics the harness tracks and
 
 Code: `src/eval/metrics.py` (metrics + known-answer expectations),
 `src/eval/harness.py` (runner + report), tests
-`tests/integration/test_eval.py` (12 tests).
+`tests/integration/test_eval.py`.
 
 The harness runs each MVP workflow on its bundled synthetic known-answer dataset
 through `src.core.pipeline.run_workflow` -- the same entry point the API and CLI use -- with the
@@ -128,45 +128,45 @@ The default workflow list covers seven tabular workflows:
 `bank_reconciliation`, `budget_variance`, `report_review`,
 `transaction_search`, `ap_duplicate_review`, `je_upload_prep`,
 `po_invoice_review`. Freeform is excluded (no tabular dataset). The harness
-accepts `--workflow <name>` to run a single workflow, `--export` to write
-artifacts to `runs/<run_id>/`, and exits 0 iff all known-answer checks pass.
+accepts `--workflow <name>` to run a single workflow and `--no-export` to skip
+writing artifacts (written by default), and exits 0 iff all known-answer checks
+pass. It always uses the offline mock, whatever `LLM_MODE` says.
 
 ### Supporting automated tests
 
 Per Phase 7 "Automated tests", the suite covers CSV/Excel ingestion, date/amount
 parsing, source-row preservation, bank matching, variance calculations, report
 consistency checks, LLM mock responses, LLM validation, run-ledger writes,
-audit-log writes, and export generation. The full suite is **705 tests**
-(all passing). Key additions for the Tyler/Munis-era workflows:
+audit-log writes, and export generation (902 tests at the time of writing;
+`pytest` is the source of truth). Key coverage for the Tyler/Munis-era workflows:
 
-- `tests/unit/test_tyler_ingest.py` (45 tests) — `normalize_tyler_export`,
+- `tests/unit/test_tyler_ingest.py` — `normalize_tyler_export`,
   `detect_dataset_type`, `source_ref_for_row`, `write_normalized_csv` across all
   eight dataset types; header detection from CSV and XLSX (including title-block
   detection); Decimal/date parsing; footer/repeated-header flagging; fail-closed
   error cases.
-- `tests/unit/test_tyler_readiness.py` (26 tests) — Tyler-normalized inputs
+- `tests/unit/test_tyler_readiness.py` — Tyler-normalized inputs
   through the original three workflows; derive_signed_amount; combined
   budget-to-actual file; report review with Tyler COA input; Excel load path.
-- `tests/unit/test_transaction_search.py` (50 tests) — SearchCriteria
+- `tests/unit/test_transaction_search.py` — SearchCriteria
   validation, mock parser (Q1-Q4 known answers), vendor fuzzy match, OR keyword
   semantics, preflight FAIL cases, export artifact generation.
-- `tests/unit/test_ap_duplicate_review.py` (92 tests) — all nine checks D1/D1b/
+- `tests/unit/test_ap_duplicate_review.py` — all nine checks D1/D1b/
   D2-D8 individually and combined; void check exclusion; config overrides;
   preflight PASS/FAIL; export artifacts.
-- `tests/unit/test_je_upload_prep.py` (82 tests) — all 11 blocking rules and
+- `tests/unit/test_je_upload_prep.py` — all 11 blocking rules and
   3 warnings individually; valid draft -> upload-ready; invalid draft -> no xlsx;
   Tyler normalizer integration; config overrides.
-- `tests/unit/test_po_invoice_review.py` (70 tests) — all 9 checks P1-P8+P3b
+- `tests/unit/test_po_invoice_review.py` — all 9 checks P1-P8+P3b
   individually and combined; optional file INFO findings; config overrides;
   preflight PASS/FAIL; export artifacts.
-- `tests/integration/test_cli.py` and `test_app_registry.py` — end-to-end CLI
-  subcommand smoke tests and app-registry adapter tests for all eight workflows.
+- `tests/integration/test_cli.py` and `test_pipeline.py` — end-to-end CLI
+  subcommand smoke tests and shared-pipeline tests for all eight workflows.
 - `tests/integration/test_eval.py` — harness runs all seven tabular workflows,
   7/7 known-answer checks pass.
 
-The CLI integration test (`tests/integration/test_cli.py`) and the app-import
-test (`tests/unit/test_app_imports.py`) exercise the end-to-end and UI-contract
-paths for all eight workflows.
+`tests/unit/test_registry_surface.py` checks the single registry and run
+contract every workflow module must follow.
 
 > Windows note: the default pytest temp root is ACL-blocked in this sandbox; run
 > tests with a project-local basetemp, e.g.
@@ -175,25 +175,25 @@ paths for all eight workflows.
 ### Preflight / messy-data test fixtures
 
 The preflight / capability layer adds its own deterministic test coverage on top
-of the known-answer eval (the full suite is **705 tests**). These tests exercise
+of the known-answer eval. These tests exercise
 the PASS / PARTIAL / FAIL determination and the conservative messy-data handling,
 all on synthetic data only:
 
-- `tests/unit/test_preflight.py` (19 tests) — the shared engine contract:
+- `tests/unit/test_preflight.py` — the shared engine contract:
   status rules, blocking vs non-blocking findings, column mapping (auto / human /
   unmapped), parse-confidence gating, source-row preservation, and a crashing
   domain detector being caught.
 - Per-workflow preflight tests —
-  `tests/unit/test_bank_reconciliation_preflight.py` (10),
-  `tests/unit/test_budget_variance_preflight.py` (12),
-  `tests/unit/test_report_review_preflight.py` (13),
-  `tests/unit/test_freeform_preflight.py` (11) — each asserts the `CAPABILITY`
+  `tests/unit/test_bank_reconciliation_preflight.py`,
+  `tests/unit/test_budget_variance_preflight.py`,
+  `tests/unit/test_report_review_preflight.py`,
+  `tests/unit/test_freeform_preflight.py` — each asserts the `CAPABILITY`
   shape, PASS on clean data, FAIL on a missing required file/column (with the
   expected blocking codes and empty `supported_checks`), PARTIAL on the workflow's
   unsupported conditions, that `detect_conditions` returns `[]` on clean data,
   and that a human `column_mappings` override is honored while `None` matches
   current auto-detect behavior.
-- `tests/integration/test_preflight_integration.py` (7 tests) — end-to-end through
+- `tests/integration/test_preflight_integration.py` — end-to-end through
   the runner: PASS recorded in the ledger and review packet; FAIL not running the
   workflow or LLM (no stored LLM response, failed-preflight packet = only the two
   preflight files, blocked audit lifecycle); PARTIAL merging preflight findings
@@ -209,7 +209,9 @@ data is synthetic only with no real PII.
 ## Real-model guardrail results
 
 Measured 2026-10-11 against a real model (`deepseek/deepseek-v4.1-flash` via
-OpenRouter, hidden reasoning off, prompts `*.v2`) on the bundled synthetic data.
+OpenRouter, hidden reasoning off, prompts `*.v2`; the shipped `*.v3` adds only
+the 150-finding cap, so prompts are identical at these sizes) on the bundled
+synthetic data.
 Reproduce with `python -m src.eval.real_llm --repeat 3 --record <dir>` (loads
 the gitignored `.env`; about $0.03 per 24 responses).
 
@@ -297,9 +299,11 @@ Shared fixes: Tyler source-row lookups cached per file (was a full column scan
 per cited row), `iterrows` replaced by row dicts, repeated-header / footer
 detection vectorized, preflight computed once per run (modules used to redo
 it), and the LLM prompt lists at most 150 findings (most severe first) with
-the rest summarized by count. Every speed-up that changes an algorithm is
-pinned by an equivalence test against the original definition
-(`test_matching.py`, the budget rollup and footer-detection tests). At 50k rows
+the rest summarized by count. The rewritten algorithms with an independent
+definition are pinned by randomized equivalence tests against the original
+(`test_matching.py`, the budget rollup and footer-detection tests); the
+remaining rewrites (row indexes, cached lookups) were checked old-vs-new on
+perturbed and 1,500-row inputs during review, with identical findings. At 50k rows
 every workflow's draft still passes validation: prompts list the 150 most severe
 findings, and drafts state the true totals from the deterministic summary.
 

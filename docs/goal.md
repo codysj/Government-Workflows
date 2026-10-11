@@ -170,7 +170,7 @@ questions in chat, never in the repo.
 | M3 Retire Streamlit | done | 475418d + bc482c4 | UI removed first, then `app/` deleted when the pipeline moved |
 | M4 Real-use robustness | done | 7d3d078 | 50k rows: all workflows 4-12 s (were up to >10 min); in-process launcher; plain-language preflight |
 | M5 MCP front end | done | 459f83e | `mcp_server.py` (5 tools, stdio), protocol tests, one recorded real session (`docs/mcp.md`) |
-| M6 Portfolio polish | done | (M6 commit) | CI, README rewrite, ADR index, lock file, dead code removed |
+| M6 Portfolio polish | done | 02a228b | CI, README rewrite, ADR index, lock file, dead code removed |
 | Final whole-branch review | not_started | | |
 
 ## Definition of Done

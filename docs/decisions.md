@@ -60,11 +60,12 @@ distinct AI section replaced it; Streamlit was retired in 2026-10. The console
 never computes a value, even a display-only sum.
 
 ## ADR-8 MCP server as a host-agnostic front end (2026-10)
-`mcp_server.py` exposes the workflows as tools to any MCP-capable assistant,
-over stdio only. *Why:* cities standardize on different AI platforms; one
-server works with Claude, ChatGPT apps, and Copilot Studio without changing
-the core. The host model's own prose is outside the validated boundary
-(documented in mcp.md).
+`mcp_server.py` exposes the workflows as tools to MCP-capable assistants,
+over stdio only. *Why:* cities standardize on different AI platforms; the
+same core is reachable from any local MCP host today (Claude Desktop, Claude
+Code, VS Code), and an HTTP transport for remote-only hosts (ChatGPT
+connectors, Copilot Studio) is a deployment decision, not a core change.
+The host model's own prose is outside the validated boundary (see mcp.md).
 
 ## ADR-9 Tyler/Munis exports via a deterministic normalizer
 `src/ingest/tyler.py` detects the export type by header overlap, parses amounts
@@ -84,8 +85,9 @@ itself is deterministic pandas filtering. The model never selects rows.
 ## ADR-12 Built for 50k-row files (2026-10)
 Every check is near-linear: amount-indexed matching, per-key row indexes
 instead of table rescans, cached source-row lookups, preflight once per run,
-and prompts capped at 150 findings with the rest summarized by count. Each
-algorithmic rewrite is pinned by an equivalence test against the original.
+and prompts capped at 150 findings with the rest summarized by count. The
+matcher, budget rollup, and footer detection are pinned by randomized
+equivalence tests; the other rewrites were checked old-vs-new during review.
 Split payments (D8) are reported once per cluster, not once per overlapping
 window.
 

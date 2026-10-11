@@ -1,5 +1,6 @@
 # Pinned Python dependency set for GovWorkflows (municipal-finance-ai)
-# Generated 2026-10-11 from a clean venv on Python 3.12 (3.11+ supported).
+# Generated 2026-10-11 from a clean venv on Python 3.12 (these pins need 3.12+;
+# `pip install -e .` without this file also works on 3.11).
 # Regenerate with: .venv/Scripts/python.exe -m pip freeze --exclude-editable > requirements.txt
 #
 # For a reproducible install on a fresh machine:
@@ -46,7 +47,7 @@ PyJWT==2.15.1
 pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-multipart==0.0.32
-pywin32==312
+pywin32==312; sys_platform == "win32"
 referencing==0.37.0
 rpds-py==2026.9.1
 six==1.17.0

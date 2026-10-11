@@ -158,12 +158,12 @@ def _load_mappings(mappings_arg: Optional[str]) -> Optional[dict[str, dict[str, 
 
 def _build_provider(use_real: bool) -> Any:
     """``--real`` -> the env-configured real provider (needs LLM_API_KEY etc.).
-    Otherwise None: the pipeline uses each workflow's offline mock, unless the
-    environment sets ``LLM_MODE=real``."""
+    Otherwise (``--mock``, the default) the offline mock, whatever LLM_MODE says."""
     if use_real:
         from src.llm.provider import get_provider
         return get_provider(use_mock=False)
-    return None
+    from src.core.pipeline import MOCK
+    return MOCK
 
 
 # --------------------------------------------------------------------------- #

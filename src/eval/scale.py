@@ -23,7 +23,7 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from src.core.pipeline import run_workflow
+from src.core.pipeline import MOCK, run_workflow
 from src.core.run_ledger import RunLedger
 from src.workflows.registry import list_descriptors
 
@@ -102,7 +102,7 @@ def run(rows: int, workflows: Optional[list[str]] = None) -> list[dict[str, Any]
             start = time.perf_counter()
             try:
                 r = run_workflow(d.workflow_type, inputs, ledger=RunLedger(":memory:"),
-                                 export_dir=work / "exports")
+                                 export_dir=work / "exports", provider=MOCK)
                 status = r.preflight_status
                 findings = len(r.findings)
                 draft_ok = bool(r.validation and r.validation.passed)

@@ -402,3 +402,41 @@ def test_extra_body_must_be_a_json_object(monkeypatch):
     monkeypatch.setenv("LLM_EXTRA_BODY", "{not json")
     with pytest.raises(ValueError):
         p.generate_structured_response("prompt")
+
+
+def test_forced_mock_ignores_llm_mode_real(monkeypatch):
+    """CLI --mock (default), the eval harness, and the scale benchmark pass
+    provider=MOCK and must stay offline even when LLM_MODE=real."""
+    from src.core import pipeline
+    from src.core.run_ledger import RunLedger
+    from src.workflows.registry import get_descriptor
+
+    monkeypatch.setenv("LLM_MODE", "real")
+    monkeypatch.setattr(pipeline, "get_provider",
+                        lambda: (_ for _ in ()).throw(AssertionError("real provider used")))
+    d = get_descriptor("bank_reconciliation")
+    r = pipeline.run_workflow(d.workflow_type, d.sample_inputs(),
+                              ledger=RunLedger(":memory:"), provider=pipeline.MOCK)
+    assert r.validation.passed
+
+
+def test_run_qa_provider_failure_returns_unavailable_answer(tmp_path):
+    from src.core import pipeline, run_qa
+    from src.core.audit_log import AuditLog
+    from src.core.run_ledger import RunLedger
+    from src.workflows.registry import get_descriptor
+
+    class Broken:
+        model_provider = model_name = "broken"
+
+        def generate_structured_response(self, prompt, schema=None):
+            raise TimeoutError("timed out")
+
+    ledger = RunLedger(str(tmp_path / "l.db"))
+    audit = AuditLog(ledger, audit_dir=str(tmp_path / "a"))
+    d = get_descriptor("bank_reconciliation")
+    run = pipeline.run_workflow(d.workflow_type, d.sample_inputs(), ledger=ledger, audit=audit)
+    turn = run_qa.answer_question(ledger, audit, run.run_id, "Why is bank:4 unmatched?",
+                                  provider=Broken(), export_dir=tmp_path / "e")
+    assert turn["answerable"] is False
+    assert "unavailable" in turn["answer"]

@@ -161,7 +161,12 @@ def answer_question(
             run_id, actor, kind="run_qa",
             template=RUN_QA_TEMPLATE_VERSION, question=question[:200])
 
-    raw = provider.generate_structured_response(prompt, schema=None)
+    try:
+        raw = provider.generate_structured_response(prompt, schema=None)
+    except Exception as exc:  # noqa: BLE001 - never lose the run over a provider error
+        raw = {"summary": f"AI answer unavailable ({type(exc).__name__}). Review the "
+                          "run's findings directly.",
+               "referenced_source_rows": [], "answerable": False}
     if not isinstance(raw, dict):
         raw = {"summary": str(raw), "referenced_source_rows": [], "answerable": False}
 

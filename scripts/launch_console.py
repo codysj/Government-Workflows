@@ -20,6 +20,7 @@ ASCII-only output (safe on Windows cp1252).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import subprocess
 import sys
@@ -69,11 +70,15 @@ def ensure_venv() -> None:
         env = {**os.environ, "GOVWF_REEXEC": "1"}
         raise SystemExit(subprocess.call(
             [str(venv_python()), str(Path(__file__).resolve()), *sys.argv[1:]], env=env))
-    if not INSTALLED_MARKER.exists():
-        _say("Installing the app into .venv (a few minutes, first run only)...")
+    # The marker records which dependency list was installed, so a `git pull`
+    # that changes pyproject.toml triggers a reinstall.
+    wanted = hashlib.sha256((REPO_ROOT / "pyproject.toml").read_bytes()).hexdigest()
+    have = INSTALLED_MARKER.read_text(encoding="utf-8").strip() if INSTALLED_MARKER.exists() else ""
+    if have != wanted:
+        _say("Installing the app into .venv (a few minutes, first run or after an update)...")
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", str(REPO_ROOT)],
                        check=True)
-        INSTALLED_MARKER.write_text("installed\n", encoding="utf-8")
+        INSTALLED_MARKER.write_text(wanted + "\n", encoding="utf-8")
 
 
 def ensure_frontend_dist() -> bool:

@@ -47,7 +47,7 @@ from src.eval.metrics import (
     compute_metrics,
     known_answer_check,
 )
-from src.core.pipeline import run_workflow
+from src.core.pipeline import MOCK, run_workflow
 from src.workflows import registry as workflow_registry
 
 # Repo root (this file lives in src/eval/).
@@ -126,7 +126,7 @@ def run_workflow_eval(
             descriptor.sample_inputs(),
             ledger=ledger,
             audit=audit,
-            provider=provider,
+            provider=provider if provider is not None else MOCK,
             actor="eval",
             export_dir=wf_export_dir,
         )

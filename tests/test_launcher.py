@@ -78,5 +78,8 @@ def test_failed_first_install_is_retried(monkeypatch, tmp_path):
     assert calls and "-e" in calls[0]
     assert (tmp_path / "marker").exists()
     calls.clear()
-    launch_console.ensure_venv()  # marker present -> nothing to do
+    launch_console.ensure_venv()  # marker matches pyproject -> nothing to do
     assert calls == []
+    (tmp_path / "marker").write_text("old-dependency-hash", encoding="utf-8")
+    launch_console.ensure_venv()  # dependencies changed (git pull) -> reinstall
+    assert calls and "-e" in calls[0]

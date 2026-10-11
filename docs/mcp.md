@@ -1,8 +1,8 @@
 # Using the workflows from a chat assistant (MCP)
 
 `mcp_server.py` exposes the workflows as [Model Context Protocol](https://modelcontextprotocol.io)
-tools, so any MCP-capable assistant (Claude Desktop, ChatGPT apps, Copilot
-Studio, ...) can run them. It is a thin adapter like `api/` and `cli/`: same
+tools, so an assistant that runs local MCP servers (Claude Desktop, Claude Code,
+VS Code agent mode, ...) can run them. It is a thin adapter like `api/` and `cli/`: same
 pipeline, same run ledger, same audit log. Runs started from a chat show up in
 the console's history.
 
@@ -25,7 +25,11 @@ Point the host at the repo's venv Python. For Claude Desktop
 }
 ```
 
-Other hosts take the same command + args. The server loads `.env` itself, so
+Other local (stdio) hosts take the same command + args. Hosts that only connect
+to remote MCP servers over HTTPS (e.g. ChatGPT connectors, Copilot Studio) would
+need the server run with an HTTP transport (`MCPServer.run("streamable-http")`)
+behind authentication and a public URL; that is deliberately out of scope for a
+local-first tool handling finance files. The server loads `.env` itself, so
 `LLM_MODE=real` there switches its drafts and answers to the configured model;
 otherwise they use the offline mock.
 

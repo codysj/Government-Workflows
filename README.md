@@ -14,7 +14,7 @@ always grounded in that run's own data, validated the same way, and logged.
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-900%20py%20%2B%2057%20fe%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-902%20py%20%2B%2057%20fe%20passing-brightgreen)
 ![Runs offline](https://img.shields.io/badge/AI-mock%20by%20default%20%C2%B7%20runs%20offline-blue)
 ![Data](https://img.shields.io/badge/data-synthetic%20only-orange)
 
@@ -85,7 +85,7 @@ run → review** — with progressive disclosure so they're never staring at a b
 <table>
   <tr>
     <td width="50%"><img src="docs/media/home.png" alt="Home screen"><br><sub><b>Home</b> — recent runs, what the tool does and never does, offline badge.</sub></td>
-    <td width="50%"><img src="docs/media/workflow-picker.png" alt="Workflow picker"><br><sub><b>Choose a workflow</b> — eight review/search/prepare workflows, each with sample data.</sub></td>
+    <td width="50%"><img src="docs/media/workflow-picker.png" alt="Workflow picker"><br><sub><b>Choose a workflow</b> — eight review/search/prepare workflows; seven ship with sample data.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/media/preflight.png" alt="Preflight file check passing"><br><sub><b>File check (preflight)</b> — profiles the files before running; PASS / PARTIAL / FAIL.</sub></td>
@@ -121,7 +121,7 @@ or a chat assistant over MCP, all on bundled synthetic data.
 | **Budget-to-actual variance** | Join budget to actuals; compute dollar and percent variance; flag lines over threshold and missing accounts. | Draft variance commentary referencing flagged rows. |
 | **Report consistency review** | Check a draft report for subtotal mismatches, invalid codes, duplicates, missing sections, large prior-version changes. | Explain each issue; draft a review checklist. |
 | **Transaction search** | Parse plain English into a schema-validated `SearchCriteria`; apply as deterministic pandas filters over GL/AP/check/PO exports. | Translate the query to structured JSON; summarize matches. |
-| **AP duplicate / suspicious payment** | Eight checks (D1–D8): duplicate invoices, same-vendor/amount near-date pairs, similar vendor names, missing PO, payment-before-invoice, inactive/unknown vendor, split payments (one finding per cluster). | Summarize flagged issues; draft review notes — never concludes fraud. |
+| **AP duplicate / suspicious payment** | Nine checks (D1, D1b, D2–D8): duplicate invoices, payment by multiple checks, same-vendor/amount near-date pairs, similar vendor names, missing PO, payment-before-invoice, inactive/unknown vendor, split payments (one finding per cluster). | Summarize flagged issues; draft review notes — never concludes fraud. |
 | **JE upload prep** | Validate a draft journal entry against the chart of accounts and fiscal period; produce an upload-ready workbook **or** a blocking error report. Fail-closed. | Draft a validation summary; never edits the workbook. |
 | **PO / invoice mismatch** | Nine checks (P1–P8 + P3b) joining PO and AP exports: invoice-over-PO, wrong vendor, missing/closed PO, price/qty mismatch, received-vs-invoiced. | Summarize mismatches; draft review notes — never declares an invoice improper. |
 | **Guided freeform** | A structured (not chat) fallback routing ad-hoc tasks through the same logging and validation; **fails closed** unless sensitivity is confirmed. | Produce a source-linked DRAFT for human review. |
@@ -154,8 +154,11 @@ The model never "takes over" failed workflow logic. Full rules in
 inexpensive model (`deepseek-v4.1-flash` via OpenRouter) on the synthetic data, and
 every number, date, identifier, and row reference in each draft was checked:
 
-- **Final held-out batch: 23 of 24 fresh drafts accepted, 1,345 claims checked; the
-  one rejection was correct** (an empty draft). No false positives remained.
+- **Final batch of 24 fresh drafts (1,345 claims checked): 22 accepted as run.** One
+  rejection was correct (an empty draft); the other was a false positive (an inline
+  "(4) category" list marker read as a number), fixed afterwards. Replayed, that
+  draft now passes (23/24), but that fix was tuned on this batch, so it is no longer
+  strictly held-out.
 - **It catches real hallucinations.** In one run the model named invoice `INV-90065`,
   which exists nowhere in the data. The validator rejected the draft; the validator
   this project started with accepted it (it compared raw text tokens, checked numbers
@@ -164,9 +167,11 @@ every number, date, identifier, and row reference in each draft was checked:
   identifier, or row) are replayed offline on every test run, and all must fail.
 
 **Scale.** Every workflow processes a **50,000-row** export in **4–12 seconds** on a
-laptop (bank reconciliation was over two minutes, PO review six, AP review over ten),
-with each algorithmic speed-up pinned by an equivalence test against the original
-definition.
+laptop (bank reconciliation was over two minutes, PO review six, AP review over ten).
+The rewritten algorithms with an independent definition (bank matcher, budget rollup
+detector, footer detection) are pinned by randomized equivalence tests; the other
+speed-ups (row indexes, cached lookups) were checked old-vs-new on perturbed and
+1,500-row inputs during review, with identical findings.
 
 Method, per-workflow tables, and the tuning history (including what went wrong):
 [`docs/evaluation.md`](docs/evaluation.md). Total spent on real-model calls: about $0.12.
@@ -190,7 +195,7 @@ Method, per-workflow tables, and the tuning history (including what went wrong):
   │            ─▶ validation: every number, date, id, and row in the draft   │
   │                 must exist in the findings, or the draft is rejected     │
   │            ─▶ SQLite run ledger + append-only audit log                  │
-  │            ─▶ review packet (findings.csv, review_packet.md, manifest)   │
+  │            ─▶ review packet (review_packet.md, run_manifest.json, CSVs)  │
   └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -200,8 +205,9 @@ Method, per-workflow tables, and the tuning history (including what went wrong):
 | Front ends (`api/`, `cli/`, `mcp_server.py`) | Transport and input handling | Business logic; each calls `pipeline.run_workflow` |
 | React console (`frontend/`) | Rendering, review actions, downloads | Computes **any** value, even a display-only sum |
 
-All three front ends share one ledger, so a run started from a chat assistant shows up
-in the console's history. The Streamlit prototype that proved the workflows has been
+The console and the MCP server share one ledger, so a run started from a chat
+assistant shows up in the console's history (the CLI uses an in-memory ledger unless
+given `--db runs/ledger.db`). The Streamlit prototype that proved the workflows has been
 retired in favor of the guided console.
 
 ## Getting started
@@ -232,17 +238,19 @@ troubleshooting: [`scripts/README.md`](scripts/README.md).
 .venv/Scripts/python.exe cli/run_workflow.py ap-duplicate-review --sample
 ```
 
-**From a chat assistant** (Claude Desktop, ChatGPT apps, Copilot Studio, ...): see
-[`docs/mcp.md`](docs/mcp.md).
+**From a chat assistant** that runs local MCP servers (Claude Desktop, Claude Code,
+VS Code): see [`docs/mcp.md`](docs/mcp.md).
 
 <details id="configuring-a-real-llm">
 <summary><b>Using a real model (opt-in)</b></summary>
 
 Copy `.env.example` to `.env` (gitignored) and set `LLM_MODE=real`, `LLM_API_KEY`,
 `LLM_BASE_URL`, and `LLM_MODEL`. Any OpenAI-compatible endpoint works (the measured
-results above used OpenRouter); `LLM_PROVIDER=anthropic` uses the Anthropic Messages API.
-The launcher and MCP server load `.env`; the API and CLI read the same variables from
-the environment.
+results above used OpenRouter). For the Anthropic Messages API set
+`LLM_PROVIDER=anthropic` with an Anthropic `LLM_MODEL`, and leave `LLM_BASE_URL` and
+`LLM_EXTRA_BODY` unset (both are OpenRouter-specific in the example file).
+The launcher and MCP server load `.env`; the API reads the same variables from the
+environment; the CLI uses the real model only when given `--real`.
 
 The real path passes exactly the same validation as the mock. If the provider fails
 (timeout, bad key, empty reply), the run still completes with its deterministic
@@ -261,10 +269,11 @@ To measure a model yourself: `python -m src.eval.real_llm --repeat 3`.
 cd frontend && npm test && npm run typecheck && npm run lint
 ```
 
-**900 backend + 57 frontend tests pass.** CI (`.github/workflows/ci.yml`) runs all of
+**902 backend + 57 frontend tests pass.** CI (`.github/workflows/ci.yml`) runs all of
 the above except the scale benchmark. The backend suite includes offline replays of
 recorded real-model drafts (`tests/integration/test_real_llm_replay.py`), MCP protocol
-tests, and randomized equivalence tests for every rewritten algorithm.
+tests, and randomized equivalence tests for the rewritten matching, rollup, and
+footer-detection algorithms.
 
 ## Limitations
 

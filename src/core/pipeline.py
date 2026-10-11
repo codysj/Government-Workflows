@@ -48,6 +48,9 @@ from src.workflows.freeform import SensitivityNotConfirmedError
 from src.workflows.registry import DESCRIPTORS, WorkflowDescriptor, get_descriptor
 
 
+MOCK = "mock"  # run_workflow(provider=MOCK): offline mock regardless of LLM_MODE
+
+
 @dataclass
 class UniformRunResult:
     run_id: str
@@ -371,7 +374,8 @@ def run_workflow(
     """Drive any registered workflow through the shared pipeline.
 
     ``provider=None`` means each workflow's built-in mock LLM (offline), or
-    the configured real provider when ``LLM_MODE=real``.
+    the configured real provider when ``LLM_MODE=real``; ``provider=MOCK``
+    ("mock") always uses the offline mock (CLI default, eval, benchmarks).
     ``config`` carries caller tolerances/thresholds; uploaded config files in
     ``inputs`` take precedence. ``retention_category`` tags the run for
     records-retention (unknown values fall back to ``draft_working``).
@@ -382,7 +386,9 @@ def run_workflow(
     if descriptor is None:
         raise ValueError(f"Workflow '{workflow_type}' is not available.")
 
-    if provider is None and llm_mode() == "real":
+    if provider == MOCK:  # forced offline mock, whatever LLM_MODE says
+        provider = None
+    elif provider is None and llm_mode() == "real":
         provider = get_provider()
     if provider is not None:
         provider = _GuardedProvider(provider)

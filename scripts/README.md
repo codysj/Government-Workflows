@@ -23,5 +23,6 @@ Options: `--port 9000` (different port), `--no-browser` (server only).
 | --- | --- |
 | "Python 3.11 or newer is required" | Install from python.org; tick "Add python.exe to PATH". |
 | "Node.js is not installed" | Install the LTS version from nodejs.org, run again. |
-| "did not answer ... within 60s" | Another program may hold the port: use `--port 9000`. |
+| "error while attempting to bind" | Another program holds the port: use `--port 9000`. |
+| "did not answer ... within 60s" | The server is slow to start (first run, antivirus scan); wait or run again. |
 | Console looks out of date after `git pull` | Delete `frontend/dist`; the next launch rebuilds it. |
