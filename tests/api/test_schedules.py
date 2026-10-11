@@ -11,7 +11,7 @@ from api.main import create_app
 from api.services.settings import ApiSettings
 
 SCHEDULE_KEYS = {
-    "schedule_id", "workflow_type", "cadence", "label", "interval_days",
+    "schedule_id", "workflow_type", "workflow_title", "cadence", "label", "interval_days",
     "next_due", "active", "created_at", "last_run_at",
 }
 
@@ -59,6 +59,7 @@ def test_schedules_lists_added_schedule(tmp_path_factory):
         assert SCHEDULE_KEYS == set(row)
         assert row["schedule_id"] == sched.schedule_id
         assert row["workflow_type"] == "ap_duplicate_review"
+        assert row["workflow_title"] == "AP duplicate / suspicious payment review"
         assert row["cadence"] == "monthly"
         assert row["label"] == "Monthly AP reconciliation"
         assert row["next_due"] == "2026-07-01"

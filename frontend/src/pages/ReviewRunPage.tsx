@@ -201,7 +201,7 @@ export function ReviewRunPage() {
             <span className="stat-label">Items flagged</span>
             <span className="stat-value">{flaggedCount}</span>
             <span className="stat-sublabel">
-              {run.findings.length} total checks results
+              {run.findings.length} total check results
             </span>
           </div>
         ) : null}

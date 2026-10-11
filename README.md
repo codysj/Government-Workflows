@@ -166,7 +166,7 @@ every number, date, identifier, and row reference in each draft was checked:
 - **72 adversarial edits** of real drafts (an invented amount, percent, count, date,
   identifier, or row) are replayed offline on every test run, and all must fail.
 
-**Scale.** Every workflow processes a **50,000-row** export in **4–12 seconds** on a
+**Scale.** Every workflow processes a **50,000-row** export in **3–8 seconds** on a
 laptop (bank reconciliation was over two minutes, PO review six, AP review over ten).
 The rewritten algorithms with an independent definition (bank matcher, budget rollup
 detector, footer detection) are pinned by randomized equivalence tests; the other

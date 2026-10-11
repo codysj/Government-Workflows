@@ -8,7 +8,7 @@ from api.main import create_app
 from api.services.settings import ApiSettings
 
 AI_USAGE_KEYS = {
-    "run_id", "workflow_type", "created_at", "model_provider", "model_name",
+    "run_id", "workflow_type", "workflow_title", "created_at", "model_provider", "model_name",
     "prompt_template_version", "validation_status", "ai_draft_status",
     "referenced_source_row_count",
 }
@@ -49,6 +49,7 @@ def test_ai_usage_populated_after_run(client):
     assert any(row["run_id"] == run["run_id"] for row in rows)
     row = next(row for row in rows if row["run_id"] == run["run_id"])
     assert row["workflow_type"] == "ap_duplicate_review"
+    assert row["workflow_title"] == "AP duplicate / suspicious payment review"
     assert row["model_provider"] is not None
     assert isinstance(row["referenced_source_row_count"], int)
 

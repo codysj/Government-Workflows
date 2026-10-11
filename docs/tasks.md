@@ -63,17 +63,6 @@ once that is done.
   showing no new false positives on `tests/fixtures/real_llm`.
 - **Files:** `src/core/validation.py`, `tests/unit/test_validation.py`
 
-### GW-48 — AP duplicate review at 50k rows: 12 s -> under 10 s
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** core
-- **Why:** Every other workflow runs 50k rows in 4-9 s; AP review takes 12 s
-  (docs/evaluation.md "Scale"). Remaining cost is spread across file profiling
-  and row-dict construction.
-- **Acceptance:** `python -m src.eval.scale --rows 50000 --workflow
-  ap_duplicate_review` under 10 s with identical findings.
-- **Files:** `src/workflows/ap_duplicate_review.py`, `src/core/preflight.py`
-
 ### GW-37 — Validate Tyler / JE upload assumptions against a real city or Munis export
 - **Status:** blocked
 - **Priority:** P1
@@ -162,6 +151,8 @@ once that is done.
 
 Condensed log, newest first (one line per task). Full rationale and Done detail
 live in `docs/decisions.md` (dated sections) and git history.
+
+**GW-48 — AP duplicate review at 50k rows under 10 s (2026-10-11)** — 12.3 s → 6.9 s; findings and preflight reports hash-identical to before on all 7 workflows at 20k rows
 
 **GW-46 — portfolio hardening goal (2026-10-11)** — one pipeline, real-model guardrails, Streamlit retired, 50k-row scale, MCP server, CI; see `docs/goal.md`
 - GW-45 — README test counts now current (and stated where CI checks them)

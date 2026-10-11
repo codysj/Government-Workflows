@@ -51,7 +51,7 @@ _MEDIA_TYPES = {
 }
 
 
-def _title_for(workflow_type: str) -> str:
+def workflow_title(workflow_type: str) -> str:
     try:
         return get_descriptor(workflow_type).title
     except KeyError:
@@ -211,7 +211,7 @@ def build_run_list(
             if mapped != status:
                 continue
         if needle and needle not in (
-                run_id + " " + wf + " " + _title_for(wf)).lower():
+                run_id + " " + wf + " " + workflow_title(wf)).lower():
             continue
         filtered.append(row)
     total = len(filtered)
@@ -225,7 +225,7 @@ def build_run_list(
         items.append(RunListItem(
             run_id=run_id,
             workflow_type=row.get("workflow_type", ""),
-            workflow_title=_title_for(row.get("workflow_type", "")),
+            workflow_title=workflow_title(row.get("workflow_type", "")),
             created_at=str(row.get("created_at", "")),
             status=_map_status(row.get("status", ""), summary, preflight),
             human_review_status=row.get("human_review_status", "pending"),
@@ -330,7 +330,7 @@ def build_run_detail(ledger: RunLedger, run_id: str) -> Optional[RunDetail]:
     return RunDetail(
         run_id=run_id,
         workflow_type=run.get("workflow_type", ""),
-        workflow_title=_title_for(run.get("workflow_type", "")),
+        workflow_title=workflow_title(run.get("workflow_type", "")),
         created_at=str(run.get("created_at", "")),
         created_by=run.get("created_by", ""),
         status=_map_status(run.get("status", ""), summary, preflight_dict),

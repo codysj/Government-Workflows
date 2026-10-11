@@ -297,12 +297,15 @@ def detect_repeated_header_rows(df: pd.DataFrame) -> list[int]:
     header per page concatenated into a single export).
     """
     cols = [to_snake_case(c) for c in df.columns]
+    if not cols:
+        return []
     matches: list[int] = []
-    for pos, row in enumerate(df.itertuples(index=False, name=None)):
-        # Cheap first-cell check before normalizing the whole row.
-        if not row or to_snake_case(str(row[0])) != cols[0]:
+    # First column only (one column scan, not a cell-by-cell walk of the
+    # frame); the whole row is normalized just for the rare candidates.
+    for pos, first in enumerate(df.iloc[:, 0].tolist()):
+        if to_snake_case(str(first)) != cols[0]:
             continue
-        if [to_snake_case(str(v)) for v in row] == cols:
+        if [to_snake_case(str(v)) for v in df.iloc[pos].tolist()] == cols:
             matches.append(pos)
     return matches
 

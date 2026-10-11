@@ -29,6 +29,7 @@ export function makeAiUsageRow(overrides: Partial<AiUsageRow> = {}): AiUsageRow 
   return {
     run_id: "run123",
     workflow_type: "ap_duplicate_review",
+    workflow_title: "AP duplicate / suspicious payment review",
     created_at: "2026-06-12T09:14:00",
     model_provider: "mock",
     model_name: "mock-model",
@@ -44,6 +45,7 @@ export function makeSchedule(overrides: Partial<ScheduleInfo> = {}): ScheduleInf
   return {
     schedule_id: "sch-1",
     workflow_type: "budget_variance",
+    workflow_title: "Budget-to-actual variance review",
     cadence: "monthly",
     label: "Monthly budget variance",
     interval_days: 30,

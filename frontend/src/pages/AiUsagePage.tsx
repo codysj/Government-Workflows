@@ -6,7 +6,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
 import { Icon } from "../components/Icon";
 import { SkeletonRows } from "../components/LoadingState";
-import { formatDateTime, sentenceCase } from "../lib/format";
+import { formatDateTime } from "../lib/format";
 
 const PLACEHOLDER = "—";
 
@@ -82,9 +82,7 @@ export function AiUsagePage() {
             {(rows ?? []).map((row, index) => (
               <tr key={row.run_id ?? `row-${index}`}>
                 <td>
-                  {row.workflow_type
-                    ? sentenceCase(row.workflow_type)
-                    : PLACEHOLDER}
+                  {row.workflow_title ?? PLACEHOLDER}
                 </td>
                 <td>{row.created_at ? formatDateTime(row.created_at) : PLACEHOLDER}</td>
                 <td>{display(row.model_provider)}</td>

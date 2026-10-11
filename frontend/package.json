@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "preview": "vite preview",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "docs:media": "node scripts/capture-docs-media.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

@@ -310,6 +310,9 @@ def run_deterministic(
 
     ap_df = ap_export.dataframe
     ap_records = ap_df.to_dict("records")  # built once; every check reads rows from it
+    ap_by_index: dict[int, dict] = {}
+    for rec in ap_records:
+        ap_by_index.setdefault(int(rec["source_row_index"]), rec)
 
     def ap_ref(row_index: int, columns: Optional[list[str]] = None) -> SourceRowRef:
         return source_ref_for_row(ap_export, row_index, columns)
@@ -410,7 +413,7 @@ def run_deterministic(
         refs = [ap_ref(i) for i in indices]
         amounts = []
         for i in indices:
-            row = ap_df[ap_df["source_row_index"] == i].iloc[0]
+            row = ap_by_index[int(i)]
             a = _dec(row.get("invoice_amount"))
             amounts.append(str(a) if a is not None else "")
         findings.append(

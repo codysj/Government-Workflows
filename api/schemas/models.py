@@ -332,6 +332,7 @@ class AiUsageRow(BaseModel):
 
     run_id: Optional[str] = None
     workflow_type: Optional[str] = None
+    workflow_title: Optional[str] = None
     created_at: Optional[str] = None
     model_provider: Optional[str] = None
     model_name: Optional[str] = None
@@ -381,6 +382,7 @@ class ScheduleInfo(BaseModel):
 
     schedule_id: str
     workflow_type: str
+    workflow_title: str = ""
     cadence: str
     label: str
     interval_days: int

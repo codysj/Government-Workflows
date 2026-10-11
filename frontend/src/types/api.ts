@@ -278,6 +278,7 @@ export interface SettingsInfo {
 export interface AiUsageRow {
   run_id: string | null;
   workflow_type: string | null;
+  workflow_title: string | null;
   created_at: string | null;
   model_provider: string | null;
   model_name: string | null;
@@ -314,6 +315,7 @@ export interface RedactionScanResult {
 export interface ScheduleInfo {
   schedule_id: string;
   workflow_type: string;
+  workflow_title: string;
   cadence: string;
   label: string;
   interval_days: number;

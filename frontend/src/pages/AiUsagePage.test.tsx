@@ -28,6 +28,7 @@ describe("AiUsagePage (GW-9)", () => {
   it("renders a row and links to its run", async () => {
     renderPage([makeAiUsageRow({ run_id: "run-abc", model_name: "mock-model" })]);
     expect(await screen.findByText("mock-model")).toBeInTheDocument();
+    expect(screen.getByText("AP duplicate / suspicious payment review")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: "View run" });
     expect(link).toHaveAttribute("href", "/runs/run-abc");
   });

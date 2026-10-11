@@ -64,7 +64,7 @@ describe("Review Run page", () => {
     await screen.findByRole("heading", { level: 1, name: "Duplicate payment review" });
     // Summary tiles: quiet eyebrow label + the count as the hero value.
     expect(screen.getByText("Items flagged")).toBeInTheDocument();
-    expect(screen.getByText("2 total checks results")).toBeInTheDocument();
+    expect(screen.getByText("2 total check results")).toBeInTheDocument();
     expect(screen.getByText("Not yet reviewed")).toBeInTheDocument();
     expect(screen.getByText("Export files")).toBeInTheDocument();
 

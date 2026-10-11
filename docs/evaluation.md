@@ -289,21 +289,25 @@ mock draft → validation → exports), offline. Measured 2026-10-11 on a laptop
 | --- | --- | --- | --- | --- |
 | bank_reconciliation | 50,001 | > 130 s | 6 s | amount-indexed matcher (was all pairs); batch-deposit check bounded |
 | budget_variance | 50,000 | 19 s (5k rows) | 7 s | rollup detector O(n log n) via prefix sums |
-| report_review | 50,011 | 209 s (5k rows) | 9 s | row dicts built once (was a cell lookup per reference) |
-| transaction_search | 50,038 | 23 s | 4 s | vectorized file-profile checks; memoized parsing |
-| ap_duplicate_review | 50,028 | > 10 min (20k rows) | 12 s | D2/D3 indexed by amount; D8 clusters (was O(k³)); row indexes |
+| report_review | 50,011 | 209 s (5k rows) | 7 s | row dicts built once (was a cell lookup per reference) |
+| transaction_search | 50,038 | 23 s | 3 s | vectorized file-profile checks; memoized parsing |
+| ap_duplicate_review | 50,028 | > 10 min (20k rows) | 7 s | D2/D3 indexed by amount; D8 clusters (was O(k³)); row indexes |
 | je_upload_prep | 50,038 | 26 s | 6 s | shared fixes below |
-| po_invoice_review | 50,028 | 356 s | 9 s | per-PO row index (was a table rescan per invoice) |
+| po_invoice_review | 50,028 | 356 s | 6 s | per-PO row index (was a table rescan per invoice) |
 
 Shared fixes: Tyler source-row lookups cached per file (was a full column scan
 per cited row), `iterrows` replaced by row dicts, repeated-header / footer
-detection vectorized, preflight computed once per run (modules used to redo
+detection vectorized (header check scans the first column only), column names cached
+per file, preflight computed once per run (modules used to redo
 it), and the LLM prompt lists at most 150 findings (most severe first) with
 the rest summarized by count. The rewritten algorithms with an independent
 definition are pinned by randomized equivalence tests against the original
 (`test_matching.py`, the budget rollup and footer-detection tests); the
 remaining rewrites (row indexes, cached lookups) were checked old-vs-new on
-perturbed and 1,500-row inputs during review, with identical findings. At 50k rows
+perturbed and 1,500-row inputs during review, with identical findings. The
+last round (header check, cached column names) was checked by hashing every
+finding and preflight report, IDs and timestamps masked, at 20k rows: identical
+before and after for all 7 workflows. At 50k rows
 every workflow's draft still passes validation: prompts list the 150 most severe
 findings, and drafts state the true totals from the deterministic summary.
 

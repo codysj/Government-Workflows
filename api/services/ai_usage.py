@@ -12,6 +12,7 @@ from typing import Any
 from src.core.ai_usage_log import ai_usage_log_rows
 
 from api.schemas.models import AiUsageRow
+from api.services.runs import workflow_title
 
 
 def build_ai_usage_rows(ledger: Any) -> list[AiUsageRow]:
@@ -27,4 +28,8 @@ def build_ai_usage_rows(ledger: Any) -> list[AiUsageRow]:
         key=lambda row: row.get("created_at") or "",
         reverse=True,
     )
-    return [AiUsageRow(**row) for row in ordered]
+    return [
+        AiUsageRow(**row, workflow_title=workflow_title(row["workflow_type"])
+                   if row.get("workflow_type") else None)
+        for row in ordered
+    ]

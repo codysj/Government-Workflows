@@ -321,7 +321,7 @@ export function SchedulesPage() {
               return (
               <tr key={schedule.schedule_id}>
                 <td>{schedule.label}</td>
-                <td>{sentenceCase(schedule.workflow_type)}</td>
+                <td>{schedule.workflow_title || schedule.workflow_type}</td>
                 <td>{cadenceLabel(schedule.cadence)}</td>
                 <td>{formatDate(schedule.next_due)}</td>
                 <td>

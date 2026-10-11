@@ -793,20 +793,23 @@ def source_ref_for_row(
     df = export.dataframe
     # source_row_index -> row, built once per frame (was a full column scan
     # per call: O(n) each, O(n^2) for a run that cites many rows).
+    # Column names are cached too: iterating an Arrow-backed Index per call
+    # dominated large runs.
     cache = export._row_cache
     if cache is None or cache[0] is not df:
         rows: dict[int, dict] = {}
         for rec in df.to_dict("records"):
             rows.setdefault(int(rec["source_row_index"]), rec)
-        cache = export._row_cache = (df, rows)
-    row = cache[1].get(int(row_index))
+        cache = export._row_cache = (df, rows, [str(c) for c in df.columns])
+    _, rows, all_columns = cache
+    row = rows.get(int(row_index))
     if row is None:
         raise ValueError(
             f"source_ref_for_row: row_index {row_index} not present in "
             f"normalized '{export.table_name}' ({export.dataset_type})."
         )
-    selected = list(columns) if columns else [str(c) for c in df.columns]
-    unknown = [c for c in selected if c not in df.columns]
+    selected = list(columns) if columns else list(all_columns)
+    unknown = [c for c in selected if c not in row]
     if unknown:
         raise ValueError(
             f"source_ref_for_row: unknown column(s) {unknown} in normalized "

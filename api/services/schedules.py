@@ -21,6 +21,7 @@ from src.core.scheduler import (
 )
 
 from api.schemas.models import ScheduleInfo
+from api.services.runs import workflow_title
 
 
 class ScheduleInputError(Exception):
@@ -43,6 +44,7 @@ def to_info(sched: Schedule) -> ScheduleInfo:
     return ScheduleInfo(
         schedule_id=sched.schedule_id,
         workflow_type=sched.workflow_type,
+        workflow_title=workflow_title(sched.workflow_type),
         cadence=sched.cadence.value,
         label=sched.label,
         interval_days=sched.interval_days,
@@ -52,9 +54,6 @@ def to_info(sched: Schedule) -> ScheduleInfo:
         last_run_at=_iso(sched.last_run_at) if sched.last_run_at else None,
     )
 
-
-# Backwards-compatible alias (the old private name used by build_schedule_list).
-_to_info = to_info
 
 
 def build_schedule_list(store: ScheduleStore) -> list[ScheduleInfo]:

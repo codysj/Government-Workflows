@@ -224,8 +224,11 @@ def profile_input(
     if dup_indices:
         seen: dict[tuple, int] = {}
         groups: dict[int, list[int]] = {}
-        for pos in range(len(ndf)):
-            key = tuple(str(v) for v in ndf.iloc[pos].tolist())
+        # Only rows that take part in a duplicate need a key.
+        involved = ndf.duplicated(keep=False).to_numpy().nonzero()[0]
+        for pos, values in zip(involved, ndf.iloc[involved].itertuples(index=False, name=None)):
+            pos = int(pos)
+            key = tuple(str(v) for v in values)
             if key in seen:
                 first = seen[key]
                 groups.setdefault(first, [first]).append(pos)
