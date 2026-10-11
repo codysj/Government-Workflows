@@ -1,4 +1,10 @@
-# Municipal Finance AI Workflow Tool — Updated Project Outline
+# Municipal Finance AI Workflow Tool — Original Project Outline
+
+> **Historical document.** This is the build spec the project started from
+> (June 2026). It is kept to show the original plan; parts of it no longer
+> match the code (e.g. the Streamlit UI, the file layout, three workflows).
+> The current architecture is in the [README](../README.md) and
+> [decisions.md](decisions.md).
 
 ## 0. Project Definition
 

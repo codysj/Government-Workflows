@@ -20,15 +20,19 @@ find clear and trustworthy enough to keep using.
 
 ## Pilot tasks
 
-One task per MVP workflow, each using a bundled synthetic dataset:
+One task per workflow the participant's role actually performs, each using the
+bundled synthetic dataset for that workflow, for example:
 
-1. **Bank reconciliation** — reconcile a synthetic bank statement against a
-   synthetic ledger and identify the exceptions requiring follow-up.
-2. **Budget-to-actual variance review** — identify the significant variances in
-   a synthetic budget vs actuals and produce review commentary.
+1. **Bank reconciliation** — reconcile a bank statement against a ledger and
+   identify the exceptions requiring follow-up.
+2. **Budget-to-actual variance review** — identify the significant variances and
+   produce review commentary.
 3. **Report consistency review** — find the inconsistencies (subtotal mismatch,
-   invalid account code, duplicate line, missing section, naming) in a synthetic
-   draft report.
+   invalid account code, duplicate line, missing section, naming) in a draft report.
+4. **AP duplicate review / PO-invoice review** (AP staff) — find the duplicate,
+   split, or mismatched payments.
+5. **Journal entry upload prep** (accountants) — catch the blocking errors in a
+   draft entry before upload.
 
 ## Procedure (per participant, per task)
 

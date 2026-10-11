@@ -31,7 +31,7 @@ Tool. This file is meant to be read and updated by both humans and LLM agents.
    the completed log. **Do not invent scope** — only add tasks traceable to code,
    a review finding, or an explicit product decision.
 
-**Next ID:** `GW-47`
+**Next ID:** `GW-49`
 
 **Status legend:** `[ ]` not started/scoped &nbsp; `[~]` in progress &nbsp;
 `[!]` blocked &nbsp; `[x]` done
@@ -56,6 +56,30 @@ Ordered by importance (top = do next). Each needs scoping (acceptance criteria,
 file plan) before implementation — move to *Active* and set `Status: scoped`
 once that is done.
 
+### GW-47 — Validator: check amount signs and vendor/fund names
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** core
+- **Why:** The claim validator (docs/decisions.md ADR-2) rejects invented
+  numbers, dates, identifiers, and rows, but ignores a dropped minus sign and
+  does not check names without digits (an invented vendor name passes). Both
+  were accepted limits in the M2 review; revisit if pilot drafts show them.
+- **Acceptance:** Signed amounts compared where the data is signed; vendor and
+  fund names in prose checked against the findings' names, with replay tests
+  showing no new false positives on `tests/fixtures/real_llm`.
+- **Files:** `src/core/validation.py`, `tests/unit/test_validation.py`
+
+### GW-48 — AP duplicate review at 50k rows: 12 s -> under 10 s
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** core
+- **Why:** Every other workflow runs 50k rows in 4-9 s; AP review takes 12 s
+  (docs/evaluation.md "Scale"). Remaining cost is spread across file profiling
+  and row-dict construction.
+- **Acceptance:** `python -m src.eval.scale --rows 50000 --workflow
+  ap_duplicate_review` under 10 s with identical findings.
+- **Files:** `src/workflows/ap_duplicate_review.py`, `src/core/preflight.py`
+
 ### GW-37 — Validate Tyler / JE upload assumptions against a real city or Munis export
 - **Status:** blocked
 - **Priority:** P1
@@ -75,19 +99,6 @@ once that is done.
   `data/synthetic/tyler/je_upload_template.csv`
 - **Blocked by:** external input — a real Munis export template or a city/vendor
   contact (not available in-repo; synthetic data only).
-
-### GW-38 — Wire anthropic_messages_transport into get_provider() for LLM_PROVIDER=anthropic
-- **Status:** not_started
-- **Priority:** P1
-- **Area:** core
-- **Why:** `anthropic_messages_transport` was added in GW-27, but `get_provider()`
-  always uses `_default_httpx_transport` even when `LLM_PROVIDER=anthropic`. The
-  preset exists but config-driven wiring is absent, so `LLM_PROVIDER=anthropic`
-  silently sends OpenAI-format requests and gets a 401.
-- **Acceptance:** `get_provider()` passes `anthropic_messages_transport` as the
-  transport when `LLM_PROVIDER=anthropic`; a test covers the env-driven dispatch
-  path (injectable transport; no live call).
-- **Files:** `src/llm/provider.py`, `tests/unit/test_llm_provider.py`
 
 ### GW-40 — Persist history filters in the URL query string
 - **Status:** not_started
@@ -128,23 +139,6 @@ once that is done.
 - **Files:** `src/core/scheduler.py`, `api/routes/schedules.py`,
   `api/schemas/models.py`
 
-### GW-28 — Resolve org/object canonical name conflict (preset vs tyler normalizer)
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** core
-- **Why:** `TYLER_MUNIS_STYLE` maps org->department and object->account_code,
-  while `TYLER_DATASET_TYPES` keeps org and object as canonicals. The two paths
-  produce different column names for the same Munis dimensions, which can confuse
-  developers mixing them. Deferred (YAGNI): harmless for synthetic-only data; a
-  `# ponytail: GW-28` comment in `presets.py` and `docs/tyler_assumptions.md`
-  Section 4 document the conflict and upgrade path; revisit before first real
-  Tyler dataset.
-- **Acceptance:** One canonical name per dimension, used consistently in both the
-  preset and the dataset-type registry. Alias maps and fixtures updated. No change
-  to deterministic workflow logic.
-- **Files:** `src/ingest/presets.py`, `src/ingest/tyler.py`,
-  `data/synthetic/tyler/`, `docs/tyler_assumptions.md`
-
 ### GW-42 — Run GW-22 Playwright nav smoke tests in CI to close the e2e loop
 - **Status:** not_started
 - **Priority:** P2
@@ -155,19 +149,6 @@ once that is done.
 - **Acceptance:** `npx playwright test` runs green against a live API + built
   bundle in a CI environment (or documented manually if CI is still absent).
 - **Files:** `frontend/e2e/core-loop.spec.ts`, CI config when available
-
-### GW-43 — Harden launch_console.py stop_server to avoid stray uvicorn on Windows
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** infra
-- **Why:** During the live smoke pass a background uvicorn spawn reported a failed
-  exit while the real server was serving on :8000, suggesting a transient duplicate
-  process can be left behind. `stop_server` in `scripts/launch_console.py` should
-  reliably reap the started process on Windows.
-- **Acceptance:** `stop_server` sends SIGTERM (or `proc.terminate()`) and waits for
-  the process to exit, with a timeout fallback to `proc.kill()`. No duplicate
-  uvicorn processes survive a clean shutdown.
-- **Files:** `scripts/launch_console.py`
 
 ### GW-44 — Add a history-filter debounce for the search param
 - **Status:** not_started
@@ -181,23 +162,18 @@ once that is done.
   updating until the user pauses typing. No behavior change otherwise.
 - **Files:** `frontend/src/pages/HistoryPage.tsx`
 
-### GW-45 — Update README test-count to reflect current passing total
-- **Status:** not_started
-- **Priority:** P2
-- **Area:** docs
-- **Why:** README says "758 tests" (a stale count); the current passing total is
-  786 Python + 50 vitest. The README frontend test count (45) is also stale (now
-  50). Both should reflect the actual baseline.
-- **Acceptance:** README "How to run tests" section updated with correct counts;
-  vitest test file count updated (9 files, 50 tests).
-- **Files:** `README.md`
-
 ---
 
 ## Recently completed
 
 Condensed log, newest first (one line per task). Full rationale and Done detail
 live in `docs/decisions.md` (dated sections) and git history.
+
+**GW-46 — portfolio hardening goal (2026-10-11)** — one pipeline, real-model guardrails, Streamlit retired, 50k-row scale, MCP server, CI; see `docs/goal.md`
+- GW-45 — README test counts now current (and stated where CI checks them)
+- GW-43 — closed by design: the launcher serves in-process, so there is no child server to orphan
+- GW-38 — `LLM_PROVIDER=anthropic` selects the Messages transport (tested)
+- GW-28 — closed: the import presets were removed (UI-only); their header variants now live in preflight's synonyms, so there is one canonical name per dimension
 
 **GW-22..GW-39 — P1/P2 batch + docs (2026-06-20)**
 - GW-39 — api_contract.md updated: PATCH/DELETE schedule endpoints and GET /api/runs 4 filter params documented

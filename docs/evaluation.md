@@ -299,7 +299,9 @@ detection vectorized, preflight computed once per run (modules used to redo
 it), and the LLM prompt lists at most 150 findings (most severe first) with
 the rest summarized by count. Every speed-up that changes an algorithm is
 pinned by an equivalence test against the original definition
-(`test_matching.py`, the budget rollup and footer-detection tests).
+(`test_matching.py`, the budget rollup and footer-detection tests). At 50k rows
+every workflow's draft still passes validation: prompts list the 150 most severe
+findings, and drafts state the true totals from the deterministic summary.
 
 One finding changed on purpose: D8 (split payments) now reports one finding per
 cluster of split invoices instead of one per overlapping window (3 findings for

@@ -19,7 +19,7 @@ sections after it are the state.
 
 | Field | Value |
 | --- | --- |
-| Current milestone | M4 Real-use robustness |
+| Current milestone | Final whole-branch review |
 | Branch | `goal/portfolio-hardening` |
 | Baseline commit | `4a5767a` |
 | OpenRouter spend so far | $0.121 of $1.50 cap |
@@ -168,9 +168,9 @@ questions in chat, never in the repo.
 | M1 One pipeline | done | bc482c4 | one registry + `src/core/pipeline.py`; eval/CLI/API share it; non-test LOC 27469 |
 | M2 Real-model guardrails | done | c7077db | final held-out 23/24, the 1 rejection correct; hallucinated invoice caught (`docs/evaluation.md`) |
 | M3 Retire Streamlit | done | 475418d + bc482c4 | UI removed first, then `app/` deleted when the pipeline moved |
-| M4 Real-use robustness | self_review | 7d3d078 | 50k rows: all workflows 4-12 s (were up to >10 min); in-process launcher; plain-language preflight |
-| M5 MCP front end | done | (M5 commit) | `mcp_server.py` (5 tools, stdio), protocol tests, one recorded real session (`docs/mcp.md`) |
-| M6 Portfolio polish | not_started | | |
+| M4 Real-use robustness | done | 7d3d078 | 50k rows: all workflows 4-12 s (were up to >10 min); in-process launcher; plain-language preflight |
+| M5 MCP front end | done | 459f83e | `mcp_server.py` (5 tools, stdio), protocol tests, one recorded real session (`docs/mcp.md`) |
+| M6 Portfolio polish | done | (M6 commit) | CI, README rewrite, ADR index, lock file, dead code removed |
 | Final whole-branch review | not_started | | |
 
 ## Definition of Done
@@ -180,12 +180,12 @@ questions in chat, never in the repo.
       GW-38 fixed; `.env.example` accurate
 - [x] Real-model eval numbers recorded; total OpenRouter spend logged and ≤ $1.50
 - [x] `app/` (Streamlit) removed
-- [ ] Launcher shuts down cleanly; 50k-row timings recorded; plain-language
+- [x] Launcher shuts down cleanly; 50k-row timings recorded; plain-language
       FAIL/PARTIAL guidance tested
 - [x] MCP server with tests and one recorded real call
 - [ ] CI file valid; all suites green from a clean checkout; every README claim
       backed by a command
-- [ ] Non-test source lines below baseline (see Baselines)
+- [x] Non-test source lines below baseline (see Baselines): 27,870 vs 30,229
 - [ ] No pilot-identifying info and no secrets anywhere in the branch diff (grep
       check)
 
@@ -324,3 +324,35 @@ and why. One dated bullet per entry.
   with the exact figures and rows; an unanswerable one declined with no
   invented figure. Trust boundary for MCP documented in docs/mcp.md (host
   model's own prose is outside it).
+- 2026-10-11: M4 self-review (fresh-eyes subagent, old-vs-new on clean
+  archives: 4,000 matcher trials, 30,000 rollup trials, 20,000 footer frames,
+  full deterministic outputs on perturbed + scaled inputs: all identical except
+  the intended D8 change). Findings fixed:
+  (1) HIGH - my "promote a unique column candidate" rule + forwarding every
+  resolved mapping made the supported Tyler combined budget-to-actual file
+  report 0 variances instead of 4 (preflight guessed `ytd_actual` as the
+  budget amount and overrode the workflow's own logic). Reverted the
+  promotion and the best-guess flag; only human + confident auto mappings are
+  forwarded; ERP headers still work because their names are now exact
+  synonyms. Pinned by a pipeline-level test (the unit tests had bypassed the
+  pipeline, which is how it slipped through).
+  (2) mock drafts over 150 findings failed validation ("150" not a known
+  count) - fixed + tested. (3) D8 missed a split when a credit started the
+  window - positive invoices only + test. (4) a failed first-run install left
+  a .venv later launches trusted - install marker + retry + test; re-exec
+  recursion guard. (6) MCP runs now use the same Settings defaults as the
+  console. (7) matcher accepts float amounts.
+- 2026-10-11: Screenshots/GIF not re-captured: the UI changed only where the
+  README images don't show (Settings role row removed; preflight FAIL
+  wording); the images show a passing preflight and review pages.
+- 2026-10-11: M6. CI (.github/workflows/ci.yml: pytest, offline eval,
+  typecheck, lint, vitest, build; validated locally, not pushed). README
+  rewritten around measured results, the one-pipeline architecture, the three
+  front ends, and one-command setup; pilot sentence kept verbatim.
+  decisions.md condensed to 13 ADRs (full notes via `git show 4a5767a:...`);
+  build_plan.md deleted; Project_Outline_Master.md marked historical;
+  pilot_plan.md tasks cover all roles; requirements.txt re-frozen from a clean
+  venv (47 pins, no Streamlit, + mcp); GW-28/38/43/45 closed, GW-47/48 added.
+  A 50k run after the review fixes caught mock drafts stating the 150 listed
+  findings as the total (JE: "0 warnings" when there were 48); mocks now take
+  totals from the prompt's summary/omitted-count note.

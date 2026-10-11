@@ -612,5 +612,4 @@ Run them with:
 .venv\Scripts\python.exe -m pytest tests/api -p no:cacheprovider --basetemp=.pytest_tmp_api
 ```
 
-Design decisions and integration notes: `docs/decisions.md` section
-"FastAPI seam + React workflow console (2026-06-11)".
+Design decisions: `docs/decisions.md` (ADR-3 one pipeline, ADR-7 the console).

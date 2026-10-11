@@ -273,7 +273,5 @@ UI shows an em-dash and never fills the gap.
 `npm run test` (4 files / 19 tests), and `npm run build` all pass clean.
 The built bundle is served by the API process when `frontend/dist/` is
 present (single-server mode). The API is implemented in `api/` per
-`docs/frontend/api_contract.md` and shares the run ledger and audit log with
-the Streamlit app. See `docs/decisions.md` "FastAPI seam + React workflow
-console (2026-06-11)" for the full design rationale and `docs/build_plan.md`
-for the implementation checklist.
+`docs/frontend/api_contract.md`. The Streamlit app has since been retired; see
+`docs/decisions.md` ADR-7 for the rationale.

@@ -14,7 +14,7 @@ always grounded in that run's own data, validated the same way, and logged.
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-758%20py%20%2B%2045%20fe%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-900%20py%20%2B%2057%20fe%20passing-brightgreen)
 ![Runs offline](https://img.shields.io/badge/AI-mock%20by%20default%20%C2%B7%20runs%20offline-blue)
 ![Data](https://img.shields.io/badge/data-synthetic%20only-orange)
 
@@ -27,8 +27,8 @@ always grounded in that run's own data, validated the same way, and logged.
 > **MVP on synthetic data only.** Everything in the public repository is fabricated
 > for demonstration — no real bank statements, vendors, PII, secrets, or ERP
 > integrations. The project does not connect directly to a live Tyler/Munis
-> installation. See the
-> [full spec](docs/Project_Outline_Master.md) and [architecture decisions](docs/decisions.md).
+> installation. See the [architecture decisions](docs/decisions.md) and
+> [evaluation](docs/evaluation.md).
 
 ---
 
@@ -61,10 +61,10 @@ The whole design rests on one line:
 | **Never** | Delegates a calculation or a match to the model | Calculates, decides a match, or invents an account/vendor/amount/date |
 
 This is enforced two ways. Each workflow builds the LLM prompt **only** from the
-deterministic findings, and a deterministic validation layer checks every model
-response for invented references and for numeric claims not present in the findings —
-flagging or rejecting anything that fails. The AI's output is always labelled a **draft**
-and shown in a visually distinct trust boundary until a human approves it.
+deterministic findings, and a deterministic validator checks every number, date,
+identifier, and row reference in the response against those findings: anything that
+isn't there **rejects the draft**. The AI's output is always labelled a **draft** and
+shown in a visually distinct trust boundary until a human approves it.
 
 <p align="center">
   <img src="docs/media/ai-trust-boundary.png" alt="AI draft labelled 'written by AI, verify before use', each claim citing source rows, with a 'Checked against your files: no invented references' validation result and Approve/Reject controls" width="88%">
@@ -74,8 +74,8 @@ and shown in a visually distinct trust boundary until a human approves it.
 
 The model runs on a built-in **mock provider by default** — deterministic, no API key,
 no internet — so the entire tool runs offline. A real OpenAI-compatible or Anthropic
-provider is available opt-in (see [Configuring a real LLM](#configuring-a-real-llm)) and
-passes the exact same guardrails.
+provider is opt-in (see [Using a real model](#configuring-a-real-llm)) and passes the
+exact same guardrails, [measured below](#measured-results).
 
 ## A run, end to end
 
@@ -112,8 +112,8 @@ draft-vs-approved state: a CPRA-style review surface for AI usage.
 
 ## Supported workflows
 
-Eight workflows share one pipeline and are runnable end-to-end from the CLI, the API,
-and the React console — all on bundled synthetic data.
+Eight workflows share one pipeline and run end to end from the React console, the CLI,
+or a chat assistant over MCP, all on bundled synthetic data.
 
 | Workflow | What the code does (deterministic) | What the AI does |
 | --- | --- | --- |
@@ -121,7 +121,7 @@ and the React console — all on bundled synthetic data.
 | **Budget-to-actual variance** | Join budget to actuals; compute dollar and percent variance; flag lines over threshold and missing accounts. | Draft variance commentary referencing flagged rows. |
 | **Report consistency review** | Check a draft report for subtotal mismatches, invalid codes, duplicates, missing sections, large prior-version changes. | Explain each issue; draft a review checklist. |
 | **Transaction search** | Parse plain English into a schema-validated `SearchCriteria`; apply as deterministic pandas filters over GL/AP/check/PO exports. | Translate the query to structured JSON; summarize matches. |
-| **AP duplicate / suspicious payment** | Eight checks (D1–D8): duplicate invoices, same-vendor/amount near-date pairs, similar vendor names, missing PO, payment-before-invoice, inactive/unknown vendor, split payments. | Summarize flagged issues; draft review notes — never concludes fraud. |
+| **AP duplicate / suspicious payment** | Eight checks (D1–D8): duplicate invoices, same-vendor/amount near-date pairs, similar vendor names, missing PO, payment-before-invoice, inactive/unknown vendor, split payments (one finding per cluster). | Summarize flagged issues; draft review notes — never concludes fraud. |
 | **JE upload prep** | Validate a draft journal entry against the chart of accounts and fiscal period; produce an upload-ready workbook **or** a blocking error report. Fail-closed. | Draft a validation summary; never edits the workbook. |
 | **PO / invoice mismatch** | Nine checks (P1–P8 + P3b) joining PO and AP exports: invoice-over-PO, wrong vendor, missing/closed PO, price/qty mismatch, received-vs-invoiced. | Summarize mismatches; draft review notes — never declares an invoice improper. |
 | **Guided freeform** | A structured (not chat) fallback routing ad-hoc tasks through the same logging and validation; **fails closed** unless sensitivity is confirmed. | Produce a source-linked DRAFT for human review. |
@@ -141,76 +141,72 @@ the workflow's declared capability and returns one of three statuses:
   (e.g. a likely sign-convention mismatch) are flagged for human review; the AI may only
   explain the deterministic findings.
 - **FAIL** — a required file/column is missing or unparseable; the workflow does **not**
-  run, **the LLM is never called**, and a structured report with next steps is returned.
+  run, **the LLM is never called**, and the user gets plain-language next steps naming
+  the upload, the columns the file actually has, and "this may not be the right file"
+  when it clearly isn't.
 
 The model never "takes over" failed workflow logic. Full rules in
 [`docs/workflow_capabilities.md`](docs/workflow_capabilities.md).
 
+## Measured results
+
+**The guardrail, against a real model.** Every workflow was run through a real,
+inexpensive model (`deepseek-v4.1-flash` via OpenRouter) on the synthetic data, and
+every number, date, identifier, and row reference in each draft was checked:
+
+- **Final held-out batch: 23 of 24 fresh drafts accepted, 1,345 claims checked; the
+  one rejection was correct** (an empty draft). No false positives remained.
+- **It catches real hallucinations.** In one run the model named invoice `INV-90065`,
+  which exists nowhere in the data. The validator rejected the draft; the validator
+  this project started with accepted it (it compared raw text tokens, checked numbers
+  in only 3 of 8 workflows, and only as warnings).
+- **72 adversarial edits** of real drafts (an invented amount, percent, count, date,
+  identifier, or row) are replayed offline on every test run, and all must fail.
+
+**Scale.** Every workflow processes a **50,000-row** export in **4–12 seconds** on a
+laptop (bank reconciliation was over two minutes, PO review six, AP review over ten),
+with each algorithmic speed-up pinned by an equivalence test against the original
+definition.
+
+Method, per-workflow tables, and the tuning history (including what went wrong):
+[`docs/evaluation.md`](docs/evaluation.md). Total spent on real-model calls: about $0.12.
+
 ## Architecture
 
 ```text
+            React console             CLI                 MCP server
+            (frontend/, via api/)     (cli/)              (mcp_server.py)
+            guided 4-step wizard      scripts, batch      tools for any chat host
+                    │                   │                   │
+                    └───────────────────┼───────────────────┘
+                                        ▼
   ┌──────────────────────────────────────────────────────────────────────────┐
-  │  DETERMINISTIC CORE   (src/core, src/workflows, src/ingest, src/llm)      │
+  │  src/core/pipeline.py  - the one run path (src/workflows/registry.py)    │
   │                                                                          │
-  │  input files (CSV / Excel)                                               │
-  │        └─▶ parse → clean → normalize → match / compute / check           │
-  │                → deterministic findings + source-row refs                │
-  │        └─▶ AI-assisted drafting (LLM, mock by default)                   │
-  │                explains / summarizes / drafts ONLY · cites rows          │
-  │        └─▶ validation (deterministic)                                    │
-  │                reject/flag invented refs, numbers not in findings        │
-  │        └─▶ run ledger (SQLite) + append-only audit log                   │
-  │        └─▶ export packet: findings.csv, review_packet.md, manifest.json  │
+  │  CSV / Excel ─▶ preflight (PASS / PARTIAL / FAIL; FAIL stops here,       │
+  │                 no LLM call) ─▶ deterministic checks ─▶ findings that    │
+  │                 cite source rows                                         │
+  │            ─▶ LLM draft (offline mock by default; real model opt-in)     │
+  │            ─▶ validation: every number, date, id, and row in the draft   │
+  │                 must exist in the findings, or the draft is rejected     │
+  │            ─▶ SQLite run ledger + append-only audit log                  │
+  │            ─▶ review packet (findings.csv, review_packet.md, manifest)   │
   └──────────────────────────────────────────────────────────────────────────┘
-            │
-            ▼
-     ┌──────────────┐
-     │  FastAPI seam │
-     │  (api/)       │
-     │  thin HTTP    │
-     │  adapter,     │
-     │  no logic     │
-     └──────────────┘
-            │
-            ▼
-     ┌────────────────────────────┐
-     │  React / Vite / TS console │   guided wizard · progressive disclosure
-     │  (frontend/)               │   human review + export
-     │  NEVER calculates —        │   renders backend data only
-     │  renders only              │
-     └────────────────────────────┘
-
-  CLI (cli/run_workflow.py) drives the core directly — same pipeline, same
-  ledger, same audit log as the API (src/core/pipeline.py).
 ```
-
-The **responsibility split** is what makes the output trustworthy: every number on
-screen came from deterministic code, not the UI.
 
 | Layer | Owns | Never does |
 | --- | --- | --- |
-| Deterministic core | Parsing, cleaning, all calculations, matching, validation, source-row tracking, preflight, exports, audit log | Delegates logic to the LLM or UI |
-| FastAPI seam (`api/`) | HTTP transport, file handling, typed contracts, orchestration | Business logic, LLM calls, recalculation |
-| React console (`frontend/`) | Rendering API data, routing, review actions, downloads | Computes **any** value — even a display-only sum is forbidden |
+| Core (`src/`) | Parsing, every calculation and match, preflight, validation, source-row tracking, exports, audit log | Delegates a calculation to the LLM or a UI |
+| Front ends (`api/`, `cli/`, `mcp_server.py`) | Transport and input handling | Business logic; each calls `pipeline.run_workflow` |
+| React console (`frontend/`) | Rendering, review actions, downloads | Computes **any** value, even a display-only sum |
 
-> **Why FastAPI + React after a Streamlit MVP?** Streamlit proved the workflow logic,
-> audit model, and trust boundaries end-to-end. But its dense, form-heavy layout made it
-> hard for non-technical staff to tell what step they were on and what the AI wrote versus
-> what the code found. The guided console replaced it with a four-step wizard, progressive
-> disclosure, explicit AI/deterministic separation, and a run-scoped "ask about this run"
-> assistant; the Streamlit UI has since been retired.
-
-## Tech stack
-
-**Backend** Python 3.11+ · FastAPI · pandas · pydantic v2 · SQLite (run ledger) · openpyxl
-**Frontend** React 18 · TypeScript · Vite · React Router
-**Testing** pytest (758) · vitest (45) · Playwright (e2e)
-**AI** mock provider by default (offline, deterministic); opt-in OpenAI-compatible / Anthropic Messages providers behind one interface
+All three front ends share one ledger, so a run started from a chat assistant shows up
+in the console's history. The Streamlit prototype that proved the workflows has been
+retired in favor of the guided console.
 
 ## Getting started
 
-Requires **Python 3.11+** and **Node 24+**. Runs fully offline by default. On Windows the
-project uses a local venv at `.venv\Scripts\python.exe`.
+Requires **Python 3.11+** and **Node.js LTS** (first run only). Runs fully offline by default.
 
 ### Deployment status
 
@@ -220,126 +216,70 @@ and FastAPI backend from one local process for evaluation and demonstration. It 
 a hosted multi-user production deployment, and the public repository contains
 synthetic data only.
 
-```bat
-REM 1. Backend
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install -e .
+**One command** (Windows: double-click `scripts\launch_console.cmd`):
 
-REM 2. Frontend (built bundle served by the API)
-cd frontend
-npm install
-npm run build
-cd ..
-
-REM 3. Run — one server serves the console + API
-.venv\Scripts\python.exe -m uvicorn api.main:app --port 8000
-REM open http://127.0.0.1:8000
+```bash
+python scripts/launch_console.py
 ```
 
-**Fastest path for a non-technical user** (after one build): double-click
-`scripts\launch_console.cmd` — it checks the venv/build, starts the server, waits for
-health, and opens the browser.
+The first run creates `.venv`, installs the app, builds the console, then opens
+`http://127.0.0.1:8765`. Closing the window stops everything. Details and
+troubleshooting: [`scripts/README.md`](scripts/README.md).
 
-**Try it from the CLI** — no frontend build needed:
+**CLI** (after the first launch, or `pip install -e .`):
 
-```bat
-.venv\Scripts\python.exe cli\run_workflow.py list
-.venv\Scripts\python.exe cli\run_workflow.py ap-duplicate-review --sample
-.venv\Scripts\python.exe cli\run_workflow.py bank-reconciliation --sample --export out\bank
+```bash
+.venv/Scripts/python.exe cli/run_workflow.py ap-duplicate-review --sample
 ```
 
-<details>
-<summary><b>Run modes, dev server, and reproducible installs</b></summary>
-
-| Mode | How to start | URL |
-| --- | --- | --- |
-| API only (no build) | `uvicorn api.main:app --port 8000` | `http://127.0.0.1:8000/api/...` |
-| Dev (hot-reload) | `npm run dev` in `frontend/` + API on 8000 | `http://localhost:5173` (proxies `/api` → 8000) |
-| Single-server (prod-like) | `npm run build` then start the API | `http://127.0.0.1:8000` |
-
-`frontend/dist/` is a **build artifact** — gitignored, never committed. When it exists,
-the API mounts it at `/`; `/api/*` routes always take priority. The API runs fine with no
-dist present (that's the normal dev/CI state).
-
-For byte-for-byte reproducibility use the pinned lockfile instead of `-e .`:
-
-```bat
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-`requirements.txt` pins every transitive version, frozen from the known-good Python 3.14
-environment; `pyproject.toml` `[project.dependencies]` is the source of truth for direct
-deps. A quick API smoke check:
-
-```bat
-curl http://127.0.0.1:8000/api/health
-REM -> {"status":"ok","app":"municipal-finance-ai","version":"0.1.0","llm_mode":"mock"}
-```
-
-See [`docs/frontend/api_contract.md`](docs/frontend/api_contract.md) for the full endpoint
-reference.
-</details>
+**From a chat assistant** (Claude Desktop, ChatGPT apps, Copilot Studio, ...): see
+[`docs/mcp.md`](docs/mcp.md).
 
 <details id="configuring-a-real-llm">
-<summary><b>Configuring a real LLM (opt-in)</b></summary>
+<summary><b>Using a real model (opt-in)</b></summary>
 
-The mock provider is the default and needs no configuration. To use a real provider, set:
+Copy `.env.example` to `.env` (gitignored) and set `LLM_MODE=real`, `LLM_API_KEY`,
+`LLM_BASE_URL`, and `LLM_MODEL`. Any OpenAI-compatible endpoint works (the measured
+results above used OpenRouter); `LLM_PROVIDER=anthropic` uses the Anthropic Messages API.
+The launcher and MCP server load `.env`; the API and CLI read the same variables from
+the environment.
 
-```bat
-set LLM_MODE=real
-set LLM_API_KEY=<your-key>
-REM Optional overrides:
-set LLM_BASE_URL=https://api.openai.com/v1/chat/completions
-set LLM_MODEL=gpt-4o
-set LLM_PROVIDER=openai
-```
+The real path passes exactly the same validation as the mock. If the provider fails
+(timeout, bad key, empty reply), the run still completes with its deterministic
+findings and the draft is marked "AI draft unavailable". Tests never call a real
+model: `tests/conftest.py` clears the `LLM_*` variables.
 
-Without `LLM_MODE=real` (or with no key) the system uses the mock — the real provider
-raises a clear error before any network call rather than fabricating output. It defaults
-to an OpenAI-compatible `/chat/completions` endpoint; an **Anthropic Messages** preset
-(`anthropic_messages_transport`) is included in `src/llm/provider.py`. All validation and
-source-citation guardrails apply identically on the real path, which is never exercised by
-the test suite and is not required for any demo.
+To measure a model yourself: `python -m src.eval.real_llm --repeat 3`.
 </details>
 
 ## Testing
 
-```bat
-.venv\Scripts\python.exe -m pytest          REM 758 backend tests
-cd frontend && npm test                     REM 45 frontend tests (vitest)
-cd frontend && npx playwright test           REM optional browser e2e (Chromium)
+```bash
+.venv/Scripts/python.exe -m pytest -o addopts="" -q     # backend, offline
+.venv/Scripts/python.exe -m src.eval.harness              # known-answer checks, 7/7
+.venv/Scripts/python.exe -m src.eval.scale --rows 50000   # 50k-row timings
+cd frontend && npm test && npm run typecheck && npm run lint
 ```
 
-The backend suite covers the preflight/capability layer, per-workflow messy-data
-fixtures, the four Tyler-era workflows, the Tyler normalizer, CLI/registry integration,
-and the API endpoints. An evaluation harness runs known-answer datasets for each workflow:
-
-```bat
-.venv\Scripts\python.exe -m src.eval.harness --out runs/eval_report.json
-```
-
-**Measured result:** the harness runs all seven tabular workflows end-to-end on synthetic
-data, passing **7/7 known-answer checks with 0 LLM outputs rejected** on the mock path —
-e.g. bank reconciliation yields 4 matched / 1 timing difference / 3 unmatched across 13
-transactions; AP duplicate review flags exactly 13 findings across D1–D8; JE upload prep
-produces an upload-ready workbook with 2 round-dollar warnings; PO/invoice review flags 9
-exceptions.
+**900 backend + 57 frontend tests pass.** CI (`.github/workflows/ci.yml`) runs all of
+the above except the scale benchmark. The backend suite includes offline replays of
+recorded real-model drafts (`tests/integration/test_real_llm_replay.py`), MCP protocol
+tests, and randomized equivalence tests for every rewritten algorithm.
 
 ## Limitations
 
-Deliberate scope boundaries of this MVP — not bugs:
+Deliberate scope boundaries, not bugs:
 
-- **Local, single-user, no auth.** No accounts, roles, or access control. The role
-  selector is presentation-only (reorders findings; never hides or deletes).
-- **No real ERP integration.** All data is local CSV/XLSX. Tyler/Munis column aliases are
-  modeled on observed export shapes and unvalidated against a live system. The public
-  repository does not connect directly to a live Tyler/Munis installation — see the
-  assumptions register in [`docs/tyler_assumptions.md`](docs/tyler_assumptions.md).
-- **Synchronous execution, no streaming.** Workflows run in the request handler (seconds
-  on synthetic data); a large real dataset would need a task queue.
-- **PDF export is text-only**; **redaction is a regex prototype**, not a compliance tool.
-- **No vector DB / RAG.** Reference data loads from files at run time — none is needed at
-  this scale.
+- **Local, single-user, no auth.** No accounts or roles; run history lives in a local SQLite file.
+- **No live ERP connection.** Inputs are exported CSV/XLSX files. Tyler/Munis column
+  handling follows observed export shapes and still needs confirming against a real
+  export template ([`docs/tyler_assumptions.md`](docs/tyler_assumptions.md)).
+- **The validator checks facts, not judgment.** It rejects invented numbers, dates,
+  identifiers, and rows, but not a real figure attached to the wrong item, a dropped
+  minus sign, or an invented vendor *name* without digits. Every draft stays a draft
+  until a human approves it.
+- **Synchronous runs.** A 50k-row file takes seconds; much larger files would need a task queue.
+- **PDF export is text-only; redaction is a regex prototype**, not a compliance tool.
 
 ## Synthetic data disclaimer
 
@@ -349,23 +289,21 @@ integrations anywhere in the public project, and it does not connect directly to
 Tyler/Munis installation. "City of Riverbend" and all vendors, invoices, checks, POs,
 and amounts are fabricated. **Do not load real sensitive data into this MVP.**
 
-## Engineering decisions
+## Design decisions
 
-- **Constrained the MVP on purpose.** Deterministic code does all financial logic; the LLM
-  is limited to explanation and drafting; no vector DB, no multi-agent system, no real ERP
-  integration, no production auth. Mock-LLM mode is the default so the whole tool runs
-  offline and every test runs on the mock path.
-- **One pipeline, cleanly separated.** Ingest → normalize → deterministic analysis → LLM
-  assist → validate → human review → export → audit log. UI, CLI, persistence, validation,
-  and the LLM wrapper are kept apart, so workflow modules never touch FastAPI,
-  or provider code.
-- **Validation as a first-class layer.** A deterministic checker rejects or flags any LLM
-  claim not backed by the findings; an eval harness proves it on known-answer datasets.
-- **Why it matters.** Keeping the math deterministic and the model language-only is what
-  makes the output auditable and trustworthy — and the same constraint keeps the system
-  honest about its limits and straightforward to extend (RAG, more adapters, orchestration)
-  without rewriting the core.
+The short version (full index: [`docs/decisions.md`](docs/decisions.md)):
+
+- **Code computes, the model writes, a validator checks, a human approves.** The model
+  never sees a task it could get numerically wrong; the validator treats any claim not
+  found in the findings as an error, not a warning.
+- **One pipeline, many doors.** The console, CLI, and MCP server are thin adapters over
+  `pipeline.run_workflow`, so a guardrail added once applies everywhere.
+- **Measure against reality.** The validator was tuned on real model output, checked on
+  held-out batches, and attacked by a review agent before its numbers went in this
+  README.
+- **Fail closed.** Bad files stop at preflight with plain-language next steps; a broken
+  model connection never costs the deterministic results.
 
 ---
 
-<div align="center"><sub>Portfolio MVP · synthetic data only · built to demonstrate an auditable, trust-bounded approach to AI in government finance.</sub></div>
+<div align="center"><sub>Portfolio project · synthetic data only · an auditable, trust-bounded approach to AI in government finance.</sub></div>

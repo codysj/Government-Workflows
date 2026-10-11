@@ -446,7 +446,7 @@ section body.
   result (status pill, files table, fix-it cards, next steps, supported checks).
 - "Run summary details": the `summary` object as a read-only key/value list (pretty keys:
   snake_case -> sentence case). This is where `detected_columns`, `column_mappings_used`,
-  `parse_confidence`, `source_formats` etc. live - no special rendering required beyond
+  `parse_confidence` etc. live - no special rendering required beyond
   readable formatting.
 - "Activity log": lazy `GET /api/runs/{run_id}/audit`; table with columns Time
   (`timestamp`), Event (`event_type` snake_case -> sentence case, e.g. "Run created",

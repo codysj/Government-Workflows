@@ -463,58 +463,14 @@ option, which may generate a template with its own column structure.
 
 ---
 
-## 4. TYLER_MUNIS_STYLE Preset vs TYLER_DATASET_TYPES (GW-28 status: DEFERRED)
+## 4. Import presets vs TYLER_DATASET_TYPES (GW-28: RESOLVED 2026-10-11)
 
-`src/ingest/presets.py` defines a `TYLER_MUNIS_STYLE` preset (combined with
-`GENERIC_ERP` as the `tyler_munis_style` entry in `PRESETS`). This preset is
-a GENERIC alias layer used by the three original workflows (bank reconciliation,
-budget variance, report review) before the Tyler-specific normalizer existed.
-
-Key aliases in `TYLER_MUNIS_STYLE` not in `TYLER_DATASET_TYPES`:
-
-| Alias (snake-cased) | Canonical Target | Notes |
-|---------------------|-----------------|-------|
-| jrnl_date           | date            | Duplicate of gl_detail alias |
-| je_date             | date            | Duplicate of je_upload alias |
-| jnl_date            | date            | Variant |
-| gl_amount           | amount          | Not in any TYLER_DATASET_TYPES spec |
-| journal_amount      | amount          | Not in any TYLER_DATASET_TYPES spec |
-| je_amount           | amount          | Not in any TYLER_DATASET_TYPES spec |
-| je_description      | description     | Not in any TYLER_DATASET_TYPES spec |
-| comment             | description     | Generic |
-| org_code            | department      | Maps "org" concept to "department" canonical -- differs from tyler.py which keeps "org" as the canonical |
-| obj / object        | account_code    | Maps Munis object to "account_code" canonical -- differs from tyler.py which uses "object" as canonical |
-| check_date          | date            | For check-register-as-generic-transaction use |
-| check_amount        | amount          | For check-register-as-generic-transaction use |
-| invoice            | invoice_number  | Not in any TYLER_DATASET_TYPES spec |
-| po                  | po_number       | Not in any TYLER_DATASET_TYPES spec |
-
-**GW-28 DEFERRED** -- Resolving the org/object canonical conflict requires renaming
-all TYLER_DATASET_TYPES specs, synthetic fixtures, and downstream workflow column
-references (a multi-file rename with no runtime benefit for the current synthetic-only
-dataset). A `# ponytail: GW-28` comment in presets.py documents the intended fix path.
-
-**Intended single canonical per dimension (for a future fix pass):**
-
-| Munis dimension | Intended canonical  | Notes |
-|----------------|---------------------|-------|
-| Org (organization) | `org`           | Matches Munis terminology; remove preset's `org -> department` remapping |
-| Object (expenditure object) | `object` | Matches Munis terminology; remove preset's `object -> account_code` remapping |
-
-Observations:
-1. `TYLER_MUNIS_STYLE` and `TYLER_DATASET_TYPES` use DIFFERENT canonical names
-   for the same Munis "Org" dimension: the preset maps `org` -> `department`,
-   while the tyler.py normalizer keeps `org` as the canonical column name. These
-   are two separate pipeline paths (preset path for original workflows; tyler.py
-   path for the four new Tyler workflows) so the inconsistency does not cause a
-   runtime conflict, but it is a conceptual inconsistency that could confuse a
-   developer trying to extend both.
-2. `TYLER_MUNIS_STYLE` similarly maps `object` -> `account_code`, while
-   `TYLER_DATASET_TYPES` keeps `object` as canonical. Same dual-path situation.
-3. The `invoice` alias (bare "invoice" -> `invoice_number`) in `TYLER_MUNIS_STYLE`
-   had no fixture coverage and no `TYLER_DATASET_TYPES` counterpart. **Removed by GW-30.**
-
----
+The generic `TYLER_MUNIS_STYLE` import preset (which mapped `org` -> department
+and `object` -> account_code) was removed with the retired Streamlit UI, its only
+caller. `TYLER_DATASET_TYPES` in `src/ingest/tyler.py` is now the single place
+that names Munis dimensions (`org` and `object` stay canonical). Generic header
+variants (e.g. `eff_date`, `posting_date`, `cost_center`) live in preflight's
+`SEMANTIC_SYNONYMS`, where they map columns for any workflow.
 
 ## 5. City/Vendor Verification Checklist
 
