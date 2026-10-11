@@ -1,13 +1,13 @@
 """Evaluation harness (Phase 7).
 
-Runs each MVP workflow on its bundled synthetic known-answer dataset through the
-SHARED ``src.workflows.registry`` run entry point, using the default mock LLM
-provider (no API key / no internet), an in-memory run ledger, and an audit log.
-For each workflow it:
+Runs each workflow on its bundled synthetic known-answer dataset through
+``src.core.pipeline.run_workflow`` -- the SAME entry point the API and CLI use
+(preflight, config merge, validation, exports, review packet) -- with the
+default mock LLM provider (no API key / no internet), an in-memory run ledger,
+and an audit log. For each workflow it:
 
-  1. resolves the workflow spec + its ``--sample`` inputs (the synthetic data),
-  2. runs the uniform pipeline (deterministic analysis -> mock LLM -> validation
-     -> exports), timing the wall-clock runtime,
+  1. resolves the workflow descriptor + its bundled sample inputs,
+  2. runs the pipeline, timing the wall-clock runtime,
   3. derives the Phase-7 evaluation metrics (see ``src.eval.metrics``),
   4. compares deterministic output against the known-answer expectations,
 
@@ -27,8 +27,7 @@ CLI::
                                                    [--export]
                                                    [--workflow budget_variance ...]
 
-The harness imports ONLY core/registry modules; it never imports Streamlit and
-never references a specific LLM provider. The mock provider is the default path.
+The harness never references a specific LLM provider; the mock is the default.
 """
 from __future__ import annotations
 
@@ -48,6 +47,7 @@ from src.eval.metrics import (
     compute_metrics,
     known_answer_check,
 )
+from src.core.pipeline import run_workflow
 from src.workflows import registry as workflow_registry
 
 # Repo root (this file lives in src/eval/).
@@ -92,13 +92,6 @@ class WorkflowEvalResult:
         }
 
 
-def _unwrap(result: Any, key: str, default: Any = None) -> Any:
-    """Read a field from a registry run result (dict or UniformRunResult)."""
-    if isinstance(result, dict):
-        return result.get(key, default)
-    return getattr(result, key, default)
-
-
 def run_workflow_eval(
     workflow_type: str,
     *,
@@ -112,8 +105,8 @@ def run_workflow_eval(
     LLM. ``export_dir`` (when given) is where export packets are written so the
     'export packets generated' metric is exercised end-to-end.
     """
-    spec = workflow_registry.get_spec(workflow_type)
-    if spec is None:
+    descriptor = workflow_registry.resolve(workflow_type)
+    if descriptor is None:
         return WorkflowEvalResult(
             workflow_type=workflow_type,
             ran=False,
@@ -122,22 +115,19 @@ def run_workflow_eval(
             error=f"unknown workflow '{workflow_type}'",
         )
 
-    inputs = spec.sample_inputs()
     ledger = RunLedger(":memory:")
     audit = AuditLog(ledger, write_jsonl=False)
-
-    wf_export_dir: Optional[Path] = None
-    if export_dir is not None:
-        wf_export_dir = Path(export_dir) / workflow_type
-        wf_export_dir.mkdir(parents=True, exist_ok=True)
+    wf_export_dir = Path(export_dir) / workflow_type if export_dir is not None else None
 
     try:
         start = time.perf_counter()
-        result = spec.run(
-            inputs,
-            provider=provider,
+        result = run_workflow(
+            descriptor.workflow_type,
+            descriptor.sample_inputs(),
             ledger=ledger,
             audit=audit,
+            provider=provider,
+            actor="eval",
             export_dir=wf_export_dir,
         )
         runtime = time.perf_counter() - start
@@ -151,11 +141,22 @@ def run_workflow_eval(
             error=f"{type(exc).__name__}: {exc}",
         )
 
-    findings = _unwrap(result, "findings", []) or []
-    summary = _unwrap(result, "summary", {}) or {}
-    validation = _unwrap(result, "validation", None)
-    export_paths = _unwrap(result, "export_paths", {}) or {}
-    run_id = _unwrap(result, "run_id", None)
+    if result.refused or result.blocked:  # preflight FAIL / refusal: did not run
+        ledger.close()
+        return WorkflowEvalResult(
+            workflow_type=workflow_type,
+            ran=False,
+            metrics=None,
+            known_answer=None,
+            run_id=result.run_id,
+            error=result.refusal_reason or "run refused",
+        )
+
+    findings = result.findings
+    summary = result.summary
+    validation = result.validation
+    export_paths = result.export_paths
+    run_id = result.run_id
 
     metrics = compute_metrics(
         workflow_type=workflow_type,

@@ -41,7 +41,7 @@ class AuditLog:
             details=details or {},
         )
         # SQLite (append-only INSERT, never UPDATE/DELETE). The ledger owns the
-        # connection lifecycle so this stays thread-safe under Streamlit reruns.
+        # connection lifecycle so this stays thread-safe across API request threads.
         self.ledger.append_audit_event(
             event_id=event.event_id,
             run_id=event.run_id,

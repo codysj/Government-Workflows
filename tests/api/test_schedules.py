@@ -73,7 +73,7 @@ def test_schedules_reflect_post_startup_writes(tmp_path_factory):
     settings = _settings(root)
     with TestClient(create_app(settings)) as c:
         assert c.get("/api/schedules").json() == {"schedules": []}
-        # Write directly to the JSON path, mimicking Streamlit/another process.
+        # Write directly to the JSON path, mimicking another process.
         store = ScheduleStore(settings.schedules_path)
         sched = make_schedule(
             workflow_type="report_review",

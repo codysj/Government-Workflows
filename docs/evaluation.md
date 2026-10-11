@@ -11,11 +11,11 @@ Code: `src/eval/metrics.py` (metrics + known-answer expectations),
 `tests/integration/test_eval.py` (12 tests).
 
 The harness runs each MVP workflow on its bundled synthetic known-answer dataset
-through the **shared** `src.workflows.registry` run entry point, using the
+through `src.core.pipeline.run_workflow` -- the same entry point the API and CLI use -- with the
 default mock LLM provider (no API key / no internet), an in-memory `RunLedger`,
-and a non-JSONL `AuditLog`. It reuses the real pipeline (deterministic analysis →
-mock LLM → validation → export) and leaves no shared on-disk state. It imports no
-Streamlit and no provider-specific code.
+and a non-JSONL `AuditLog`. It exercises the real pipeline (preflight → deterministic analysis →
+mock LLM → validation → export → review packet) and leaves no shared on-disk
+state. It imports no provider-specific code.
 
 ### Run it
 

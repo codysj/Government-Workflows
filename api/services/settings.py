@@ -1,22 +1,16 @@
-"""API settings + per-app context (ledger/audit handles).
+"""API settings: filesystem paths + defaults for the API process.
 
-Defaults point at the SAME locations the Streamlit app uses so run history is
-shared across both UIs:
-  ledger:   <repo>/runs/ledger.db
-  audit:    <repo>/runs/audit
-  exports:  app_settings.json "export_dir" (default <repo>/runs/exports)
-  uploads:  <repo>/runs/uploads
-
-Tests override every path with tmp directories. This module READS
-app_settings.json via app.app_settings (headless, no Streamlit import) and
-never writes it.
+Defaults: ledger ``runs/ledger.db``, audit ``runs/audit``, uploads
+``runs/uploads``, schedules ``runs/schedules.json``, and exports from
+``app_settings.json`` (default ``runs/exports``). Tests override every path
+with tmp directories. Settings are read here, never written.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.app_settings import AppSettings
+from src.core.settings import AppSettings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -40,7 +34,6 @@ class ApiSettings:
     audit_dir: Path = REPO_ROOT / "runs" / "audit"
     export_dir: Path = REPO_ROOT / "runs" / "exports"
     upload_dir: Path = REPO_ROOT / "runs" / "uploads"
-    # Same JSON store the Streamlit app uses (runs/schedules.json).
     schedules_path: Path = REPO_ROOT / "runs" / "schedules.json"
     frontend_dist: Path = REPO_ROOT / "frontend" / "dist"
     default_actor: str = "finance_staff"

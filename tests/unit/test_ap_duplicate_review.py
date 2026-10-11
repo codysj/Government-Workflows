@@ -920,35 +920,10 @@ class TestNoFalsePositives:
 # WORKFLOW metadata
 # --------------------------------------------------------------------------- #
 class TestWorkflowMeta:
-    def test_workflow_dict_exported(self):
-        from src.workflows.ap_duplicate_review import WORKFLOW
-        assert WORKFLOW["workflow_type"] == WORKFLOW_TYPE
-        assert callable(WORKFLOW["run"])
-        assert WORKFLOW["prompt_template_version"] == "ap_duplicate_review.v1"
-        assert set(WORKFLOW["export_files"]) == set(EXPORT_FILE_NAMES)
 
     def test_sample_inputs_dict(self):
         from src.workflows.ap_duplicate_review import SAMPLE_INPUTS
         assert "ap_invoices" in SAMPLE_INPUTS
         assert SAMPLE_INPUTS["ap_invoices"].endswith("ap_invoice_detail.csv")
 
-    def test_register_dict_style(self):
-        from src.workflows.ap_duplicate_review import register
-        reg: dict = {}
-        register(reg)
-        assert WORKFLOW_TYPE in reg
-        assert callable(reg[WORKFLOW_TYPE])
 
-    def test_register_callable_style(self):
-        from src.workflows.ap_duplicate_review import register
-
-        class FakeRegistry:
-            def __init__(self):
-                self._map: dict = {}
-
-            def register(self, wtype, fn):
-                self._map[wtype] = fn
-
-        reg = FakeRegistry()
-        register(reg)
-        assert WORKFLOW_TYPE in reg._map

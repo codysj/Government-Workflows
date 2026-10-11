@@ -233,7 +233,7 @@ live in `docs/decisions.md` (dated sections) and git history.
 - GW-10 — Wizard advanced options (config + mapping disclosure)
 - GW-9 — AI usage screen
 - GW-8 — Settings screen (read-only)
-- GW-7 — Streamlit marked legacy/dev-only (retained; API depends on it)
+- GW-7 — Streamlit marked legacy/dev-only (retained; API depends on it) — superseded by GW-46: Streamlit retired 2026-10-11
 - GW-6 — Double-click launcher (`scripts/launch_console.*`)
 
 **GW-0..GW-5 — FastAPI seam + React console + migration loose ends (2026-06-12)**

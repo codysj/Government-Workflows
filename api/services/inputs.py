@@ -1,7 +1,6 @@
 """Build workflow ``inputs`` dicts from multipart form data.
 
-Mirrors what the Streamlit run page and the CLI do: uploaded files are saved
-under ``upload_dir/<unique id>/<original name>`` and their PATHS are passed to
+Uploaded files are saved under ``upload_dir/<unique id>/<original name>`` and their PATHS are passed to
 the core; ``use_sample=true`` resolves the bundled synthetic example files.
 No financial logic lives here.
 """
@@ -13,8 +12,8 @@ from typing import Any, Optional
 
 from starlette.datastructures import FormData, UploadFile
 
-from app import workflow_registry as wfr
-from api.services.catalog import TEXT_INPUTS_BY_TYPE
+from src.core.schemas import make_id
+from src.workflows.registry import get_descriptor
 
 _TRUE_STRINGS = {"true", "1", "yes", "on"}
 
@@ -72,19 +71,16 @@ def build_inputs(
     the same key. Raises ``KeyError`` for unknown workflow types (callers map
     that to 404) and ``InputError`` for malformed fields (-> 422).
     """
-    descriptor = wfr.get_descriptor(workflow_type)  # KeyError -> 404 upstream
+    descriptor = get_descriptor(workflow_type)  # KeyError -> 404 upstream
     use_sample = parse_bool(form.get("use_sample"))
     inputs: dict[str, Any] = {}
 
-    # 1. Sample files (bundled synthetic data).
-    if use_sample:
-        for key, rel in descriptor.example_files.items():
-            inputs[key] = str(wfr.example_path(rel))
-        if workflow_type == "transaction_search":
-            inputs["query"] = wfr.TRANSACTION_SEARCH_EXAMPLE_QUERY
+    # 1. Sample inputs (bundled synthetic data).
+    if use_sample and descriptor.has_sample:
+        inputs.update(descriptor.sample_inputs())
 
     # 2. Uploaded files (one part per upload key; override samples).
-    run_scope = upload_dir / wfr.make_id_safe()
+    run_scope = upload_dir / make_id()
     uploaded_any = False
     for field in descriptor.uploads:
         if field.key == "uploaded_files":
@@ -104,7 +100,7 @@ def build_inputs(
             uploaded_any = True
 
     # 3. Text inputs (query, freeform structured fields).
-    for spec in TEXT_INPUTS_BY_TYPE.get(workflow_type, []):
+    for spec in descriptor.text_inputs:
         value = form.get(spec.key)
         if value is None or isinstance(value, UploadFile):
             continue
@@ -138,17 +134,12 @@ def build_sample_inputs(workflow_type: str) -> dict[str, Any]:
     (callers map that to 404) and ``InputError`` when the workflow ships no
     sample inputs to run.
     """
-    descriptor = wfr.get_descriptor(workflow_type)  # KeyError -> 404 upstream
-    inputs: dict[str, Any] = {}
-    for key, rel in descriptor.example_files.items():
-        inputs[key] = str(wfr.example_path(rel))
-    if workflow_type == "transaction_search":
-        inputs["query"] = wfr.TRANSACTION_SEARCH_EXAMPLE_QUERY
-    if not inputs:
+    descriptor = get_descriptor(workflow_type)  # KeyError -> 404 upstream
+    if not descriptor.has_sample:
         raise InputError(
             f"Workflow '{workflow_type}' has no bundled sample inputs, so it "
             "cannot be triggered on a schedule without uploaded files.")
-    return inputs
+    return descriptor.sample_inputs()
 
 
 def validate_required_inputs(workflow_type: str, inputs: dict[str, Any]) -> None:
@@ -158,7 +149,7 @@ def validate_required_inputs(workflow_type: str, inputs: dict[str, Any]) -> None
     to the deterministic preflight engine, which reports it as a structured
     domain outcome rather than an HTTP error.
     """
-    descriptor = wfr.get_descriptor(workflow_type)
+    descriptor = get_descriptor(workflow_type)
     missing_files = [
         f.label for f in descriptor.uploads
         if f.required and f.key != "uploaded_files" and not inputs.get(f.key)
@@ -169,7 +160,7 @@ def validate_required_inputs(workflow_type: str, inputs: dict[str, Any]) -> None
             + ". Upload them or set use_sample=true.")
 
     missing_text = []
-    for spec in TEXT_INPUTS_BY_TYPE.get(workflow_type, []):
+    for spec in descriptor.text_inputs:
         if not spec.required or spec.key in _FREEFORM_BOOL_KEYS:
             continue
         val = inputs.get(spec.key)

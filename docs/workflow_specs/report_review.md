@@ -1,8 +1,7 @@
 # Workflow 3 — Financial Report Consistency / Error-Flagging Review
 
 Implements the master spec section "Workflow 3 — Financial Report Consistency /
-Error-Flagging Review". Module: `src/workflows/report_review.py`. Contains no
-Streamlit and no provider-specific code; plugs into the shared pipeline.
+Error-Flagging Review". Module: `src/workflows/report_review.py`. Contains no UI and no provider-specific code; plugs into the shared pipeline.
 
 ## Purpose
 Help finance staff review draft reports / schedules / internal packets for

@@ -2,10 +2,9 @@
 
 Run locally:  .venv/Scripts/python.exe -m uvicorn api.main:app --port 8000
 
-The API is a thin HTTP seam over the existing core: all workflow execution
-goes through app.workflow_registry.run_workflow and all persistence goes
-through the shared RunLedger / AuditLog, so run history is shared with the
-Streamlit app. Local-first; no auth (per spec).
+The API is a thin HTTP seam over the core: all workflow execution goes
+through src.core.pipeline.run_workflow and all persistence through the shared
+RunLedger / AuditLog. Local-first, single-user; no auth.
 """
 from __future__ import annotations
 

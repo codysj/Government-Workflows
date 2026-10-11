@@ -28,7 +28,7 @@
  */
 import { expect, test } from "@playwright/test";
 
-/** Workflow title exactly as the API returns it (from app.workflow_registry). */
+/** Workflow title exactly as the API returns it (from src/workflows/registry.py). */
 const AP_WORKFLOW_TITLE = "AP duplicate / suspicious payment review";
 
 // ---------------------------------------------------------------------------

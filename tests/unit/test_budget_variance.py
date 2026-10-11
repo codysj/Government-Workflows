@@ -148,11 +148,6 @@ def test_validation_catches_invented_reference(det):
 # --------------------------------------------------------------------------- #
 # Registry + class protocol
 # --------------------------------------------------------------------------- #
-def test_registry_registration():
-    assert "budget_variance" in bv.WORKFLOW_REGISTRY
-    cls = bv.WORKFLOW_REGISTRY["budget_variance"]
-    assert cls is bv.BudgetVarianceWorkflow
-    assert cls.workflow_type == "budget_variance"
 
 
 def test_workflow_class_end_to_end():

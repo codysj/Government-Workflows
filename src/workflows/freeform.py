@@ -23,17 +23,12 @@ Architecture rules honored (spec 0.3 / 1 / Phase 5):
     sensitive data). Never promises authoritative answers; all output is a DRAFT
     requiring human review.
 
-This module contains NO Streamlit and NO provider-specific code.
+This module contains NO UI and NO provider-specific code.
 
 Integration note
 ----------------
-The Foundation agent's integration contract was truncated (stream idle timeout)
-and the shared ``context_loader``, ``provider.py``, ``workflow_runner.py`` were
-not all on disk at implementation time (see docs/decisions.md). Following the
-same pattern already established by ``report_review.py`` and
-``budget_variance.py``, this module is self-contained but plug-in friendly: it
-exposes ``run(...)``, ``register(registry)``, ``WORKFLOW``, ``WORKFLOW_TYPE``,
-and ``WORKFLOW_REGISTRY``. Injected ``provider`` / ``ledger`` / ``audit`` /
+The module exposes ``run(...)`` (the shared workflow contract, see
+``src.workflows.registry``) and ``WORKFLOW_TYPE``. Injected ``provider`` / ``ledger`` / ``audit`` /
 ``context_loader`` are used when present (by the method names those modules
 already expose); otherwise local fallbacks keep mock mode (the default) runnable
 with no API key and no internet.
@@ -74,7 +69,6 @@ from src.llm.provider import _extract_findings_from_prompt
 WORKFLOW_TYPE = "freeform"
 PROMPT_TEMPLATE_VERSION = "freeform.v1"
 
-WORKFLOW_REGISTRY: dict[str, Any] = {}
 
 # Discovery log: task_type patterns are appended here for future workflow
 # discovery (spec Phase 5 "Discovery output").
@@ -926,33 +920,3 @@ def run(
         audit.run_completed(run_id, actor, passed=validation.passed)
 
     return result
-
-
-# --------------------------------------------------------------------------- #
-# Registry hooks (single import line for the Integration agent)
-# --------------------------------------------------------------------------- #
-def register(registry: Any) -> None:
-    """Register this workflow with a dict-like or callable registry.
-
-    Supports ``registry.register(WORKFLOW_TYPE, run)`` (object) or
-    ``registry[WORKFLOW_TYPE] = run`` (mapping) styles.
-    """
-    if hasattr(registry, "register") and callable(registry.register):
-        registry.register(WORKFLOW_TYPE, run)
-    else:
-        registry[WORKFLOW_TYPE] = run
-
-
-# Self-register into the module-level registry at import time (mirrors the
-# pattern used by budget_variance / report_review).
-WORKFLOW_REGISTRY[WORKFLOW_TYPE] = run
-
-# Convenience metadata for a registry that introspects modules.
-WORKFLOW = {
-    "workflow_type": WORKFLOW_TYPE,
-    "run": run,
-    "prompt_template_version": PROMPT_TEMPLATE_VERSION,
-    "export_files": list(EXPORT_FILE_NAMES),
-    "required_input_fields": list(REQUIRED_INPUT_FIELDS),
-    "discovery_log_path": str(DISCOVERY_LOG_PATH),
-}

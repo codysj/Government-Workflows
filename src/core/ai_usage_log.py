@@ -7,7 +7,7 @@ joins each stored ``LLMResponse`` with its run metadata and derives the AI
 draft status from recorded human-review actions.
 
 Everything here is DETERMINISTIC: it never calls an LLM, never recomputes
-anything, and contains no Streamlit or provider-specific code. The row builder
+anything, and contains no UI or provider-specific code. The row builder
 (:func:`ai_usage_log_rows`) lets the UI render a table without touching disk;
 :func:`export_ai_usage_log` writes ``ai_usage_log.csv`` and/or
 ``ai_usage_log.json`` and returns the written paths.

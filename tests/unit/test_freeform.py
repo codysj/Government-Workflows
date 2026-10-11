@@ -227,12 +227,6 @@ def test_validation_flags_invented_reference(tmp_path):
 # --------------------------------------------------------------------------- #
 # Registry wiring: register() exposes run under the workflow type.
 # --------------------------------------------------------------------------- #
-def test_register_into_dict_and_module_registry():
-    reg: dict = {}
-    freeform.register(reg)
-    assert reg["freeform"] is freeform.run
-    assert freeform.WORKFLOW_REGISTRY["freeform"] is freeform.run
-    assert freeform.WORKFLOW["workflow_type"] == "freeform"
 
 
 # --------------------------------------------------------------------------- #

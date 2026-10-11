@@ -1,6 +1,6 @@
 # Workflow — AP Duplicate / Suspicious Payment Review
 
-Module: `src/workflows/ap_duplicate_review.py`. Contains no Streamlit and no
+Module: `src/workflows/ap_duplicate_review.py`. Contains no UI and no
 provider-specific code; plugs into the shared pipeline.
 
 ## Purpose

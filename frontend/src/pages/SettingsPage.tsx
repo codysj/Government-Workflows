@@ -73,7 +73,6 @@ export function SettingsPage() {
               value={settings.variance_dollar_threshold}
             />
             <SettingRow label="Export folder" value={settings.export_dir} />
-            <SettingRow label="Role" value={settings.role} />
             <SettingRow
               label="Default records category"
               value={settings.default_retention_category}

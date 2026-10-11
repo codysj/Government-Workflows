@@ -1,7 +1,7 @@
 """Schedules: list (GW-11), create + manual trigger (GW-17), due (GW-18).
 
 All read endpoints build a FRESH ScheduleStore per request (GW-19) so they
-reflect schedules written after the API started (by Streamlit or by the create
+reflect schedules written after the API started (by another process or by the create
 endpoint) without an API restart. The store JSON path lives on
 ``app.state.schedules_path``.
 """
@@ -11,7 +11,7 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
-from app import workflow_registry as wfr
+from src.workflows.registry import DESCRIPTORS
 from src.core.schemas import utc_now
 
 from api.schemas.models import (
@@ -82,7 +82,7 @@ def create_schedule_endpoint(
             cadence=body.cadence,
             start=body.start,
             interval_days=body.interval_days,
-            known_workflow_types=set(wfr.WORKFLOW_MODULES),
+            known_workflow_types=set(DESCRIPTORS),
         )
     except ScheduleInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

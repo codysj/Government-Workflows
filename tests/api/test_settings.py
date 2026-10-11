@@ -9,7 +9,7 @@ def test_settings_returns_expected_keys(client):
     expected = {
         "city_name", "default_actor", "llm_provider", "mock_mode",
         "date_tolerance_days", "amount_tolerance", "variance_threshold_pct",
-        "variance_dollar_threshold", "export_dir", "role",
+        "variance_dollar_threshold", "export_dir",
         "default_retention_category", "editable",
     }
     assert expected == set(body)

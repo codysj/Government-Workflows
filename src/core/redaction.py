@@ -10,7 +10,7 @@ audit.
 
 Design notes:
 
-  * Detection and redaction are pure functions over text — no Streamlit, no
+  * Detection and redaction are pure functions over text — no UI, no
     provider code, no persistence — so they stay testable and reusable from the
     UI, CLI, or a workflow.
   * Patterns are ordered most-specific-first. A 16-digit card number is a

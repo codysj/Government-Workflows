@@ -16,12 +16,10 @@ and draft reconciliation memo language. It MUST NOT perform matching, calculate,
 or invent accounts/amounts/dates, and it must cite the deterministic source-row
 references.
 
-This module contains NO Streamlit and NO provider-specific code. It plugs into
+This module contains NO UI and NO provider-specific code. It plugs into
 the shared pipeline the same way report_review/freeform do:
   * ``WORKFLOW_TYPE`` — the registry key.
-  * ``register(registry)`` — dict/callable registry helper.
   * ``run(inputs, ...)`` — the workflow entry point.
-  * ``WORKFLOW`` / ``WORKFLOW_REGISTRY`` — metadata / self-registration.
 
 The authoritative matcher is ``src.normalize.matching`` (the LLM never matches).
 Mock mode is the DEFAULT path (no API key, no internet).
@@ -73,7 +71,6 @@ from src.normalize.matching import (
 WORKFLOW_TYPE = "bank_reconciliation"
 PROMPT_TEMPLATE_VERSION = "bank_reconciliation.v1"
 
-WORKFLOW_REGISTRY: dict[str, Any] = {}
 
 EXPORT_FILE_NAMES = (
     "reconciliation_summary.md",
@@ -1094,24 +1091,3 @@ def run(
         audit.run_completed(run_id, actor, passed=validation.passed)
 
     return result
-
-
-# --------------------------------------------------------------------------- #
-# Registry hooks (single import line for the Integration agent)
-# --------------------------------------------------------------------------- #
-def register(registry: Any) -> None:
-    """Register this workflow with a dict-like or callable registry."""
-    if hasattr(registry, "register") and callable(registry.register):
-        registry.register(WORKFLOW_TYPE, run)
-    else:
-        registry[WORKFLOW_TYPE] = run
-
-
-WORKFLOW_REGISTRY[WORKFLOW_TYPE] = run
-
-WORKFLOW = {
-    "workflow_type": WORKFLOW_TYPE,
-    "run": run,
-    "prompt_template_version": PROMPT_TEMPLATE_VERSION,
-    "export_files": list(EXPORT_FILE_NAMES),
-}

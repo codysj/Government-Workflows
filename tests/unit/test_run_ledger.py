@@ -2,8 +2,8 @@
 
 Covers create/list/read/write round-trips, audit-event persistence, and — most
 importantly — the thread-safety regression: a file-backed ledger must be usable
-from a thread other than the one that constructed it (Streamlit reruns the
-script on rotating ScriptRunner threads). Before the per-operation-connection
+from a thread other than the one that constructed it (the API serves requests
+on worker threads). Before the per-operation-connection
 fix this raised:
 
     sqlite3.ProgrammingError: SQLite objects created in a thread can only be
@@ -232,7 +232,7 @@ def test_review_transition_concurrency_no_downgrade(tmp_path):
     action (mark_reviewed) must leave the run approved, regardless of order,
     because the engagement transition is guarded on the expected pending state.
     """
-    from app.workflow_registry import apply_review_status_transition
+    from src.core.pipeline import apply_review_status_transition
 
     ledger = RunLedger(str(tmp_path / "ledger.db"))
     ledger.create_run(_make_run())
@@ -255,7 +255,7 @@ def test_review_transition_concurrency_no_downgrade(tmp_path):
 
 def test_review_transition_concurrency_threaded(tmp_path):
     """Two threads racing a decision vs an engagement leave a terminal status."""
-    from app.workflow_registry import apply_review_status_transition
+    from src.core.pipeline import apply_review_status_transition
 
     db = str(tmp_path / "ledger.db")
     ledger = RunLedger(db)
@@ -345,7 +345,7 @@ def test_list_llm_interactions_empty(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Thread-safety regression (the reported Streamlit bug)
+# Thread-safety regression (cross-thread ledger use)
 # --------------------------------------------------------------------------- #
 def test_file_ledger_usable_from_other_thread(tmp_path):
     """Construct in the main thread, read+write from another thread."""
@@ -357,7 +357,7 @@ def test_file_ledger_usable_from_other_thread(tmp_path):
 
     def worker():
         try:
-            # All three operations the Streamlit pages call.
+            # All three operations the API calls.
             ledger.list_runs()
             ledger.get_run("run-main")
             ledger.create_run(_make_run("run-worker"))

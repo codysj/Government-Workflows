@@ -1,7 +1,7 @@
 # Workflow — Natural-Language Transaction Search
 
 Module: `src/workflows/transaction_search.py`.  
-No Streamlit, no provider-specific code; plugs into the shared pipeline.
+No UI, no provider-specific code; plugs into the shared pipeline.
 
 ## Purpose
 

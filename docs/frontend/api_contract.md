@@ -14,13 +14,12 @@ source of truth for the frontend.
 ## Architecture guarantees
 
 - The API is a thin seam over the existing core. Every run goes through
-  `app.workflow_registry.run_workflow` (the same pipeline Streamlit and the
-  CLI use); persistence goes through the shared `RunLedger` (SQLite) and
+  `src.core.pipeline.run_workflow` (the same pipeline the CLI and eval
+  harness use); persistence goes through the shared `RunLedger` (SQLite) and
   `AuditLog`. No workflow logic is reimplemented.
 - The LLM is advisory-only and the offline deterministic mock is the default
   provider (`llm_mode: "mock"` in `/api/health`).
-- Default storage locations are SHARED with the Streamlit app, so run history
-  appears in both UIs: `runs/ledger.db`, `runs/audit/`, the `app_settings.json`
+- Default storage locations: `runs/ledger.db`, `runs/audit/`, the `app_settings.json`
   `export_dir` (default `runs/exports/`), and `runs/uploads/`.
 - No auth, no tenanting, local-first. CORS allows `http://localhost:5173` and
   `http://127.0.0.1:5173` (Vite dev server).
@@ -337,9 +336,8 @@ Request: `{"action": str, "actor": str, "note": str|null, "finding_id": str|null
   and the `human_review_action` audit event always stay in sync.
 - Recording an action also updates the run-level `human_review_status`
   deterministically (pure bookkeeping, no financial logic). The action->status
-  policy lives in one shared helper, `app.workflow_registry.
-  apply_review_status_transition`, used by BOTH this API and the Streamlit UI,
-  so every surface advances status identically. The write is a single atomic,
+  policy lives in one shared helper, `src.core.pipeline.
+  apply_review_status_transition`, so every caller advances status identically. The write is a single atomic,
   concurrency-safe ledger update (no read-modify-write race), so an interleaved
   engagement action can never overwrite a terminal `approved`/`rejected`:
   - `approve_draft` -> `approved`; `reject_ai_explanation` -> `rejected`
@@ -428,7 +426,6 @@ core uses). The API never writes app settings this batch.
   "variance_threshold_pct": str,      // numeric tolerance as a string
   "variance_dollar_threshold": str,   // numeric tolerance as a string
   "export_dir": str,
-  "role": str,
   "default_retention_category": str,
   "editable": false                   // always false this batch
 }
@@ -492,7 +489,7 @@ Request `RedactionScanRequest`:
 ## GET /api/schedules
 
 Listing of configured recurring runs from the same `runs/schedules.json`
-store the Streamlit app uses.
+store (`runs/schedules.json`).
 
 `200 {"schedules": [ScheduleInfo]}` where each `ScheduleInfo`:
 
@@ -512,8 +509,7 @@ store the Streamlit app uses.
 
 **Live listing (GW-19):** every schedule read endpoint (`GET /api/schedules`,
 `GET /api/schedules/due`) builds a fresh `ScheduleStore` from the JSON path per
-request, so schedules written AFTER the API started - by Streamlit, by another
-process, or by `POST /api/schedules` below - are reflected immediately WITHOUT
+request, so schedules written AFTER the API started - by another process or by `POST /api/schedules` below - are reflected immediately WITHOUT
 an API restart. The store file is tiny; re-reading per request is cheap.
 
 ## GET /api/schedules/due?as_of=YYYY-MM-DD (GW-18)

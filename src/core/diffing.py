@@ -6,7 +6,7 @@ swap, or a re-run altered the AI DRAFT output and which source rows it cited.
 
 Everything here is pure ``difflib`` over data already persisted in the run
 ledger — it never calls an LLM, never calculates findings, and never mutates
-state. It only *describes* differences. No Streamlit, no provider code, so it
+state. It only *describes* differences. No UI, no provider code, so it
 respects the UI/core separation and stays trivially testable.
 
 Public API:

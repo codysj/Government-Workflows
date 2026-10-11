@@ -17,12 +17,9 @@ Integration note
 At implementation time the Foundation agent's integration contract was
 truncated and the reference `bank_reconciliation.py` did not yet exist (see
 docs/decisions.md). This module is therefore self-contained: it depends only
-on the already-present shared schemas, cleaning utilities, and loaders. It
-self-registers into a module-level ``WORKFLOW_REGISTRY`` via the
-``register_workflow`` decorator. To wire it into a global registry the
-Integration agent only needs to import this module
-(``from src.workflows import budget_variance``); no edits to other modules are
-required here.
+on the already-present shared schemas, cleaning utilities, and loaders. The
+module-level ``run()`` follows the shared workflow contract (see
+``src.workflows.registry``).
 """
 from __future__ import annotations
 
@@ -30,7 +27,7 @@ import json
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -59,23 +56,6 @@ from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
 
 # --------------------------------------------------------------------------- #
-# Registry (self-contained; no other module is edited)
-# --------------------------------------------------------------------------- #
-WORKFLOW_REGISTRY: dict[str, type] = {}
-
-
-def register_workflow(workflow_type: str) -> Callable[[type], type]:
-    """Class decorator: register a workflow class under ``workflow_type``."""
-
-    def _decorator(cls: type) -> type:
-        cls.workflow_type = workflow_type
-        WORKFLOW_REGISTRY[workflow_type] = cls
-        return cls
-
-    return _decorator
-
-
-# --------------------------------------------------------------------------- #
 # Config
 # --------------------------------------------------------------------------- #
 DEFAULT_DOLLAR_THRESHOLD = Decimal("10000")
@@ -84,6 +64,7 @@ DEFAULT_PCT_THRESHOLD = Decimal("10")  # percent
 # Candidate join-key columns (those present in BOTH files are used).
 KEY_COLUMNS = ("fund", "account", "department", "object")
 
+WORKFLOW_TYPE = "budget_variance"
 PROMPT_TEMPLATE_VERSION = "budget_variance.v1"
 
 
@@ -1047,7 +1028,6 @@ def export_artifacts(
 # --------------------------------------------------------------------------- #
 # Workflow class + registration
 # --------------------------------------------------------------------------- #
-@register_workflow("budget_variance")
 class BudgetVarianceWorkflow:
     """Budget-to-actual variance workflow conforming to the local Workflow
     protocol (deterministic analysis -> LLM assist -> validation -> export)."""
@@ -1098,3 +1078,77 @@ class BudgetVarianceWorkflow:
             llm_response=llm,
             validation=val,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Shared workflow contract entry point
+# --------------------------------------------------------------------------- #
+def run(
+    inputs: dict[str, Any],
+    *,
+    provider: Any = None,
+    ledger: Any = None,
+    audit: Any = None,
+    run_id: Optional[str] = None,
+    actor: str = "system",
+    export_dir: str | Path | None = None,
+    config: Any = None,
+    column_mappings: Optional[dict[str, dict[str, str]]] = None,
+) -> dict[str, Any]:
+    """Run the workflow end to end (mock LLM by default), persisting to
+    ``ledger``/``audit`` when given. ``config`` (thresholds dict or path) is
+    used only when ``inputs`` carries no ``thresholds`` of its own."""
+    run_id = run_id or make_id()
+    wf = BudgetVarianceWorkflow()
+    wf_inputs = dict(inputs)
+    if config is not None and not wf_inputs.get("thresholds"):
+        wf_inputs["thresholds"] = config
+    if column_mappings:
+        wf_inputs["column_mappings"] = column_mappings
+
+    if audit is not None:
+        audit.run_created(run_id, actor, workflow_type=WORKFLOW_TYPE)
+    det = wf.run_deterministic(wf_inputs)
+    if ledger is not None:
+        ledger.store_findings(run_id, det.findings)
+    if audit is not None:
+        audit.deterministic_analysis_completed(
+            run_id, actor, finding_count=len(det.findings))
+        audit.llm_request_sent(run_id, actor, template=PROMPT_TEMPLATE_VERSION)
+    llm = wf.build_llm_output(det, provider)
+    if ledger is not None:
+        ledger.store_llm_response(run_id, llm)
+    if audit is not None:
+        audit.llm_response_received(run_id, actor, model_name=llm.model_name)
+    validation = wf.validate_llm(det, llm)
+    if ledger is not None:
+        ledger.store_validation_result(run_id, validation)
+    if audit is not None:
+        audit.validation_completed(run_id, actor, passed=validation.passed)
+
+    result: dict[str, Any] = {
+        "run_id": run_id,
+        "workflow_type": WORKFLOW_TYPE,
+        "deterministic": det,
+        "findings": det.findings,
+        "summary": det.summary,
+        "llm_response": llm,
+        "response_json": llm.response_json,
+        "validation": validation,
+    }
+    if export_dir is not None:
+        audit_events = audit.list_events(run_id) if audit is not None else []
+        artifacts = export_artifacts(
+            WorkflowResult(workflow_type=WORKFLOW_TYPE, deterministic=det,
+                           llm_response=llm, validation=validation),
+            export_dir, run_id=run_id, audit_events=audit_events)
+        if ledger is not None:
+            for a in artifacts:
+                ledger.store_export_artifact(run_id, a)
+        if audit is not None:
+            audit.export_generated(
+                run_id, actor, artifacts=[a.file_name for a in artifacts])
+        result["export_paths"] = {a.file_name: a.path for a in artifacts}
+    if audit is not None:
+        audit.run_completed(run_id, actor, passed=validation.passed)
+    return result

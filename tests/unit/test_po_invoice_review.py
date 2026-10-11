@@ -21,7 +21,6 @@ from src.workflows.po_invoice_review import (
     CAPABILITY,
     EXPORT_FILE_NAMES,
     SAMPLE_INPUTS,
-    WORKFLOW,
     WORKFLOW_TYPE,
     POInvoiceReviewConfig,
     POInvoiceReviewOutput,
@@ -895,22 +894,11 @@ class TestModuleMetadata:
         assert "csv" in accepted
         assert "xlsx" in accepted
 
-    def test_workflow_dict(self) -> None:
-        assert WORKFLOW["workflow_type"] == WORKFLOW_TYPE
-        assert callable(WORKFLOW["run"])
-        for name in EXPORT_FILE_NAMES:
-            assert name in WORKFLOW["export_files"]
 
     def test_sample_inputs_paths_are_strings(self) -> None:
         for k, v in SAMPLE_INPUTS.items():
             assert isinstance(v, str), f"SAMPLE_INPUTS[{k!r}] is not a string"
 
-    def test_register_dict(self) -> None:
-        registry: dict[str, Any] = {}
-        from src.workflows.po_invoice_review import register
-        register(registry)
-        assert WORKFLOW_TYPE in registry
-        assert callable(registry[WORKFLOW_TYPE])
 
     def test_po_invoice_review_config_defaults(self) -> None:
         cfg = POInvoiceReviewConfig()

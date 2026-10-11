@@ -1,7 +1,7 @@
 # Workflow Spec — Bank Reconciliation
 
 Implements master spec "Workflow 1 — Bank Reconciliation". Module:
-`src/workflows/bank_reconciliation.py`. Contains no Streamlit and no
+`src/workflows/bank_reconciliation.py`. Contains no UI and no
 provider-specific code; plugs into the shared pipeline the same way the other
 workflows do. This spec documents the workflow **as implemented**.
 

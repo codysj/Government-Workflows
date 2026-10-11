@@ -26,7 +26,7 @@ detection in code, never with the model. It produces one of three statuses:
   **LLM is never called**, and a structured report with concrete next steps is
   returned.
 
-The report is recorded in the run ledger, surfaced in the CLI and Streamlit UI,
+The report is recorded in the run ledger, surfaced in the CLI and the React console,
 and written into the review packet (`preflight_report.json` +
 `preflight_summary.md`) for every PASS/PARTIAL run; a FAIL writes only those two
 preflight files.
@@ -174,7 +174,7 @@ The report's `next_steps` give the concrete actions. In general:
 - **Missing / unparseable required column** — add the required column to the
   file, or **approve a column mapping**: tell the workflow which existing column
   is the `date` / `amount` / `fund` / etc. Human-approved mappings are accepted
-  via `--mappings` on the CLI or the mapping UI on the Streamlit Run Workflow
+  via `--mappings` on the CLI or the column-mapping step of the React run wizard
   page, and are forced on the workflow (the engine auto-detects the rest).
 - **Ambiguous column** — approve the mapping for the ambiguous semantic so the
   workflow does not have to guess between two candidates.

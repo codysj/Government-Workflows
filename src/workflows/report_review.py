@@ -19,12 +19,11 @@ The LLM may ONLY explain flagged issues, draft a checklist/memo, and suggest
 human follow-up. It must never decide whether the report is correct, calculate,
 or invent values, and it must cite the deterministic findings / source rows.
 
-This module contains NO Streamlit and NO provider-specific code. It plugs into
+This module contains NO UI and NO provider-specific code. It plugs into
 the shared pipeline through:
 
   * ``WORKFLOW_TYPE`` — the registry key.
-  * ``register(registry)`` — optional helper for a dict/callable registry.
-  * ``run(...)`` — the workflow entry point used by the workflow runner.
+  * ``run(...)`` — the shared workflow entry point (see ``src.workflows.registry``).
 
 When the shared LLM provider / validation / export / ledger modules are
 available they are used; otherwise self-contained mock-LLM, validation, and
@@ -1089,28 +1088,3 @@ def run(
         result["export_paths"] = {k: str(v) for k, v in paths.items()}
 
     return result
-
-
-# --------------------------------------------------------------------------- #
-# Registry hook (single import line for the Integration agent)
-# --------------------------------------------------------------------------- #
-def register(registry: Any) -> None:
-    """Register this workflow with a dict-like or callable registry.
-
-    Supports either ``registry[WORKFLOW_TYPE] = run`` (mapping) or
-    ``registry.register(WORKFLOW_TYPE, run)`` (object) styles so the Integration
-    agent can wire it without this module knowing the concrete runner type.
-    """
-    if hasattr(registry, "register") and callable(registry.register):
-        registry.register(WORKFLOW_TYPE, run)
-    else:
-        registry[WORKFLOW_TYPE] = run
-
-
-# Convenience metadata used by a registry that introspects modules.
-WORKFLOW = {
-    "workflow_type": WORKFLOW_TYPE,
-    "run": run,
-    "prompt_template_version": PROMPT_TEMPLATE_VERSION,
-    "export_files": list(EXPORT_FILE_NAMES),
-}

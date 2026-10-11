@@ -35,7 +35,7 @@ One task per MVP workflow, each using a bundled synthetic dataset:
 1. **Baseline (before tool).** The participant performs the task with their
    current manual process (spreadsheet / eyeballing). The facilitator times it
    end-to-end.
-2. **With tool.** The participant runs the same task in the tool (Streamlit
+2. **With tool.** The participant runs the same task in the tool (React console
    "Run Workflow" page, "Use example files" to load the synthetic data), reviews
    the deterministic findings and the AI draft explanation, uses the human-review
    controls, and exports the review packet. The facilitator times it end-to-end.

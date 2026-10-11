@@ -219,7 +219,3 @@ def test_run_end_to_end(tmp_path):
         assert Path(result["export_paths"][name]).exists()
 
 
-def test_register_dict_registry():
-    registry: dict = {}
-    rr.register(registry)
-    assert registry["report_review"] is rr.run

@@ -316,7 +316,6 @@ class SettingsInfo(BaseModel):
     variance_threshold_pct: str
     variance_dollar_threshold: str
     export_dir: str
-    role: str
     default_retention_category: str
     editable: bool = False
 

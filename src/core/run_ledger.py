@@ -9,8 +9,8 @@ Threading model
 This is a simple local audit/workflow store, not a production database layer.
 A single long-lived ``sqlite3.Connection`` cannot be shared across threads
 (``sqlite3`` raises "SQLite objects created in a thread can only be used in that
-same thread"). Streamlit reruns the script on rotating ScriptRunner threads, so
-a ledger cached with ``st.cache_resource`` would be touched from many threads.
+same thread"). The API serves requests on worker threads, so one shared
+ledger is touched from many threads.
 
 To stay correct and simple we open a FRESH connection per operation for
 file-backed ledgers (each connection is created, used, and closed in the calling
@@ -56,7 +56,7 @@ class RunLedger:
     """Thin SQLite-backed ledger.
 
     File-backed ledgers use one short-lived connection per operation, so the
-    same ``RunLedger`` instance is safe to share across Streamlit rerun threads.
+    same ``RunLedger`` instance is safe to share across request threads.
     In-memory ledgers reuse a single connection (an in-memory DB cannot be
     reopened).
     """

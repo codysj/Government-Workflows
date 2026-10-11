@@ -40,7 +40,6 @@ from src.workflows.je_upload_prep import (
     SAMPLE_INPUTS,
     UPLOAD_HEADERS,
     UPLOAD_SHEET_NAME,
-    WORKFLOW,
     WORKFLOW_TYPE,
     JEUploadConfig,
     JEUploadOutput,
@@ -962,10 +961,6 @@ class TestModuleConstants:
         assert "validation_report.json" in EXPORT_FILE_NAMES
         assert "audit_log.json" in EXPORT_FILE_NAMES
 
-    def test_workflow_dict(self):
-        assert WORKFLOW["workflow_type"] == WORKFLOW_TYPE
-        assert callable(WORKFLOW["run"])
-        assert "export_files" in WORKFLOW
 
     def test_sample_inputs_keys(self):
         assert "je_draft" in SAMPLE_INPUTS
@@ -981,21 +976,7 @@ class TestModuleConstants:
             f"UPLOAD_HEADERS mismatch. Got: {UPLOAD_HEADERS}\nExpected: {expected}"
         )
 
-    def test_register_dict(self):
-        reg: dict = {}
-        wf.register(reg)
-        assert WORKFLOW_TYPE in reg
-        assert reg[WORKFLOW_TYPE] is run
 
-    def test_register_callable(self):
-        registered = {}
-
-        class FakeRegistry:
-            def register(self, wtype, fn):
-                registered[wtype] = fn
-
-        wf.register(FakeRegistry())
-        assert registered[WORKFLOW_TYPE] is run
 
     def test_detect_conditions_returns_empty(self):
         """detect_conditions always returns [] (blocking handled by deterministic validator)."""

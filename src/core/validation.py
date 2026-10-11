@@ -22,7 +22,7 @@ The validator returns a :class:`~src.core.schemas.ValidationResult` with
 
 Design notes
 ------------
-* This module contains NO provider-specific code and NO Streamlit; it depends
+* This module contains NO provider-specific code and NO UI; it depends
   only on the shared schemas and standard library.
 * It accepts a duck-typed "deterministic output" object that exposes
   ``.findings`` (a list of ``DeterministicFinding``) — the shape every workflow

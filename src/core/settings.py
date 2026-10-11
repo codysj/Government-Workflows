@@ -1,8 +1,6 @@
-"""Simple JSON-backed settings for the Streamlit MVP (Phase 6 Settings page).
+"""Local JSON-backed settings (``app_settings.json`` at the repo root, gitignored).
 
-No authentication (per spec). Settings persist to ``app_settings.json`` at the
-repo root. This module has NO Streamlit dependency so it stays testable and the
-UI/core separation holds.
+No authentication (local single-user tool). A missing file means defaults.
 """
 from __future__ import annotations
 
@@ -10,7 +8,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_PATH = REPO_ROOT / "app_settings.json"
 DEFAULT_EXPORT_DIR = REPO_ROOT / "runs" / "exports"
 
@@ -26,9 +24,7 @@ class AppSettings:
     variance_threshold_pct: float = 10.0
     variance_dollar_threshold: float = 10000.0
     export_dir: str = str(DEFAULT_EXPORT_DIR)
-    # Tier 1: role-specific views (no auth — display emphasis only) and the
-    # default records-retention category applied to new runs.
-    role: str = "Accountant"
+    # Records-retention category applied to new runs.
     default_retention_category: str = "draft_working"
 
     @classmethod

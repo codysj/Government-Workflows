@@ -19,7 +19,6 @@ export function makeSettings(overrides: Partial<SettingsInfo> = {}): SettingsInf
     variance_threshold_pct: "10",
     variance_dollar_threshold: "5000",
     export_dir: "C:/exports",
-    role: "finance_staff",
     default_retention_category: "draft_working",
     editable: false,
     ...overrides,

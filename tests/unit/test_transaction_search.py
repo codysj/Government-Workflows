@@ -67,8 +67,6 @@ def test_imports():
         SearchCriteria,
         TransactionSearchConfig,
         run,
-        register,
-        WORKFLOW,
         EXPORT_FILE_NAMES,
     )
     assert WORKFLOW_TYPE == "transaction_search"
@@ -754,35 +752,3 @@ class TestMonthWithoutYear:
         note = " ".join(sc.unparsed_terms or []).lower()
         assert "february" in note or "feb" in note.replace("february", "feb")
         assert "year required" in note
-
-
-# ------------------------------------------------------------------ #
-# register() and WORKFLOW dict
-# ------------------------------------------------------------------ #
-class TestRegistry:
-    def test_register_dict(self):
-        from src.workflows.transaction_search import register, run
-        reg: dict = {}
-        register(reg)
-        assert "transaction_search" in reg
-        assert reg["transaction_search"] is run
-
-    def test_register_callable(self):
-        from src.workflows.transaction_search import register, run
-
-        class FakeRegistry:
-            def __init__(self):
-                self.registered = {}
-            def register(self, wt, fn):
-                self.registered[wt] = fn
-
-        reg = FakeRegistry()
-        register(reg)
-        assert "transaction_search" in reg.registered
-        assert reg.registered["transaction_search"] is run
-
-    def test_workflow_dict(self):
-        from src.workflows.transaction_search import WORKFLOW, WORKFLOW_TYPE
-        assert WORKFLOW["workflow_type"] == WORKFLOW_TYPE
-        assert callable(WORKFLOW["run"])
-        assert "export_files" in WORKFLOW

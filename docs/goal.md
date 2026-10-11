@@ -19,7 +19,7 @@ sections after it are the state.
 
 | Field | Value |
 | --- | --- |
-| Current milestone | M1 One pipeline |
+| Current milestone | M2 Real-model guardrails |
 | Branch | `goal/portfolio-hardening` |
 | Baseline commit | `4a5767a` |
 | OpenRouter spend so far | $0.00 of $1.50 cap |
@@ -165,9 +165,9 @@ questions in chat, never in the repo.
 | Milestone | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | Setup: create branch, commit this file + `CLAUDE.md` | done | (setup commit) | venv on Python 3.12; baselines recorded |
-| M1 One pipeline | in_progress | | |
-| M2 Real-model guardrails | not_started | | |
-| M3 Retire Streamlit | not_started | | |
+| M1 One pipeline | done | (M1 commit) | one registry + `src/core/pipeline.py`; eval/CLI/API share it; non-test LOC 27469 |
+| M2 Real-model guardrails | in_progress | | |
+| M3 Retire Streamlit | done | 475418d + M1 commit | UI removed first, then `app/` deleted when the pipeline moved |
 | M4 Real-use robustness | not_started | | |
 | M5 MCP front end | not_started | | |
 | M6 Portfolio polish | not_started | | |
@@ -175,11 +175,11 @@ questions in chat, never in the repo.
 
 ## Definition of Done
 
-- [ ] One registry, one `run_workflow`; the API, CLI, and eval harness share it
+- [x] One registry, one `run_workflow`; the API, CLI, and eval harness share it
 - [ ] Validator passes the adversarial set built from recorded real responses;
       GW-38 fixed; `.env.example` accurate
 - [ ] Real-model eval numbers recorded; total OpenRouter spend logged and ≤ $1.50
-- [ ] `app/` (Streamlit) removed
+- [x] `app/` (Streamlit) removed
 - [ ] Launcher shuts down cleanly; 50k-row timings recorded; plain-language
       FAIL/PARTIAL guidance tested
 - [ ] MCP server with tests and one recorded real call
@@ -208,6 +208,7 @@ git ls-files '*.py' '*.ts' '*.tsx' | grep -v -E '^tests/|^frontend/e2e/|\.test\.
 
 | Date | Purpose | Model | Before | After | Run cost |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-11 | Smoke tests (hit reasoning budget, then JSON ok) | deepseek/deepseek-v4.1-flash | $0.0000 | $0.0027 | $0.0027 |
 
 ## Log (append-only)
 
@@ -222,3 +223,27 @@ and why. One dated bullet per entry.
   (it was already gitignored; missing file -> repo-relative defaults). Also
   untracked `frontend/tsconfig.tsbuildinfo`. Note: pyproject `addopts` already
   has `-q`, so pass `-o addopts=""` to see the pytest summary line.
+- 2026-10-11: Order change: retired the Streamlit UI files first (API did not
+  import them), then M1 moved `app/workflow_registry.py` -> `src/core/pipeline.py`
+  + merged registry, and `app/app_settings.py` -> `src/core/settings.py`. No
+  throwaway shims. Also removed: per-module register()/WORKFLOW hooks (only tests
+  used them), `src/core/workflow_runner.py`, the UI-only `source_formats` hook,
+  and the dead `role` setting.
+- 2026-10-11: M1 self-review (fresh-eyes subagent, old-vs-new run on all 8
+  workflows): one regression (CLI `guided_freeform` alias) fixed + tested;
+  eval harness now reports refused/blocked runs as not-run; `_call_workflow`
+  now raises on unknown kwargs instead of silently dropping them. Accepted
+  differences: budget `audit_log.json` now contains its events (was `[]`);
+  eval exports include the review packet (+4 files per workflow).
+- 2026-10-11: Found for later milestones: (a) Settings tolerances are displayed
+  but never applied to API runs; (b) `/api/health` llm_mode reads app_settings,
+  not `LLM_MODE`; (c) API workflow drafts always use the mock; (d) 5 of 8
+  workflows run with `check_numeric_claims=False` and numeric claims are only
+  warnings everywhere, so invented numbers still show "passed"; (e) ERP-style
+  bank file without a date column raises instead of preflight FAIL; (f) only
+  `.csv` inputs get provenance hashes (xlsx skipped); (g)
+  `presets.normalize_csv` + review_packet `source_formats` branch now dead.
+- 2026-10-11: Real-model path needed: reasoning models spend `max_tokens` on
+  hidden reasoning (empty content, finish_reason=length). Added a 4096 default,
+  a clear error on empty content, and a generic `LLM_EXTRA_BODY` JSON passthrough
+  (local `.env` sets OpenRouter `reasoning.enabled=false`).

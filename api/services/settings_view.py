@@ -1,13 +1,13 @@
 """Builder for GET /api/settings (GW-8).
 
-Reads app.app_settings.AppSettings (the same JSON the deterministic core uses)
+Reads src.core.settings.AppSettings (the same JSON the deterministic core uses)
 and maps it to the read-only SettingsInfo response. Decimal-like numeric
 tolerances are stringified so the frontend never does arithmetic on amounts.
 This module READS settings only; it never writes app_settings.json.
 """
 from __future__ import annotations
 
-from app.app_settings import AppSettings
+from src.core.settings import AppSettings
 
 from api.schemas.models import SettingsInfo
 
@@ -29,7 +29,6 @@ def build_settings_info(settings: AppSettings) -> SettingsInfo:
         variance_threshold_pct=_num_str(settings.variance_threshold_pct),
         variance_dollar_threshold=_num_str(settings.variance_dollar_threshold),
         export_dir=settings.export_dir,
-        role=settings.role,
         default_retention_category=settings.default_retention_category,
         editable=False,
     )

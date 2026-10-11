@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
-from app.workflow_registry import record_human_review_action
+from src.core.pipeline import apply_review_status_transition, record_human_review_action
 
 from api.schemas.models import (
     ArtifactList,
@@ -19,7 +19,6 @@ from api.schemas.models import (
 from api.services.runs import (
     ALLOWED_REVIEW_ACTIONS,
     answer_run_question,
-    apply_review_status_transition,
     build_artifacts,
     build_audit_events,
     build_review_actions,

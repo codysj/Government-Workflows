@@ -1,6 +1,6 @@
-"""End-to-end tests for the Streamlit app's workflow registry pipeline.
+"""End-to-end tests for the shared workflow pipeline (src.core.pipeline).
 
-Exercises ``app.workflow_registry.run_workflow`` for ALL four workflows (now
+Exercises ``src.core.pipeline.run_workflow`` for ALL four workflows (now
 including bank reconciliation, which was previously disabled in the UI) on
 synthetic data with the mock LLM. Asserts ledger records, audit events, the
 consolidated review packet, per-run export isolation, and Settings-config
@@ -12,12 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from app import workflow_registry as wfr
+from src.core import pipeline
+from src.workflows import registry
 from src.core.audit_log import AuditLog
 from src.core.review_packet import PACKET_FILE_NAMES
 from src.core.run_ledger import RunLedger
 
-SD = wfr.SYNTHETIC_DIR
+SD = registry.SYNTHETIC_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +72,7 @@ def _freeform_inputs(sensitivity=True):
 
 def _transaction_search_inputs():
     return {
-        "query": wfr.TRANSACTION_SEARCH_EXAMPLE_QUERY,
+        "query": registry.get_descriptor("transaction_search").sample_text["query"],
         "gl_detail": str(SD / "tyler" / "gl_detail.csv"),
         "ap_invoices": str(SD / "tyler" / "ap_invoice_detail.csv"),
         "checks": str(SD / "tyler" / "check_register.csv"),
@@ -118,16 +119,15 @@ ALL_CASES = [
 ]
 
 
-def test_bank_reconciliation_is_available_in_ui():
-    d = wfr.get_descriptor("bank_reconciliation")
-    assert d.available is True
+def test_bank_reconciliation_has_sample_data():
+    d = registry.get_descriptor("bank_reconciliation")
     assert d.example_files  # has bundled sample data
 
 
 @pytest.mark.parametrize("wtype,make_inputs", ALL_CASES)
 def test_workflow_runs_end_to_end(tmp_path, wtype, make_inputs):
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         wtype, make_inputs(), ledger=ledger, audit=audit,
         export_dir=tmp_path / "exports", actor="tester",
     )
@@ -165,31 +165,29 @@ def test_all_eight_descriptors_resolve_in_ui_order():
         "transaction_search", "ap_duplicate_review", "je_upload_prep",
         "po_invoice_review", "freeform",
     }
-    assert set(wfr.WORKFLOW_ORDER) == expected
-    assert set(wfr.WORKFLOW_MODULES) == expected
-    for wtype in wfr.WORKFLOW_ORDER:
-        d = wfr.get_descriptor(wtype)
-        assert d.available is True
+    assert set(registry.DESCRIPTORS) == expected
+    for wtype in registry.DESCRIPTORS:
+        d = registry.get_descriptor(wtype)
         assert d.title
         if wtype != "freeform":
             assert d.uploads
             # Example files exist on disk so the 'use example files' path works.
             for rel in (d.example_files or {}).values():
-                assert wfr.example_path(rel).is_file(), rel
+                assert (registry.SYNTHETIC_DIR / rel).is_file(), rel
 
 
 def test_tyler_descriptor_example_run_matches_known_answers(tmp_path):
     """The Riverbend sample data yields the planted known-answer counts."""
     ledger, audit = _pipeline(tmp_path)
-    ap = wfr.run_workflow("ap_duplicate_review", _ap_duplicate_inputs(),
+    ap = pipeline.run_workflow("ap_duplicate_review", _ap_duplicate_inputs(),
                           ledger=ledger, audit=audit,
                           export_dir=tmp_path / "ap")
     assert ap.summary["total_findings"] == 15
-    po = wfr.run_workflow("po_invoice_review", _po_invoice_inputs(),
+    po = pipeline.run_workflow("po_invoice_review", _po_invoice_inputs(),
                           ledger=ledger, audit=audit,
                           export_dir=tmp_path / "po")
     assert po.summary["total_findings"] == 9
-    ts = wfr.run_workflow("transaction_search", _transaction_search_inputs(),
+    ts = pipeline.run_workflow("transaction_search", _transaction_search_inputs(),
                           ledger=ledger, audit=audit,
                           export_dir=tmp_path / "ts")
     assert ts.summary["total_matches"] == 2
@@ -200,7 +198,7 @@ def test_transaction_search_blocks_without_query(tmp_path):
     ledger, audit = _pipeline(tmp_path)
     inputs = _transaction_search_inputs()
     inputs.pop("query")
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "transaction_search", inputs, ledger=ledger, audit=audit,
         export_dir=tmp_path / "exports")
     assert result.blocked
@@ -216,7 +214,7 @@ def test_je_upload_prep_invalid_draft_fails_closed_in_app(tmp_path):
     ledger, audit = _pipeline(tmp_path)
     inputs = _je_upload_inputs()
     inputs["je_draft"] = str(SD / "je_upload_prep" / "je_draft_invalid.csv")
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "je_upload_prep", inputs, ledger=ledger, audit=audit,
         export_dir=tmp_path / "exports")
     assert not result.blocked
@@ -232,9 +230,9 @@ def test_je_upload_prep_invalid_draft_fails_closed_in_app(tmp_path):
 
 def test_runs_isolated_in_per_run_subdirectories(tmp_path):
     ledger, audit = _pipeline(tmp_path)
-    r1 = wfr.run_workflow("bank_reconciliation", _bank_inputs(),
+    r1 = pipeline.run_workflow("bank_reconciliation", _bank_inputs(),
                           ledger=ledger, audit=audit, export_dir=tmp_path / "ex")
-    r2 = wfr.run_workflow("bank_reconciliation", _bank_inputs(),
+    r2 = pipeline.run_workflow("bank_reconciliation", _bank_inputs(),
                           ledger=ledger, audit=audit, export_dir=tmp_path / "ex")
     assert r1.run_id != r2.run_id
     assert (tmp_path / "ex" / r1.run_id).is_dir()
@@ -247,7 +245,7 @@ def test_runs_isolated_in_per_run_subdirectories(tmp_path):
 
 def test_freeform_refuses_without_sensitivity_confirmation(tmp_path):
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "freeform", _freeform_inputs(sensitivity=False),
         ledger=ledger, audit=audit, export_dir=tmp_path / "exports")
     assert result.refused
@@ -266,11 +264,11 @@ def test_settings_config_threads_into_bank_tolerance(tmp_path):
     difference; with 0 tolerance it becomes unmatched on both sides.
     """
     ledger, audit = _pipeline(tmp_path)
-    loose = wfr.run_workflow(
+    loose = pipeline.run_workflow(
         "bank_reconciliation", _bank_inputs(), ledger=ledger, audit=audit,
         export_dir=tmp_path / "loose",
         config={"amount_tolerance": 0.0, "date_tolerance_days": 3})
-    tight = wfr.run_workflow(
+    tight = pipeline.run_workflow(
         "bank_reconciliation", _bank_inputs(), ledger=ledger, audit=audit,
         export_dir=tmp_path / "tight",
         config={"amount_tolerance": 0.0, "date_tolerance_days": 0})
@@ -291,90 +289,8 @@ def test_erp_file_requires_preset(tmp_path):
     date column and the run fails — proving the preset is doing real work."""
     ledger, audit = _pipeline(tmp_path)
     with pytest.raises(Exception):
-        wfr.run_workflow("bank_reconciliation", _erp_bank_inputs(),
+        pipeline.run_workflow("bank_reconciliation", _erp_bank_inputs(),
                          ledger=ledger, audit=audit, export_dir=tmp_path / "ex")
-
-
-def test_source_format_preset_normalizes_erp_file(tmp_path):
-    """With the preset, the ERP-style file reconciles; the run records the
-    applied preset and keeps the ORIGINAL file's hash in the audit trail."""
-    ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
-        "bank_reconciliation", _erp_bank_inputs(), ledger=ledger, audit=audit,
-        export_dir=tmp_path / "ex", source_formats={"bank": "generic_erp"})
-    assert not result.refused
-    assert result.findings
-    assert result.summary["validation_status"] == "passed"
-    # Applied preset recorded in summary + audited.
-    assert result.summary.get("source_formats") == {"bank": "generic_erp"}
-    events = [e["event_type"] for e in audit.list_events(result.run_id)]
-    assert "file_parsed" in events
-    # Input-file metadata reflects the ORIGINAL upload (source of record).
-    run = ledger.get_run(result.run_id)
-    names = {f["file_name"] for f in run["input_files"]}
-    assert "erp_style_bank.csv" in names
-    # run_manifest captures the original source-file hash.
-    manifest = next(a for a in run["export_artifacts"]
-                    if a["file_name"] == "run_manifest.json")
-    assert Path(manifest["path"]).is_file()
-
-
-def test_erp_budget_normalizes_via_preset(tmp_path):
-    """ERP-style budget/actuals reconcile to the SAME findings as the standard
-    files once the preset is applied, and fail cleanly without it."""
-    ledger, audit = _pipeline(tmp_path)
-    std = wfr.run_workflow("budget_variance", _budget_inputs(),
-                           ledger=ledger, audit=audit, export_dir=tmp_path / "std")
-    erp_inputs = {
-        "budget": str(SD / "budget_variance" / "erp_style_budget.csv"),
-        "actuals": str(SD / "budget_variance" / "erp_style_actuals.csv"),
-    }
-    erp = wfr.run_workflow(
-        "budget_variance", erp_inputs, ledger=ledger, audit=audit,
-        export_dir=tmp_path / "erp",
-        source_formats={"budget": "generic_erp", "actuals": "generic_erp"})
-    assert erp.summary["flagged_variances"] == std.summary["flagged_variances"] == 2
-    assert len(erp.findings) == len(std.findings)
-    assert erp.summary.get("source_formats") == {
-        "budget": "generic_erp", "actuals": "generic_erp"}
-    # Without the preset the ERP headers have no join keys -> clean failure.
-    with pytest.raises(Exception):
-        wfr.run_workflow("budget_variance", erp_inputs, ledger=ledger,
-                         audit=audit, export_dir=tmp_path / "nofmt")
-
-
-def test_erp_report_normalizes_via_preset(tmp_path):
-    """ERP-style report produces the SAME findings as the standard report once
-    the preset is applied, and fails cleanly without it."""
-    ledger, audit = _pipeline(tmp_path)
-    std_inputs = {
-        "report_table": str(SD / "report_review" / "report_table.csv"),
-        "chart_of_accounts": str(SD / "report_review" / "chart_of_accounts.csv"),
-        "prior_version": str(SD / "report_review" / "prior_version.csv"),
-    }
-    std = wfr.run_workflow("report_review", std_inputs, ledger=ledger,
-                           audit=audit, export_dir=tmp_path / "std")
-    erp_inputs = dict(std_inputs)
-    erp_inputs["report_table"] = str(SD / "report_review" / "erp_style_report.csv")
-    erp = wfr.run_workflow(
-        "report_review", erp_inputs, ledger=ledger, audit=audit,
-        export_dir=tmp_path / "erp",
-        source_formats={"report_table": "generic_erp"})
-    assert len(erp.findings) == len(std.findings)
-    assert erp.summary.get("findings_by_rule") == std.summary.get("findings_by_rule")
-    assert erp.summary.get("source_formats") == {"report_table": "generic_erp"}
-    # Without the preset the report has no 'section' column -> clean failure.
-    with pytest.raises(Exception):
-        wfr.run_workflow("report_review", erp_inputs, ledger=ledger,
-                         audit=audit, export_dir=tmp_path / "nofmt")
-
-
-def test_source_format_choices_exposed():
-    labels = [c[0] for c in wfr.SOURCE_FORMAT_CHOICES]
-    presets = [c[1] for c in wfr.SOURCE_FORMAT_CHOICES]
-    assert presets[0] is None  # standard / auto-detect default
-    assert "generic_erp" in presets
-    assert any("ERP" in lbl for lbl in labels)
 
 
 def test_uploaded_threshold_file_takes_precedence_over_settings(tmp_path):
@@ -382,7 +298,7 @@ def test_uploaded_threshold_file_takes_precedence_over_settings(tmp_path):
     ledger, audit = _pipeline(tmp_path)
     inputs = _budget_inputs()
     inputs["thresholds"] = str(SD / "budget_variance" / "thresholds.json")
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "budget_variance", inputs, ledger=ledger, audit=audit,
         export_dir=tmp_path / "ex",
         config={"variance_dollar_threshold": 1.0, "variance_threshold_pct": 0.1})

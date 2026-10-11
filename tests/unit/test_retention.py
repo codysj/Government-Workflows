@@ -6,7 +6,8 @@ in the review packet manifest + markdown.
 """
 from __future__ import annotations
 
-from app import workflow_registry as wfr
+from src.core import pipeline
+from src.workflows import registry
 from src.core.audit_log import AuditLog
 from src.core.review_packet import build_review_packet_markdown, build_run_manifest
 from src.core.run_ledger import RunLedger
@@ -16,7 +17,7 @@ from src.core.schemas import (
     WorkflowRun,
 )
 
-SD = wfr.SYNTHETIC_DIR
+SD = registry.SYNTHETIC_DIR
 
 
 def _make_run(run_id="run-r", retention=None) -> WorkflowRun:
@@ -117,7 +118,7 @@ def test_existing_db_without_column_is_migrated(tmp_path):
 def test_run_workflow_records_retention(tmp_path):
     ledger = RunLedger(":memory:")
     audit = AuditLog(ledger, audit_dir=str(tmp_path / "audit"))
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _bank_inputs(), ledger=ledger, audit=audit,
         export_dir=tmp_path / "exports", retention_category="audit_record")
     assert not result.refused
@@ -134,7 +135,7 @@ def test_run_workflow_records_retention(tmp_path):
 
 def test_run_workflow_defaults_retention(tmp_path):
     ledger = RunLedger(":memory:")
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _bank_inputs(), ledger=ledger,
         export_dir=tmp_path / "exports")
     assert result.summary["retention_category"] == "draft_working"
@@ -142,7 +143,7 @@ def test_run_workflow_defaults_retention(tmp_path):
 
 def test_run_workflow_unknown_retention_falls_back(tmp_path):
     ledger = RunLedger(":memory:")
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _bank_inputs(), ledger=ledger,
         export_dir=tmp_path / "exports", retention_category="not_a_category")
     assert result.summary["retention_category"] == "draft_working"

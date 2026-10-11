@@ -1,6 +1,6 @@
 """Integration tests for the PREFLIGHT / CAPABILITY layer wired into the runner.
 
-Exercises ``app.workflow_registry.run_workflow`` through the shared
+Exercises ``src.core.pipeline.run_workflow`` through the shared
 ledger/audit/validation/export pipeline for the three preflight outcomes:
 
 * PASS    — clean inputs run normally; the LLM is called; the consolidated
@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import pytest
 
-from app import workflow_registry as wfr
+from src.core import pipeline
+from src.workflows import registry
 from src.core.audit_log import AuditLog
 from src.core.review_packet import (
     FAILED_PREFLIGHT_PACKET_FILE_NAMES,
@@ -36,7 +37,7 @@ from src.core.run_ledger import RunLedger
 from src.core.schemas import LLMResponse
 from src.core.validation import validate_with_preflight
 
-SD = wfr.SYNTHETIC_DIR
+SD = registry.SYNTHETIC_DIR
 BANK = SD / "bank_reconciliation"
 
 
@@ -81,7 +82,7 @@ def _partial_bank_inputs():
 # --------------------------------------------------------------------------- #
 def test_clean_run_passes_preflight_and_records_it(tmp_path):
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _clean_bank_inputs(),
         ledger=ledger, audit=audit, export_dir=tmp_path / "ex", actor="tester")
 
@@ -117,7 +118,7 @@ def test_clean_run_passes_preflight_and_records_it(tmp_path):
 
 def test_get_preflight_accessor(tmp_path):
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _clean_bank_inputs(),
         ledger=ledger, audit=audit, export_dir=tmp_path / "ex")
     pf = ledger.get_preflight(result.run_id)
@@ -131,7 +132,7 @@ def test_get_preflight_accessor(tmp_path):
 # --------------------------------------------------------------------------- #
 def test_failed_preflight_does_not_run_workflow_or_llm(tmp_path):
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _fail_bank_inputs(),
         ledger=ledger, audit=audit, export_dir=tmp_path / "ex", actor="tester")
 
@@ -175,7 +176,7 @@ def test_failed_run_validation_passes_but_flags_injected_llm(tmp_path):
     """A failed-preflight run has no LLM to validate (passes); but validation
     WOULD flag an LLM output if one were present on a fail."""
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _fail_bank_inputs(),
         ledger=ledger, audit=audit, export_dir=tmp_path / "ex")
 
@@ -199,7 +200,7 @@ def test_failed_run_validation_passes_but_flags_injected_llm(tmp_path):
 # --------------------------------------------------------------------------- #
 def test_partial_run_appends_unsupported_findings_and_calls_llm(tmp_path):
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _partial_bank_inputs(),
         ledger=ledger, audit=audit, export_dir=tmp_path / "ex", actor="tester")
 
@@ -233,7 +234,7 @@ def test_partial_validation_rejects_resolution_claim(tmp_path):
     """On a PARTIAL run the LLM may explain an unsupported condition but must NOT
     claim it was resolved/handled."""
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _partial_bank_inputs(),
         ledger=ledger, audit=audit, export_dir=tmp_path / "ex")
     codes = result.preflight.unsupported_conditions
@@ -260,7 +261,7 @@ def test_partial_validation_rejects_resolution_claim(tmp_path):
 
 def test_partial_packet_includes_preflight_artifacts(tmp_path):
     ledger, audit = _pipeline(tmp_path)
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         "bank_reconciliation", _partial_bank_inputs(),
         ledger=ledger, audit=audit, export_dir=tmp_path / "ex")
     run_dir = tmp_path / "ex" / result.run_id

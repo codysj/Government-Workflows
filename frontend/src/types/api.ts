@@ -270,7 +270,6 @@ export interface SettingsInfo {
   variance_threshold_pct: string;
   variance_dollar_threshold: string;
   export_dir: string;
-  role: string;
   default_retention_category: string;
   editable: boolean;
 }

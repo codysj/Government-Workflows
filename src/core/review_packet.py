@@ -19,7 +19,7 @@ public-records reviewer needs, with each kind of content clearly separated:
 
 Everything here is DETERMINISTIC and built only from data already persisted in
 the run ledger + audit log — it never calls an LLM and never fabricates values.
-It reuses the shared writers in :mod:`src.core.exports`. No Streamlit, no
+It reuses the shared writers in :mod:`src.core.exports`. No UI, no
 provider code, so it stays testable and respects the UI/core separation.
 """
 from __future__ import annotations

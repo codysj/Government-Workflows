@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.app_settings import AppSettings
+from src.core.settings import AppSettings
 
 from api.schemas.models import SettingsInfo
 from api.services.settings_view import build_settings_info

@@ -14,7 +14,6 @@ always grounded in that run's own data, validated the same way, and logged.
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-758%20py%20%2B%2045%20fe%20passing-brightgreen)
 ![Runs offline](https://img.shields.io/badge/AI-mock%20by%20default%20%C2%B7%20runs%20offline-blue)
 ![Data](https://img.shields.io/badge/data-synthetic%20only-orange)
@@ -114,7 +113,7 @@ draft-vs-approved state: a CPRA-style review surface for AI usage.
 ## Supported workflows
 
 Eight workflows share one pipeline and are runnable end-to-end from the CLI, the API,
-the React console, and the legacy Streamlit app — all on bundled synthetic data.
+and the React console — all on bundled synthetic data.
 
 | Workflow | What the code does (deterministic) | What the AI does |
 | --- | --- | --- |
@@ -163,14 +162,14 @@ The model never "takes over" failed workflow logic. Full rules in
   │        └─▶ run ledger (SQLite) + append-only audit log                   │
   │        └─▶ export packet: findings.csv, review_packet.md, manifest.json  │
   └──────────────────────────────────────────────────────────────────────────┘
-            │                                    │
-            ▼                                    ▼
-     ┌──────────────┐                    ┌──────────────────┐
-     │  FastAPI seam │                    │  Streamlit app   │
-     │  (api/)       │                    │  (app/) — legacy │
-     │  thin HTTP    │                    │  shares the same │
-     │  adapter,     │                    │  ledger + audit  │
-     │  no logic     │                    └──────────────────┘
+            │
+            ▼
+     ┌──────────────┐
+     │  FastAPI seam │
+     │  (api/)       │
+     │  thin HTTP    │
+     │  adapter,     │
+     │  no logic     │
      └──────────────┘
             │
             ▼
@@ -182,7 +181,7 @@ The model never "takes over" failed workflow logic. Full rules in
      └────────────────────────────┘
 
   CLI (cli/run_workflow.py) drives the core directly — same pipeline, same
-  ledger, same audit log as the API and Streamlit.
+  ledger, same audit log as the API (src/core/pipeline.py).
 ```
 
 The **responsibility split** is what makes the output trustworthy: every number on
@@ -195,12 +194,11 @@ screen came from deterministic code, not the UI.
 | React console (`frontend/`) | Rendering API data, routing, review actions, downloads | Computes **any** value — even a display-only sum is forbidden |
 
 > **Why FastAPI + React after a Streamlit MVP?** Streamlit proved the workflow logic,
-> audit model, and trust boundaries end-to-end and still serves developers. But its dense,
-> form-heavy layout makes it hard for non-technical staff to tell what step they're on and
-> what the AI wrote versus what the code found. The guided console replaces that with a
-> four-step wizard, progressive disclosure, explicit AI/deterministic separation, and a
-> run-scoped "ask about this run" assistant. Streamlit is retained as the legacy/dev
-> surface and shares the same ledger, so runs appear in both.
+> audit model, and trust boundaries end-to-end. But its dense, form-heavy layout made it
+> hard for non-technical staff to tell what step they were on and what the AI wrote versus
+> what the code found. The guided console replaced it with a four-step wizard, progressive
+> disclosure, explicit AI/deterministic separation, and a run-scoped "ask about this run"
+> assistant; the Streamlit UI has since been retired.
 
 ## Tech stack
 
@@ -359,7 +357,7 @@ and amounts are fabricated. **Do not load real sensitive data into this MVP.**
   offline and every test runs on the mock path.
 - **One pipeline, cleanly separated.** Ingest → normalize → deterministic analysis → LLM
   assist → validate → human review → export → audit log. UI, CLI, persistence, validation,
-  and the LLM wrapper are kept apart, so workflow modules never touch Streamlit, FastAPI,
+  and the LLM wrapper are kept apart, so workflow modules never touch FastAPI,
   or provider code.
 - **Validation as a first-class layer.** A deterministic checker rejects or flags any LLM
   claim not backed by the findings; an eval harness proves it on known-answer datasets.

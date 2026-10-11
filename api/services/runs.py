@@ -1,7 +1,7 @@
 """Run execution + ledger->contract mapping.
 
-All execution goes through ``app.workflow_registry.run_workflow`` (the same
-pipeline Streamlit and the CLI use). Run details are ALWAYS rehydrated from
+All execution goes through ``src.core.pipeline.run_workflow`` (the same
+pipeline the CLI and eval harness use). Run details are ALWAYS rehydrated from
 the ledger, so live responses and post-restart responses are built by one
 code path and never drift apart. ``result_tables`` (in-memory DataFrames) are
 deliberately never serialized.
@@ -11,8 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from app import workflow_registry as wfr
 from src.core import evidence as evidence_engine
+from src.core import pipeline
 from src.core import preflight as preflight_engine
 from src.core import run_qa as run_qa_engine
 from src.core.audit_log import AuditLog
@@ -36,13 +36,9 @@ from api.schemas.models import (
     ValidationSection,
 )
 
-ALLOWED_REVIEW_ACTIONS = [key for key, _ in wfr.HUMAN_REVIEW_ACTIONS]
+from src.workflows.registry import get_descriptor
 
-# The run-level review status transition policy lives in app.workflow_registry
-# (the single shared home used by BOTH this API and Streamlit). Re-exported here
-# so existing callers (api/routes/runs.py imports it from api.services.runs)
-# keep working without change. It is now atomic + concurrency-safe.
-apply_review_status_transition = wfr.apply_review_status_transition
+ALLOWED_REVIEW_ACTIONS = [key for key, _ in pipeline.HUMAN_REVIEW_ACTIONS]
 
 _MEDIA_TYPES = {
     ".csv": "text/csv",
@@ -57,7 +53,7 @@ _MEDIA_TYPES = {
 
 def _title_for(workflow_type: str) -> str:
     try:
-        return wfr.get_descriptor(workflow_type).title
+        return get_descriptor(workflow_type).title
     except KeyError:
         return workflow_type
 
@@ -71,15 +67,8 @@ def run_standalone_preflight(
     config: Optional[dict] = None,
 ) -> PreflightResponse:
     """Run ONLY the capability check via the core engine (no workflow, no
-    LLM, nothing written to the ledger). Mirrors cli._run_preflight_only."""
-    module = wfr.WORKFLOW_MODULES[workflow_type]  # KeyError -> 404 upstream
-    report = preflight_engine.run_preflight(
-        module.CAPABILITY,
-        inputs,
-        approved_mappings=None,
-        config=config,
-        detect_conditions=getattr(module, "detect_conditions", None),
-    )
+    LLM, nothing written to the ledger). KeyError -> 404 upstream."""
+    report = pipeline.run_preflight(workflow_type, inputs, config=config)
     return preflight_response_from_dict(
         preflight_engine.preflight_report_dict(report))
 
@@ -145,7 +134,7 @@ def execute_run(
     persisted run, not exceptions. Unexpected exceptions propagate (the
     pipeline has already marked the run failed); callers map them to 500.
     """
-    result = wfr.run_workflow(
+    result = pipeline.run_workflow(
         workflow_type,
         inputs,
         ledger=ledger,

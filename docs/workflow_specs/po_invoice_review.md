@@ -1,6 +1,6 @@
 # Workflow -- PO / Invoice Mismatch Review
 
-Module: `src/workflows/po_invoice_review.py`. Contains no Streamlit and no
+Module: `src/workflows/po_invoice_review.py`. Contains no UI and no
 provider-specific code; plugs into the shared pipeline.
 
 ## Purpose

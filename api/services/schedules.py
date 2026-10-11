@@ -3,7 +3,7 @@
 Maps src.core.scheduler.Schedule records to the ScheduleInfo contract model and
 provides create/validation helpers. A FRESH ScheduleStore is built per request
 (:func:`load_store`) so the read endpoints reflect schedules written after the
-API started (e.g. by Streamlit or by the create endpoint) WITHOUT a restart
+API started (e.g. by another process or the create endpoint) WITHOUT a restart
 (GW-19). The store file is tiny, so re-reading it per request is cheap.
 
 No financial logic lives here; the scheduler core owns all date math.

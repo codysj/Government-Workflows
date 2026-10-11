@@ -1441,22 +1441,3 @@ def run(
         audit.run_completed(run_id, actor, upload_ready=det.upload_ready)
 
     return result
-
-
-# --------------------------------------------------------------------------- #
-# Registry hooks
-# --------------------------------------------------------------------------- #
-def register(registry: Any) -> None:
-    """Register this workflow with a dict-like or callable registry."""
-    if hasattr(registry, "register") and callable(registry.register):
-        registry.register(WORKFLOW_TYPE, run)
-    else:
-        registry[WORKFLOW_TYPE] = run
-
-
-WORKFLOW = {
-    "workflow_type": WORKFLOW_TYPE,
-    "run": run,
-    "prompt_template_version": PROMPT_TEMPLATE_VERSION,
-    "export_files": list(EXPORT_FILE_NAMES),
-}

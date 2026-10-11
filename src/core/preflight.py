@@ -53,7 +53,7 @@ Workflow deterministic analysis accepts an optional
 to override auto-detection when a human mapping was approved; ``None`` means use
 current auto-detect.
 
-This module contains NO Streamlit and NO provider-specific code. File WRITING
+This module contains NO UI and NO provider-specific code. File WRITING
 stays in the exports layer; here we only build the report dict + markdown text.
 """
 from __future__ import annotations

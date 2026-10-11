@@ -1,6 +1,6 @@
 # Workflow — Journal Entry Upload Prep
 
-Module: `src/workflows/je_upload_prep.py`. Contains no Streamlit and no
+Module: `src/workflows/je_upload_prep.py`. Contains no UI and no
 provider-specific code; plugs into the shared pipeline.
 
 ## Purpose

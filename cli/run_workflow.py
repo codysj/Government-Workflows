@@ -13,7 +13,7 @@ with no API key and no internet.
 
 PREFLIGHT / CAPABILITY layer
 ----------------------------
-Every run is routed through the shared runner (``app.workflow_registry.
+Every run is routed through the shared pipeline (``src.core.pipeline.
 run_workflow``), which runs the PREFLIGHT / capability check BEFORE any
 deterministic analysis or LLM call. The CLI surfaces, for each run:
 
@@ -68,9 +68,17 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from app.workflow_registry import UniformRunResult, run_workflow  # noqa: E402
+from src.core.pipeline import UniformRunResult, run_preflight, run_workflow  # noqa: E402
 from src.core.schemas import PreflightStatus, Severity  # noqa: E402
 from src.workflows import registry  # noqa: E402
+from src.workflows.registry import WorkflowDescriptor  # noqa: E402
+
+
+def _cli_aliases(d: WorkflowDescriptor) -> list[str]:
+    """Aliases plus the underscore spellings (e.g. bank_reconciliation)."""
+    names = [d.workflow_type, *d.aliases]
+    names += [a.replace("-", "_") for a in d.aliases]
+    return [n for n in dict.fromkeys(names) if n != d.cli_name]
 
 
 # --------------------------------------------------------------------------- #
@@ -377,22 +385,21 @@ def _print_failed(result: "UniformRunResult") -> None:
 # Commands
 # --------------------------------------------------------------------------- #
 def cmd_list(_: argparse.Namespace) -> int:
-    specs = registry.list_specs()
     print("Available workflows:")
-    for s in specs:
-        aliases = ", ".join(s.aliases) if s.aliases else "-"
-        print(f"  {s.cli_name}")
-        print(f"      workflow_type: {s.workflow_type}")
+    for d in registry.list_descriptors():
+        aliases = ", ".join(_cli_aliases(d)) or "-"
+        print(f"  {d.cli_name}")
+        print(f"      workflow_type: {d.workflow_type}")
         print(f"      aliases:       {aliases}")
-        print(f"      description:   {s.help}")
-        print(f"      inputs:        {s.input_help}")
-        has_sample = "yes" if s.sample_inputs is not None else "no"
+        print(f"      description:   {d.title}")
+        print(f"      inputs:        {d.input_help()}")
+        has_sample = "yes" if d.sample_inputs() else "no"
         print(f"      --sample:      {has_sample}")
     return 0
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    spec = registry.get_spec(args.workflow)
+    spec = registry.resolve(args.workflow)
     if spec is None:
         print(f"Unknown workflow: {args.workflow!r}", file=sys.stderr)
         print(f"Run 'list' to see available workflows.", file=sys.stderr)
@@ -405,7 +412,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         if not inputs:
             print(
                 f"No inputs given. Use --sample for bundled synthetic data, or "
-                f"--input key=value (expected: {spec.input_help}).",
+                f"--input key=value (expected: {spec.input_help()}).",
                 file=sys.stderr,
             )
             return 2
@@ -427,7 +434,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     # or the LLM, print the report, and stop. (Never runs the LLM.)
     if preflight_only:
         try:
-            report = _run_preflight_only(spec.workflow_type, inputs, config, mappings)
+            report = run_preflight(
+                spec.workflow_type, inputs,
+                config=config if isinstance(config, dict) else None,
+                column_mappings=mappings)
         except Exception as exc:
             print(f"Preflight for '{spec.cli_name}' failed: {exc}", file=sys.stderr)
             if getattr(args, "traceback", False):
@@ -476,33 +486,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_preflight_only(
-    workflow_type: str,
-    inputs: dict[str, Any],
-    config: Any,
-    mappings: Optional[dict[str, dict[str, str]]],
-):
-    """Run ONLY the capability check (no workflow, no LLM) and return the report.
-
-    Uses the same engine + per-workflow CAPABILITY/detect_conditions the runner
-    uses, so the printed report matches a real run's preflight section exactly.
-    """
-    from app.workflow_registry import WORKFLOW_MODULES
-    from src.core import preflight as preflight_engine
-
-    module = WORKFLOW_MODULES[workflow_type]
-    return preflight_engine.run_preflight(
-        module.CAPABILITY,
-        inputs,
-        approved_mappings=mappings,
-        config=config if isinstance(config, dict) else None,
-        detect_conditions=getattr(module, "detect_conditions", None),
-    )
-
-
-# --------------------------------------------------------------------------- #
-# Argument parser (one subcommand per registered workflow + 'list')
-# --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="run_workflow",
@@ -571,8 +554,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--actor", default="cli", help="Actor recorded in the audit log.")
         p.add_argument("--traceback", action="store_true", help="Show full traceback on error.")
 
-    for spec in registry.list_specs():
-        p = sub.add_parser(spec.cli_name, help=spec.help, aliases=list(spec.aliases))
+    for spec in registry.list_descriptors():
+        p = sub.add_parser(spec.cli_name, help=spec.title, aliases=_cli_aliases(spec))
         _add_common(p)
         p.set_defaults(func=cmd_run, workflow=spec.cli_name)
 

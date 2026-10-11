@@ -15,7 +15,7 @@ But the file-WRITING + hashing was duplicated in every workflow's
     re-hash them into fresh :class:`~src.core.schemas.ExportArtifact` rows.
 
 Every writer returns an :class:`ExportArtifact` (path, type, sha256) so the
-caller can persist a manifest to the run ledger. No Streamlit, no provider code.
+caller can persist a manifest to the run ledger. No UI, no provider code.
 """
 from __future__ import annotations
 
