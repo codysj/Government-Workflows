@@ -23,3 +23,7 @@ exports/
 
 # Secrets / env
 .env
+
+# Local per-machine settings / TS incremental build cache
+app_settings.json
+*.tsbuildinfo
