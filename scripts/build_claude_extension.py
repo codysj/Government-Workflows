@@ -21,9 +21,9 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INCLUDE = ["manifest.json", "pyproject.toml", "README.md", "mcp_server.py",
+INCLUDE = ["manifest.json", "pyproject.toml", "README.md", "LICENSE", "mcp_server.py",
            "mcp_views", "api", "src", "data/synthetic"]
-MUST_SHIP = {"manifest.json", "pyproject.toml", "mcp_server.py", "mcp_views/run_view.html"}
+MUST_SHIP = {"manifest.json", "pyproject.toml", "LICENSE", "mcp_server.py", "mcp_views/run_view.html"}
 
 
 def _tool(name: str, hint: str) -> str:

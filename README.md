@@ -328,4 +328,4 @@ The short version (full index: [`docs/decisions.md`](docs/decisions.md)):
 
 ---
 
-<div align="center"><sub>Portfolio project · synthetic data only · an auditable, trust-bounded approach to AI in government finance.</sub></div>
+<div align="center"><sub>Portfolio project · synthetic data only · an auditable, trust-bounded approach to AI in government finance · <a href="LICENSE">MIT license</a>.</sub></div>

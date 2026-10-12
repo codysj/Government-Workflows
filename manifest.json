@@ -6,6 +6,7 @@
   "description": "Auditable finance reviews (bank reconciliation, budget variance, AP duplicates, PO mismatches, and more) on your own CSV/Excel exports. Calculations by code; the AI only drafts.",
   "long_description": "Runs the Municipal Finance AI Workflow Tool on this computer. Every finding is computed by deterministic code and cites its source rows; the tool's own AI draft is checked against your files and stays a draft until a person approves it. Files are read only from the data folder you choose. Runs are saved to the work folder and appear in the review console if it uses the same folder.",
   "author": { "name": "Cody Jung" },
+  "license": "MIT",
   "server": {
     "type": "uv",
     "entry_point": "mcp_server.py",
