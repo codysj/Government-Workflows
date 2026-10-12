@@ -130,7 +130,11 @@ or a chat assistant over MCP, all on bundled synthetic data.
 
 Four workflows consume **Tyler/Munis-style ERP exports** through a deterministic
 normalizer (`src/ingest/tyler.py`) with header-overlap dataset detection, SHA-256 input
-hashing, source-row tracking, and `Decimal` amount parsing. Details in
+hashing, source-row tracking, and `Decimal` amount parsing. It accepts the layouts real
+Munis output uses (verbatim headers from public Munis reports and Tyler documentation:
+title blocks, `TOTAL`/`END OF REPORT` lines, `YR/PR`, one signed `AMOUNT`, Excel serial
+dates), tested on synthetic files in those layouts
+(`tests/integration/test_munis_layouts.py`). Evidence and what is still open:
 [`docs/tyler_assumptions.md`](docs/tyler_assumptions.md).
 
 ### Fail-closed preflight
@@ -288,9 +292,10 @@ footer-detection algorithms.
 Deliberate scope boundaries, not bugs:
 
 - **Local, single-user, no auth.** No accounts or roles; run history lives in a local SQLite file.
-- **No live ERP connection.** Inputs are exported CSV/XLSX files. Tyler/Munis column
-  handling follows observed export shapes and still needs confirming against a real
-  export template ([`docs/tyler_assumptions.md`](docs/tyler_assumptions.md)).
+- **No live ERP connection.** Inputs are exported CSV/XLSX files, not printed PDF
+  reports. Munis layouts were checked against public Munis output, not a city's own
+  system: the journal-import template is generated per site, so `je_upload.xlsx` is a
+  review workbook to map onto it ([`docs/tyler_assumptions.md`](docs/tyler_assumptions.md)).
 - **The validator checks facts, not judgment.** It rejects invented numbers, dates,
   identifiers, and rows, but not a real figure attached to the wrong item, a dropped
   minus sign, or an invented vendor *name* without digits. Every draft stays a draft

@@ -1,7 +1,9 @@
 """CSV ingestion. Returns a ParsedTable and an InputFile with a sha256 hash."""
 from __future__ import annotations
 
+import csv
 import hashlib
+import itertools
 from pathlib import Path
 
 import pandas as pd
@@ -17,9 +19,41 @@ def file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+_MAX_TITLE_ROWS = 10
+
+
+def title_block_length(rows: list[list]) -> int:
+    """How many rows sit above the real header row.
+
+    Report exports (Munis "YEAR-TO-DATE BUDGET REPORT", city name, "FOR 2026 10")
+    put a title block above the column headers: rows with at most one filled
+    cell. The header is the first row with two or more; 0 for an ordinary file.
+    """
+    for i, row in enumerate(rows[:_MAX_TITLE_ROWS + 1]):
+        if sum(1 for c in row if str(c).strip()) >= 2:
+            return i
+    return 0
+
+
+def read_csv_table(path: str | Path) -> pd.DataFrame:
+    """Read a CSV as all-text, skipping a report title block above the header."""
+    with Path(path).open(newline="", encoding="utf-8-sig", errors="replace") as fh:
+        head = list(itertools.islice(csv.reader(fh), _MAX_TITLE_ROWS + 1))
+    return pd.read_csv(path, dtype=str, keep_default_na=False,
+                       skiprows=title_block_length(head))
+
+
+def read_excel_table(path: str | Path, sheet_name: str | int = 0) -> pd.DataFrame:
+    """Read an Excel sheet as all-text (blanks as ""), skipping a title block."""
+    head = pd.read_excel(path, sheet_name=sheet_name, header=None, dtype=str,
+                         engine="openpyxl", nrows=_MAX_TITLE_ROWS + 1).fillna("")
+    return pd.read_excel(path, sheet_name=sheet_name, dtype=str, engine="openpyxl",
+                         header=title_block_length(head.values.tolist())).fillna("")
+
+
 def load_csv(path: str | Path, table_name: str | None = None) -> ParsedTable:
     path = Path(path)
-    df = pd.read_csv(path, dtype=str, keep_default_na=False)
+    df = read_csv_table(path)
     table = table_name or path.stem
     return ParsedTable(
         file_id=make_id(),

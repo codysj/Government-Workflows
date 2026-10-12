@@ -344,6 +344,9 @@ class CapabilitySpec(BaseModel):
     accepted_file_types: dict[str, list[str]] = Field(default_factory=dict)
     required_semantic_columns: dict[str, list[str]] = Field(default_factory=dict)
     optional_semantic_columns: dict[str, list[str]] = Field(default_factory=dict)
+    # input_key -> Tyler dataset type, for inputs the workflow reads through the
+    # Tyler normalizer: preflight then checks the same (aliased) columns.
+    tyler_inputs: dict[str, str] = Field(default_factory=dict)
     min_date_confidence: float = 0.8
     min_amount_confidence: float = 0.8
     supported_patterns: list[str] = Field(default_factory=list)

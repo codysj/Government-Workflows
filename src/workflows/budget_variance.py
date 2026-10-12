@@ -155,6 +155,10 @@ def _amounts_from_input(
         return []
     if amount_col not in df.columns:
         return []
+    # Rows with every key blank (report totals) are skipped by the join too.
+    keys = [k for k in KEY_COLUMNS if k in df.columns]
+    if keys:
+        df = df[df[keys].apply(lambda col: col.astype(str).str.strip() != "").any(axis=1)]
     out: list[Decimal] = []
     for v in df[amount_col].tolist():
         d = parse_amount(v)
@@ -623,7 +627,8 @@ def analyze(
         ["budget_amount", "budget", "amount", "budgeted", "revised_budget", "original_budget"],
     )
     a_amount_col = _mapped(column_mappings, "actuals", "amount") or _amount_column(
-        a_df, ["actual_amount", "actual", "amount", "actuals", "ytd_actual"]
+        # "YTD EXPENDED" is the Munis YTD Budget Report's default actuals column.
+        a_df, ["actual_amount", "actual", "amount", "actuals", "ytd_actual", "ytd_expended"]
     )
     if (
         b_amount_col is None
@@ -634,12 +639,24 @@ def analyze(
         raise ValueError("Could not locate budget/actual amount columns.")
 
     # Index rows by key.
+    # A row with every key blank is not an account line: report totals
+    # ("TOTAL 1000", "GRAND TOTAL" in a Munis YTD budget report) and footers.
+    # Left out of the join and counted in the summary.
+    rows_without_keys = 0
     b_by_key: dict[tuple, tuple[int, pd.Series]] = {}
     for i, row in zip(b_df.index, b_df.to_dict("records")):
-        b_by_key[_key_tuple(row, keys)] = (i, row)
+        key = _key_tuple(row, keys)
+        if not any(key):
+            rows_without_keys += 1
+            continue
+        b_by_key[key] = (i, row)
     a_by_key: dict[tuple, tuple[int, pd.Series]] = {}
     for i, row in zip(a_df.index, a_df.to_dict("records")):
-        a_by_key[_key_tuple(row, keys)] = (i, row)
+        key = _key_tuple(row, keys)
+        if not any(key):
+            rows_without_keys += 1
+            continue
+        a_by_key[key] = (i, row)
 
     findings: list[DeterministicFinding] = []
     variance_rows: list[dict] = []
@@ -801,6 +818,7 @@ def analyze(
 
     summary = {
         "join_keys": keys,
+        "rows_without_account_keys_skipped": rows_without_keys,
         "budget_amount_column": b_amount_col,
         "actual_amount_column": a_amount_col,
         "joined_lines": len(variance_rows),

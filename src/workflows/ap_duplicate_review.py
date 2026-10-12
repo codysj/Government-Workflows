@@ -117,8 +117,10 @@ CAPABILITY = CapabilitySpec(
     required_inputs=["ap_invoices"],
     optional_inputs=["vendor_list", "check_register", "purchase_orders"],
     accepted_file_types={"*": ["csv", "xlsx"]},
+    tyler_inputs={"ap_invoices": "ap_invoice_detail", "vendor_list": "vendor_list",
+                  "check_register": "check_register", "purchase_orders": "purchase_orders"},
     required_semantic_columns={
-        "ap_invoices": ["vendor_number", "vendor_name", "invoice_number", "invoice_amount"],
+        "ap_invoices": ["vendor_number", "invoice_number", "invoice_amount"],
     },
     optional_semantic_columns={
         "ap_invoices": ["invoice_date", "po_number", "check_number", "check_date"],
@@ -331,6 +333,13 @@ def run_deterministic(
                     "status": str(vrow.get("status", "")).strip(),
                     "vendor_name": str(vrow.get("vendor_name", "")).strip(),
                 }
+    # Munis Invoice Central exports carry no vendor name: take it from the
+    # vendor list (rows still without one are skipped by the name check, D3).
+    for rec in ap_records:
+        name = rec.get("vendor_name")
+        if not isinstance(name, str) or not name.strip():
+            vnum = str(rec.get("vendor_number", "")).strip()
+            rec["vendor_name"] = vendor_map.get(vnum, {}).get("vendor_name", "")
 
     # check_map: check_number -> check_date (date | None)
     check_map: dict[str, Optional[date]] = {}
@@ -667,16 +676,16 @@ def run_deterministic(
     if check_export is not None:
         for row in ap_records:
             inv_date = _date(row.get("invoice_date"))
-            cnum = str(row.get("check_number", "") or "").strip()
             ridx = int(row["source_row_index"])
-            if not cnum or inv_date is None:
-                continue
-            chk_date = check_map.get(cnum)
-            if chk_date is None:
-                continue
-            if chk_date < inv_date:
+            inv = str(row.get("invoice_number", "")).strip()
+            cnum = str(row.get("check_number", "") or "").strip()
+            # AP exports without payment columns (Munis Invoice Central): the
+            # check register's invoice -> check link supplies the check.
+            for cnum in [cnum] if cnum else invoice_to_checks.get(inv, []):
+                chk_date = check_map.get(cnum)
+                if inv_date is None or chk_date is None or chk_date >= inv_date:
+                    continue
                 vnum = str(row.get("vendor_number", "")).strip()
-                inv = str(row.get("invoice_number", "")).strip()
                 findings.append(
                     DeterministicFinding(
                         finding_type=FindingType.DUPLICATE_PAYMENT,

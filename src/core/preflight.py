@@ -73,6 +73,7 @@ from src.core.schemas import (
     PreflightStatus,
     Severity,
 )
+from src.ingest.csv_loader import read_csv_table, read_excel_table
 from src.normalize.cleaning import (
     SEMANTIC_SYNONYMS,
     amount_parse_confidence,
@@ -101,8 +102,22 @@ def _norm_file_type(file_type: str) -> str:
 # the mapping is unambiguous.
 HIGH_CONFIDENCE_THRESHOLD = 0.85
 
-# Default synonym map for the semantic columns used by the 4 workflows.
-DEFAULT_SYNONYMS: dict[str, list[str]] = SEMANTIC_SYNONYMS
+def _with_tyler_aliases(base: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Semantic synonyms plus every Tyler/Munis header alias, so the file check
+    recognizes the same headers the Tyler normalizer accepts (one source)."""
+    from src.ingest.tyler import TYLER_DATASET_TYPES
+
+    merged = {k: list(v) for k, v in base.items()}
+    for spec in TYLER_DATASET_TYPES.values():
+        for src, dst in spec.aliases.items():
+            names = merged.setdefault(dst, [dst])
+            if src not in names:
+                names.append(src)
+    return merged
+
+
+# Default synonym map for the semantic columns the workflows declare.
+DEFAULT_SYNONYMS: dict[str, list[str]] = _with_tyler_aliases(SEMANTIC_SYNONYMS)
 
 # Semantic fields whose columns are date-like / amount-like (drives which
 # columns get parse-confidence computed in a FileProfile).
@@ -155,9 +170,9 @@ def _load_df(path_or_parsed: Any) -> tuple[Optional[pd.DataFrame], str, str]:
         if file_type in ("xlsx", "xlsm"):
             # Excel reads mirror src.ingest.excel_loader: every cell as text,
             # blanks preserved as empty strings (no rows dropped).
-            df = pd.read_excel(path, dtype=str, engine="openpyxl").fillna("")
+            df = read_excel_table(path)
         else:
-            df = pd.read_csv(path, dtype=str, keep_default_na=False)
+            df = read_csv_table(path)
     except Exception:
         return (None, path.name, file_type)
     return (df, path.name, file_type)
@@ -167,6 +182,7 @@ def profile_input(
     input_key: str,
     path_or_parsed: Any,
     accepted_types: Any,
+    tyler_type: Optional[str] = None,
 ) -> FileProfile:
     """Profile one uploaded input into a ``FileProfile``.
 
@@ -189,6 +205,15 @@ def profile_input(
 
     ndf = normalize_columns(df).reset_index(drop=True)
     notes: list[str] = []
+    if tyler_type is not None:  # see CapabilitySpec.tyler_inputs
+        from src.ingest.tyler import canonical_frame
+
+        renamed = [f"{a} -> {b}" for a, b in zip(ndf.columns, canonical_frame(ndf.head(0), tyler_type).columns)
+                   if a != b]
+        ndf = canonical_frame(ndf, tyler_type).reset_index(drop=True)
+        if renamed:
+            notes.append(f"Read as a Tyler/Munis {tyler_type.replace('_', ' ')} export: "
+                         + ", ".join(renamed) + ".")
 
     # Tyler/Munis-style exports carry separate Debit/Credit columns instead of
     # one signed amount. Derive the signed 'amount' (= debit - credit, same
@@ -418,7 +443,8 @@ def run_preflight(
     profiles: dict[str, FileProfile] = {}
     for input_key in spec.required_inputs + spec.optional_inputs:
         profiles[input_key] = profile_input(
-            input_key, inputs.get(input_key), spec.accepted_file_types
+            input_key, inputs.get(input_key), spec.accepted_file_types,
+            spec.tyler_inputs.get(input_key),
         )
 
     findings: list[PreflightFinding] = []

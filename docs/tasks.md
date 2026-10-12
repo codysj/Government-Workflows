@@ -31,7 +31,7 @@ Tool. This file is meant to be read and updated by both humans and LLM agents.
    the completed log. **Do not invent scope** — only add tasks traceable to code,
    a review finding, or an explicit product decision.
 
-**Next ID:** `GW-51`
+**Next ID:** `GW-53`
 
 **Status legend:** `[ ]` not started/scoped &nbsp; `[~]` in progress &nbsp;
 `[!]` blocked &nbsp; `[x]` done
@@ -67,6 +67,34 @@ once that is done.
   docs/mcp.md.
 - **Files:** `docs/mcp.md`, `mcp_server.py` (only if a host needs a change)
 
+### GW-52 — Confirm site-specific Munis layouts with a city's own system
+- **Status:** blocked
+- **Priority:** P1
+- **Area:** data
+- **Why:** Public Munis output settled the general layout (docs/tyler_assumptions.md
+  section 0), but four things vary by site or were not public: what Invoice
+  Central's "Vendor" column holds, the vendor-master export, the site-generated
+  Standard Excel journal template, and whether Excel exports keep report
+  furniture. A wrong journal template column order is a silent import error.
+- **Acceptance:** One real (scrubbed) export of each kind, or a Munis
+  administrator's answer, checked against section 0.4; aliases, fixtures, and the
+  `je_upload.xlsx` columns adjusted if needed.
+- **Files:** `docs/tyler_assumptions.md`, `src/ingest/tyler.py`, `src/workflows/je_upload_prep.py`
+- **Blocked by:** external input from a city using Munis.
+
+### GW-51 — Read printed Munis reports (PDF / fixed-width text)
+- **Status:** not_started
+- **Priority:** P2
+- **Area:** core
+- **Why:** Much Munis output is printed reports identified by a Program ID
+  (`glytdbud`, `apcshdsb`, `appdwarr`, `glacthst`); today they must be re-exported
+  to Excel first. Layouts are documented in docs/tyler_assumptions.md section 0.2.
+- **Acceptance:** A deterministic parser per supported Program ID (column
+  positions from the repeated header line, report furniture dropped and counted),
+  pinned by tests on synthetic reports in the printed layout; fail closed on an
+  unknown layout.
+- **Files:** `src/ingest/` (new), `src/core/preflight.py`
+
 ### GW-47 — Validator: check amount signs and vendor/fund names
 - **Status:** not_started
 - **Priority:** P2
@@ -79,26 +107,6 @@ once that is done.
   fund names in prose checked against the findings' names, with replay tests
   showing no new false positives on `tests/fixtures/real_llm`.
 - **Files:** `src/core/validation.py`, `tests/unit/test_validation.py`
-
-### GW-37 — Validate Tyler / JE upload assumptions against a real city or Munis export
-- **Status:** blocked
-- **Priority:** P1
-- **Area:** data
-- **Why:** `docs/tyler_assumptions.md` documents what is modeled vs confirmed. The
-  three highest-risk items — the JE upload template **column order**, the GL
-  **sign convention** (signed amount = debit - credit), and the combined
-  "Description/Vendor" GL column — must be confirmed before any non-synthetic use;
-  a wrong JE column order is a silent import misconfiguration. (Absorbs the former
-  GW-31, which covered the JE column order alone.)
-- **Acceptance:** The three highest-risk assumptions confirmed or corrected via a
-  real Munis export or a city/vendor contact; the `Verified?` column in
-  `docs/tyler_assumptions.md` updated; alias maps / `je_upload_template.csv` /
-  `tyler.py` corrected if needed. If no contact is available, close with a
-  documented "requires external input" note.
-- **Files:** `docs/tyler_assumptions.md`, `src/ingest/tyler.py`,
-  `data/synthetic/tyler/je_upload_template.csv`
-- **Blocked by:** external input — a real Munis export template or a city/vendor
-  contact (not available in-repo; synthetic data only).
 
 ### GW-40 — Persist history filters in the URL query string
 - **Status:** not_started
@@ -168,6 +176,8 @@ once that is done.
 
 Condensed log, newest first (one line per task). Full rationale and Done detail
 live in `docs/decisions.md` (dated sections) and git history.
+
+**GW-37 — Tyler/Munis assumptions checked against real Munis output (2026-10-11)** — public Munis reports, Tyler docs and knowledge base: verbatim headers and report furniture now handled and tested (`test_munis_layouts.py`); GL sign convention consistent; "Description/Vendor" is not a Munis column; the JE template is site-generated, so site checks moved to GW-52 (docs/tyler_assumptions.md section 0)
 
 **GW-49 — Claude and ChatGPT integrations (2026-10-11)** — one stdio MCP server for both: Claude Desktop extension (`scripts/build_claude_extension.py`), ChatGPT via Secure MCP Tunnel with attached-file support, an MCP Apps run view, data-folder confinement, tool annotations; see docs/mcp.md and ADR-8
 

@@ -73,8 +73,11 @@ boundary (see mcp.md).
 ## ADR-9 Tyler/Munis exports via a deterministic normalizer
 `src/ingest/tyler.py` detects the export type by header overlap, parses amounts
 as `Decimal`, derives signed amounts from debit/credit, hashes inputs, and keeps
-source row indices. Assumptions not yet confirmed against a real export are
-listed in [`tyler_assumptions.md`](tyler_assumptions.md) (GW-37).
+source row indices. Its aliases and layout handling follow public Munis output
+(verbatim headers, report title blocks and footers, `YR/PR`, signed `AMOUNT`);
+the file check reads Tyler inputs through the same aliases, so the two cannot
+disagree. Evidence and open site-specific questions:
+[`tyler_assumptions.md`](tyler_assumptions.md) section 0 (GW-37).
 
 ## ADR-10 JE upload prep fails closed
 If any blocking rule fails, no upload workbook is written, only an error

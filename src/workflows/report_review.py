@@ -56,6 +56,7 @@ from src.core.schemas import (
 )
 from src.core.exports import write_json, write_markdown
 from src.core.validation import validate_llm_output as _core_validate_llm_output
+from src.ingest.csv_loader import read_csv_table, read_excel_table
 from src.ingest.excel_loader import load_table
 from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
 from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
@@ -137,9 +138,9 @@ def _report_frame_from_inputs(inputs: dict[str, Any]) -> Optional[pd.DataFrame]:
         return None
     try:
         if suffix == "csv":
-            raw = pd.read_csv(path, dtype=str, keep_default_na=False)
+            raw = read_csv_table(path)
         else:
-            raw = pd.read_excel(path, dtype=str, engine="openpyxl").fillna("")
+            raw = read_excel_table(path)
     except Exception:
         return None
     return normalize_columns(raw).reset_index(drop=True)

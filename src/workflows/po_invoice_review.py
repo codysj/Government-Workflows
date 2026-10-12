@@ -98,6 +98,8 @@ CAPABILITY = CapabilitySpec(
     required_inputs=["purchase_orders", "ap_invoices"],
     optional_inputs=["vendor_list", "check_register"],
     accepted_file_types={"*": ["csv", "xlsx"]},
+    tyler_inputs={"purchase_orders": "purchase_orders", "ap_invoices": "ap_invoice_detail",
+                  "vendor_list": "vendor_list", "check_register": "check_register"},
     required_semantic_columns={
         "purchase_orders": [
             "po_number", "vendor_number", "status", "line", "qty",

@@ -8,7 +8,7 @@ import pandas as pd
 from src.core.schemas import ParsedTable, make_id
 
 # Re-export shared helpers so callers can use one import surface.
-from src.ingest.csv_loader import file_sha256, load_csv, to_input_file  # noqa: F401
+from src.ingest.csv_loader import file_sha256, load_csv, read_excel_table, to_input_file  # noqa: F401
 
 # Extensions routed to the Excel reader by load_table.
 EXCEL_EXTENSIONS = (".xlsx", ".xlsm")
@@ -18,10 +18,7 @@ def load_excel(
     path: str | Path, sheet_name: str | int = 0, table_name: str | None = None
 ) -> ParsedTable:
     path = Path(path)
-    df = pd.read_excel(
-        path, sheet_name=sheet_name, dtype=str, engine="openpyxl"
-    )
-    df = df.fillna("")
+    df = read_excel_table(path, sheet_name=sheet_name)
     table = table_name or path.stem
     return ParsedTable(
         file_id=make_id(),

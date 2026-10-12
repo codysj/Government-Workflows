@@ -36,6 +36,7 @@ amounts, expected search criteria, and per-file row counts) is
 | `chart_of_accounts.csv` | 21 | Every fund/org/object combination used anywhere in this dataset, plus the planted Inactive account 100-5100-5999 "Obsolete Expense". |
 | `je_upload_template.csv` / `.xlsx` | 0 | Empty Munis-style JE upload templates (headers only): Journal, Line, Eff Date, Fund, Org, Object, Account Description, Debit, Credit, Line Description, Reference. |
 | `known_answers.json` | — | Machine-readable known answers (built by code from the generated CSVs). |
+| `munis_layouts/` | — | The same data re-shaped into real Munis export layouts (Invoice Central, cash disbursements journal, YTD budget report); see its README. |
 
 ## Planted AP duplicate / suspicious-payment anomalies (D1-D8)
 

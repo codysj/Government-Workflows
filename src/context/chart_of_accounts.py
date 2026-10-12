@@ -25,6 +25,7 @@ from typing import Optional
 
 import pandas as pd
 
+from src.ingest.csv_loader import read_csv_table
 from src.normalize.cleaning import normalize_columns, to_snake_case
 
 # Candidate columns (after snake_case normalization), most-specific first.
@@ -81,8 +82,7 @@ def load_chart_of_accounts(path: str | Path) -> ChartOfAccounts:
     if not p.is_file():
         return ChartOfAccounts()
 
-    df = pd.read_csv(p, dtype=str, keep_default_na=False)
-    df = normalize_columns(df)
+    df = normalize_columns(read_csv_table(p))
     columns = list(df.columns)
 
     code_col = _first_col(columns, _CODE_COLUMNS)
