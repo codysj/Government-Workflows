@@ -323,3 +323,11 @@ def test_download_host_allowlist(url, allowed):
     else:
         with pytest.raises(Exception, match="Refusing to download"):
             _check_download_url(url, hosts)
+
+
+def test_freeform_run_and_its_detail_work(server):
+    """get_run used to crash on every freeform run (a confirmation flag was
+    parsed as an amount)."""
+    run = _call(server, "run_workflow", {"workflow_type": "freeform", "use_sample": True})
+    assert not run.is_error, run.content[0].text
+    assert not _call(server, "get_run", {"run_id": run.structured_content["run_id"]}).is_error

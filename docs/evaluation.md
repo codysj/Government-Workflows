@@ -138,7 +138,7 @@ pass. It always uses the offline mock, whatever `LLM_MODE` says.
 Per Phase 7 "Automated tests", the suite covers CSV/Excel ingestion, date/amount
 parsing, source-row preservation, bank matching, variance calculations, report
 consistency checks, LLM mock responses, LLM validation, run-ledger writes,
-audit-log writes, and export generation (903 tests at the time of writing;
+audit-log writes, and export generation (959 tests at the time of writing;
 `pytest` is the source of truth). Key coverage for the Tyler/Munis-era workflows:
 
 - `tests/unit/test_tyler_ingest.py` — `normalize_tyler_export`,

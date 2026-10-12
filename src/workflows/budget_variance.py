@@ -54,7 +54,7 @@ from src.core.validation import validate_llm_output as _core_validate_llm_output
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt, _extract_summary_from_prompt
 from src.ingest.excel_loader import load_table
-from src.normalize.cleaning import normalize_columns, parse_amount, to_snake_case
+from src.normalize.cleaning import detect_footer_total_rows, normalize_columns, parse_amount, to_snake_case
 from src.llm.prompts import OUTPUT_RULES, findings_for_prompt, omitted_note
 
 # --------------------------------------------------------------------------- #
@@ -155,8 +155,9 @@ def _amounts_from_input(
         return []
     if amount_col not in df.columns:
         return []
-    # Rows with every key blank (report totals) are skipped by the join too.
+    # Report totals and footers are skipped by the join too.
     keys = [k for k in KEY_COLUMNS if k in df.columns]
+    df = df.reset_index(drop=True).drop(index=detect_footer_total_rows(df))
     if keys:
         df = df[df[keys].apply(lambda col: col.astype(str).str.strip() != "").any(axis=1)]
     out: list[Decimal] = []
@@ -639,26 +640,44 @@ def analyze(
         raise ValueError("Could not locate budget/actual amount columns.")
 
     # Index rows by key.
-    # A row with every key blank is not an account line: report totals
-    # ("TOTAL 1000", "GRAND TOTAL" in a Munis YTD budget report) and footers.
-    # Left out of the join and counted in the summary.
-    rows_without_keys = 0
+    # Report totals and footers are not account lines: rows with every key
+    # blank ("TOTAL 1000", "GRAND TOTAL" in a Munis YTD budget report) and
+    # labelled lines ("** END OF REPORT", "Program ID: glytdbud"). They are left
+    # out of the join and reported as an INFO finding citing each row.
+    skipped: dict[str, list[tuple[int, dict]]] = {"budget": [], "actuals": []}
     b_by_key: dict[tuple, tuple[int, pd.Series]] = {}
+    b_footers = set(detect_footer_total_rows(b_df))
     for i, row in zip(b_df.index, b_df.to_dict("records")):
         key = _key_tuple(row, keys)
-        if not any(key):
-            rows_without_keys += 1
+        if not any(key) or i in b_footers:
+            skipped["budget"].append((i, row))
             continue
         b_by_key[key] = (i, row)
     a_by_key: dict[tuple, tuple[int, pd.Series]] = {}
+    a_footers = set(detect_footer_total_rows(a_df))
     for i, row in zip(a_df.index, a_df.to_dict("records")):
         key = _key_tuple(row, keys)
-        if not any(key):
-            rows_without_keys += 1
+        if not any(key) or i in a_footers:
+            skipped["actuals"].append((i, row))
             continue
         a_by_key[key] = (i, row)
 
     findings: list[DeterministicFinding] = []
+    for side, parsed, name in (("budget", b_parsed, b_name), ("actuals", a_parsed, a_name)):
+        rows = skipped[side]
+        if rows:
+            findings.append(DeterministicFinding(
+                finding_type=FindingType.SUMMARY,
+                severity=Severity.INFO,
+                description=(
+                    f"{len(rows)} {side} row(s) are report totals or footer lines "
+                    f"(no account, or a TOTAL / END OF REPORT line) and were left out "
+                    f"of the comparison: rows {[i for i, _ in rows]}."),
+                source_rows=[_source_ref(parsed.file_id, name, i, row) for i, row in rows],
+                computed_values={"rows_skipped": str(len(rows))},
+                rule_used="report_total_rows_skipped",
+                requires_human_review=False,
+            ))
     variance_rows: list[dict] = []
     flagged_rows: list[dict] = []
 
@@ -818,7 +837,7 @@ def analyze(
 
     summary = {
         "join_keys": keys,
-        "rows_without_account_keys_skipped": rows_without_keys,
+        "report_total_rows_skipped": sum(len(rows) for rows in skipped.values()),
         "budget_amount_column": b_amount_col,
         "actual_amount_column": a_amount_col,
         "joined_lines": len(variance_rows),

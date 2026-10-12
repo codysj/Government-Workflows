@@ -75,8 +75,8 @@ boundary (see mcp.md).
 as `Decimal`, derives signed amounts from debit/credit, hashes inputs, and keeps
 source row indices. Its aliases and layout handling follow public Munis output
 (verbatim headers, report title blocks and footers, `YR/PR`, signed `AMOUNT`);
-the file check reads Tyler inputs through the same aliases, so the two cannot
-disagree. Evidence and open site-specific questions:
+the file check reads Tyler inputs through the same aliasing and requires the
+normalizer's own columns by exact name, so it fails where the run would. Evidence and open site-specific questions:
 [`tyler_assumptions.md`](tyler_assumptions.md) section 0 (GW-37).
 
 ## ADR-10 JE upload prep fails closed

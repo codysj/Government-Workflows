@@ -97,12 +97,14 @@ Public sources consulted (see Section 6 for full citations):
 | --- | --- | --- |
 | Footer lines (`END OF REPORT`, `Report generated:`, `Program ID:`, `Records printed`) are flagged like total rows instead of failing the import | `src/normalize/cleaning.py` | `test_cash_disbursements_journal_normalizes` |
 | A report title block above the header is skipped (CSV and Excel, every reader) | `src/ingest/csv_loader.py` | `test_report_title_block_above_the_header_is_skipped` |
-| Verbatim headers above added as aliases; the file check now reads Tyler inputs through the same aliases as the workflow (they had drifted apart) | `src/ingest/tyler.py`, `src/core/preflight.py` | `test_ap_review_on_munis_layouts_...` |
-| `YR/PR` split into fiscal year / period (+ `unposted` flag for `*`); one signed `AMOUNT` split into debit / credit | `src/ingest/tyler.py` | `test_account_detail_history_layout` |
-| Excel serial dates accepted in declared date columns only | `src/ingest/tyler.py` | `test_excel_serial_dates_in_date_columns_only` |
-| "1022 Valley Telecom" style vendor columns split into number + name; AP vendor name optional and filled from the vendor list | `src/ingest/tyler.py`, `src/workflows/ap_duplicate_review.py` | AP Munis-layout test |
-| Check type `PRTD`/`VOID` used as status when there is no status column; payment date taken from the check register when the AP export has none | same | AP Munis-layout test |
-| Budget: `YTD EXPENDED` recognized; rows with no account key (report totals) left out of the join and counted | `src/workflows/budget_variance.py` | `test_budget_variance_on_a_munis_ytd_budget_report` |
+| Verbatim headers above added as aliases; short generic ones (`Type`, `Net`, `Invoice`, `PO #`, `LN`, `CHECK #`, `% USED`) only as fallbacks, so a more specific header always wins | `src/ingest/tyler.py` | `test_specific_headers_win_over_generic_munis_ones` |
+| The file check reads each Tyler input through the same aliasing and requires the normalizer's own required columns by exact name, so it fails exactly where the run would (no PASS followed by a run error) | `src/core/preflight.py` | `test_preflight_fails_where_the_normalizer_would` |
+| `YR/PR` split into fiscal year / period; a leading `*` (unposted) is flagged and reported as a warning (unposted lines are still included); one signed `AMOUNT` split into debit / credit | `src/ingest/tyler.py` | `test_account_detail_history_layout`, `test_unposted_journals_are_reported` |
+| Excel serial dates accepted in declared date columns only, only within 15 years back / 5 ahead, and every conversion reported as a warning; anything else still fails closed | `src/ingest/tyler.py` | `test_serial_dates_are_bounded_and_reported` |
+| "1022 Valley Telecom" style vendor columns split into number + name (values in another form are kept, never blanked); a bare "Vendor" column is the number only when it holds numbers, otherwise the name, so a file with no vendor numbers fails closed; AP vendor name optional and filled from the vendor list | `src/ingest/tyler.py`, `src/workflows/ap_duplicate_review.py` | `test_a_vendor_name_containing_total_keeps_its_number`, `test_a_vendor_column_of_names_fails_closed_...` |
+| Check type `PRTD`/`VOID` used as status when there is no status column; a check voided on any line is void on all; when the AP export has no check column at all, the payment date comes from the check register by vendor + invoice | same | `test_a_check_voided_on_a_later_line_...`, `test_payment_date_fallback_never_borrows_...` |
+| Budget: `YTD EXPENDED` recognized; report totals and footer lines left out of the join and reported as an INFO finding citing each row | `src/workflows/budget_variance.py` | `test_budget_variance_on_a_munis_ytd_budget_report` |
+| Every CSV / Excel reader skips a report title block (text-only lines above a text-only header row; never a row with amounts or dates) and notes it in the file check | `src/ingest/csv_loader.py`, `src/workflows/je_upload_prep.py` | `test_report_title_block_...`, `test_title_block_rule_never_eats_a_real_header` |
 | JE workbook already writes every cell as Text, as Tyler requires | (no change) | `test_je_upload_workbook_cells_are_text` |
 
 **GW-37's three high-risk assumptions:**
@@ -119,8 +121,9 @@ Public sources consulted (see Section 6 for full citations):
 
 ### 0.4 Only a city's own system can answer
 
-- Whether Invoice Central's "Vendor" column holds the number, the name, or both
-  (all three are handled; the vendor list supplies missing names).
+- Whether Invoice Central's "Vendor" column holds the number, the name, or both.
+  Number, and number + name, are handled (the vendor list supplies missing names);
+  names alone fail closed, since the checks need vendor numbers.
 - The flat vendor-master export layout (none was found publicly).
 - The site's generated Standard Excel journal template (header row and order).
 - Whether the city's Excel exports keep the printed report furniture.

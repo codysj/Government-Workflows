@@ -102,22 +102,8 @@ def _norm_file_type(file_type: str) -> str:
 # the mapping is unambiguous.
 HIGH_CONFIDENCE_THRESHOLD = 0.85
 
-def _with_tyler_aliases(base: dict[str, list[str]]) -> dict[str, list[str]]:
-    """Semantic synonyms plus every Tyler/Munis header alias, so the file check
-    recognizes the same headers the Tyler normalizer accepts (one source)."""
-    from src.ingest.tyler import TYLER_DATASET_TYPES
-
-    merged = {k: list(v) for k, v in base.items()}
-    for spec in TYLER_DATASET_TYPES.values():
-        for src, dst in spec.aliases.items():
-            names = merged.setdefault(dst, [dst])
-            if src not in names:
-                names.append(src)
-    return merged
-
-
 # Default synonym map for the semantic columns the workflows declare.
-DEFAULT_SYNONYMS: dict[str, list[str]] = _with_tyler_aliases(SEMANTIC_SYNONYMS)
+DEFAULT_SYNONYMS: dict[str, list[str]] = SEMANTIC_SYNONYMS
 
 # Semantic fields whose columns are date-like / amount-like (drives which
 # columns get parse-confidence computed in a FileProfile).
@@ -205,6 +191,8 @@ def profile_input(
 
     ndf = normalize_columns(df).reset_index(drop=True)
     notes: list[str] = []
+    if df.attrs.get("title_rows"):
+        notes.append(f"Skipped {df.attrs['title_rows']} title line(s) above the column headers.")
     if tyler_type is not None:  # see CapabilitySpec.tyler_inputs
         from src.ingest.tyler import canonical_frame
 
@@ -289,6 +277,12 @@ def profile_input(
 def _semantic_fields(spec: CapabilitySpec, input_key: str) -> tuple[list[str], list[str]]:
     req = list(spec.required_semantic_columns.get(input_key, []))
     opt = list(spec.optional_semantic_columns.get(input_key, []))
+    tyler_type = spec.tyler_inputs.get(input_key)
+    if tyler_type is not None:  # the normalizer's own required columns, exactly
+        from src.ingest.tyler import TYLER_DATASET_TYPES
+
+        req += [c for c in TYLER_DATASET_TYPES[tyler_type].required_columns if c not in req]
+        opt = [c for c in opt if c not in req]
     return (req, opt)
 
 
@@ -333,9 +327,15 @@ def build_column_mappings(
                 )
                 continue
 
-            best, conf, ranked = best_semantic_column(
-                frame, semantic, synonyms=DEFAULT_SYNONYMS
-            )
+            if input_key in spec.tyler_inputs:
+                # Already aliased to canonical names (profile_input): the column
+                # is there by exact name or the normalizer will reject the file.
+                found = semantic in frame.columns
+                best, conf, ranked = (semantic, 1.0, [semantic]) if found else (None, 0.0, [])
+            else:
+                best, conf, ranked = best_semantic_column(
+                    frame, semantic, synonyms=DEFAULT_SYNONYMS
+                )
             if best is not None and conf >= HIGH_CONFIDENCE_THRESHOLD:
                 mappings.append(
                     ColumnMapping(

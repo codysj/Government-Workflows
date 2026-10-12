@@ -311,6 +311,7 @@ def run_deterministic(
     findings: list[DeterministicFinding] = []
 
     ap_df = ap_export.dataframe
+    ap_has_check_column = "check_number" in ap_df.columns
     ap_records = ap_df.to_dict("records")  # built once; every check reads rows from it
     ap_by_index: dict[int, dict] = {}
     for rec in ap_records:
@@ -347,21 +348,31 @@ def run_deterministic(
     # NOTE: Void checks are excluded from multi-check detection (a Void + its
     # reissue is a normal workflow, not a suspicious multi-payment).
     invoice_to_checks: dict[str, list[str]] = {}
+    # (vendor_number, invoice_number) -> checks, for AP exports without payment
+    # columns (D5): an invoice number alone can belong to another vendor.
+    vendor_invoice_checks: dict[tuple[str, str], list[str]] = {}
     if check_export is not None:
-        cdf = check_export.dataframe
-        for crow in cdf.to_dict("records"):
+        crows = check_export.dataframe.to_dict("records")
+        # A check voided on any line is void everywhere (a disbursements journal
+        # can list the printed line and the void line separately).
+        void_checks = {str(c.get("check_number", "")).strip() for c in crows
+                       if str(c.get("status", "")).strip().lower() == "void"}
+        for crow in crows:
             cnum = str(crow.get("check_number", "")).strip()
-            cstatus = str(crow.get("status", "")).strip().lower()
             cdate = crow.get("check_date")
-            check_map[cnum] = cdate if isinstance(cdate, date) else None
-            if cstatus == "void":
+            if check_map.get(cnum) is None:
+                check_map[cnum] = cdate if isinstance(cdate, date) else None
+            if cnum in void_checks:
                 continue  # skip void checks - void + reissue is not a dup
+            cvendor = str(crow.get("vendor_number", "") or "").strip()
             # Parse invoice_numbers (semicolon-joined)
             raw_inv = str(crow.get("invoice_numbers", "") or "").strip()
             for inv in raw_inv.split(";"):
                 inv = inv.strip()
                 if inv:
-                    invoice_to_checks.setdefault(inv, []).append(cnum)
+                    if cnum not in invoice_to_checks.get(inv, []):
+                        invoice_to_checks.setdefault(inv, []).append(cnum)
+                    vendor_invoice_checks.setdefault((cvendor, inv), []).append(cnum)
 
     # ------------------------------------------------------------------ #
     # Optional-file skip notices
@@ -679,9 +690,11 @@ def run_deterministic(
             ridx = int(row["source_row_index"])
             inv = str(row.get("invoice_number", "")).strip()
             cnum = str(row.get("check_number", "") or "").strip()
-            # AP exports without payment columns (Munis Invoice Central): the
-            # check register's invoice -> check link supplies the check.
-            for cnum in [cnum] if cnum else invoice_to_checks.get(inv, []):
+            vnum = str(row.get("vendor_number", "")).strip()
+            # AP exports with no payment columns at all (Munis Invoice Central):
+            # the check register's vendor + invoice link supplies the check.
+            fallback = [] if ap_has_check_column else vendor_invoice_checks.get((vnum, inv), [])
+            for cnum in [cnum] if cnum else fallback:
                 chk_date = check_map.get(cnum)
                 if inv_date is None or chk_date is None or chk_date >= inv_date:
                     continue

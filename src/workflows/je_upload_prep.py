@@ -82,6 +82,7 @@ from src.core.schemas import (
     make_id,
 )
 from src.core.validation import validate_llm_output as _core_validate_llm_output
+from src.ingest.csv_loader import read_excel_table, title_block_length
 from src.ingest.tyler import normalize_tyler_export
 from src.llm.provider import MockLLMProvider as _CoreMockLLMProvider
 from src.llm.provider import _extract_findings_from_prompt, _extract_summary_from_prompt
@@ -173,6 +174,7 @@ CAPABILITY = CapabilitySpec(
     # per-key entry the generic engine would flag the .json as an unsupported
     # optional file type and downgrade an otherwise-clean run to PARTIAL.
     accepted_file_types={"*": ["csv", "xlsx"], "config": ["json"]},
+    tyler_inputs={"chart_of_accounts": "chart_of_accounts", "gl_detail": "gl_detail"},
     required_semantic_columns={
         "je_draft": ["journal", "line", "fund", "org", "object"],
         "chart_of_accounts": ["fund", "org", "object"],
@@ -345,9 +347,12 @@ def _load_je_draft_raw(path: str | Path) -> tuple[pd.DataFrame, str, str]:
         # cleanly without an extra unnamed column or ParserError.
         cleaned = "\n".join(line.rstrip(",") for line in raw_text.splitlines())
         try:
+            import csv as _csv
             import io as _io
+            # Same title-block rule as every other reader (see csv_loader).
+            skip = title_block_length(list(_csv.reader(_io.StringIO(cleaned)))[:11])
             df = pd.read_csv(
-                _io.StringIO(cleaned), dtype=str, keep_default_na=False
+                _io.StringIO(cleaned), dtype=str, keep_default_na=False, skiprows=skip
             )
         except Exception as exc:
             raise ValueError(
@@ -355,8 +360,7 @@ def _load_je_draft_raw(path: str | Path) -> tuple[pd.DataFrame, str, str]:
             ) from exc
     elif suffix in (".xlsx", ".xlsm"):
         try:
-            df = pd.read_excel(str(path), dtype=str, sheet_name=0)
-            df = df.fillna("")
+            df = read_excel_table(path)
         except Exception as exc:
             raise ValueError(
                 f"je_upload_prep: could not parse JE draft Excel '{path.name}': {exc}"

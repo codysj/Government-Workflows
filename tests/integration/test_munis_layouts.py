@@ -49,7 +49,13 @@ def test_budget_variance_on_a_munis_ytd_budget_report():
     assert r.preflight_status == "pass"
     assert r.summary["budget_amount_column"] == "revised_budget"
     assert r.summary["actual_amount_column"] == "ytd_expended"  # "YTD EXPENDED"
-    assert r.summary["rows_without_account_keys_skipped"] == 8  # 4 totals x 2 sides
+    # 4 TOTAL lines + 3 footer lines per side are not accounts: skipped, reported.
+    assert r.summary["joined_lines"] == 7
+    assert r.summary["report_total_rows_skipped"] == 14
+    skipped = [f for f in r.findings if f.rule_used == "report_total_rows_skipped"]
+    assert len(skipped) == 2 and all(len(f.source_rows) == 7 for f in skipped)
+    assert not any("Program ID" in f.description or "END OF REPORT" in f.description
+                   for f in r.findings if f.rule_used != "report_total_rows_skipped")
     # The 4 planted expense variances plus the revenue shortfall (credit sign).
     assert r.summary["flagged_variances"] == 5
     assert any("'object': '4010'" in f.description for f in r.findings)
@@ -108,3 +114,103 @@ def test_je_upload_workbook_cells_are_text(tmp_path):
     book = openpyxl.load_workbook(next(tmp_path.rglob("je_upload.xlsx")))
     cells = [c for row in book.active.iter_rows(min_row=2) for c in row if c.value not in (None, "")]
     assert cells and all(c.data_type == "s" for c in cells)
+
+
+# --- Regressions from review (each was a wrong or missed finding) -----------
+
+AP_HEADER = "Invoice Number,Vendor,Invoice Date,Gross Amount\n"
+
+
+def _write(tmp_path, name, text):
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_a_vendor_name_containing_total_keeps_its_number(tmp_path):
+    ap = _write(tmp_path, "ap.csv", AP_HEADER
+                + "T-100,1044 TOTAL FIRE PROTECTION INC,03/01/2026,1250.00\n"
+                + "T-100,1044 TOTAL FIRE PROTECTION INC,03/01/2026,1250.00\n"
+                + "A-1,1001 ALPHA LLC,03/02/2026,99.00\n")
+    df = normalize_tyler_export(ap, "ap_invoice_detail").dataframe
+    assert list(df["vendor_number"]) == ["1044", "1044", "1001"]
+    r = _run("ap_duplicate_review", {"ap_invoices": ap})
+    assert any(f.rule_used == "duplicate_invoice_number" for f in r.findings)
+
+
+def test_a_vendor_column_of_names_fails_closed_instead_of_posing_as_numbers(tmp_path):
+    ap = _write(tmp_path, "ap.csv", AP_HEADER + "A-1,Alpha Supply,03/01/2026,10.00\n")
+    r = _run("ap_duplicate_review", {"ap_invoices": ap})
+    assert r.preflight_status == "fail" and not r.findings
+
+
+def test_specific_headers_win_over_generic_munis_ones(tmp_path):
+    reg = _write(tmp_path, "reg.csv",
+                 "Check Number,Check Date,Vendor Number,Vendor Name,Check Amount,Check Status,Type,Invoice Number(s)\n"
+                 "5000,03/01/2026,1001,Alpha,10.00,Void,System,1001\n"
+                 "5001,03/02/2026,1001,Alpha,10.00,Printed,Manual,1001\n")
+    df = normalize_tyler_export(reg, "check_register").dataframe
+    assert list(df["status"]) == ["Void", "Printed"]  # "Check Status", not "Type"
+    ap = _write(tmp_path, "ap.csv", "Vendor ID,Vendor,Invoice Number,Invoice Date,Invoice Amount\n"
+                                    "1001,Alpha Supply,INV-1,03/01/2026,10.00\n")
+    df = normalize_tyler_export(ap, "ap_invoice_detail").dataframe
+    assert df["vendor_number"][0] == "1001" and df["vendor_name"][0] == "Alpha Supply"
+
+
+def test_payment_date_fallback_never_borrows_another_vendors_check(tmp_path):
+    ap = _write(tmp_path, "ap.csv", AP_HEADER
+                + "1001,1001 ALPHA,03/15/2026,500.00\n"
+                + "1001,2002 BETA,02/01/2026,750.00\n")
+    reg = _write(tmp_path, "reg.csv",
+                 "Check Number,Check Date,Vendor Number,Vendor Name,Check Amount,Status,Invoice Number(s)\n"
+                 "5000,02/10/2026,2002,BETA,750.00,Printed,1001\n")
+    r = _run("ap_duplicate_review", {"ap_invoices": ap, "check_register": reg})
+    assert not any(f.rule_used == "payment_before_invoice_date" for f in r.findings)
+
+
+def test_a_check_voided_on_a_later_line_is_void_everywhere(tmp_path):
+    reg = _write(tmp_path, "reg.csv", "CHECK NO,CHK DATE,TYPE,VENDOR NAME,INVOICE,NET\n"
+                 "5000,03/01/2026,PRTD,1001 Alpha,INV-1,10.00\n"
+                 "5000,03/20/2026,VOID,1001 Alpha,INV-1,-10.00\n"
+                 "5001,03/21/2026,PRTD,1001 Alpha,INV-1,10.00\n")
+    ap = _write(tmp_path, "ap.csv", AP_HEADER + "INV-1,1001 Alpha,02/28/2026,10.00\n")
+    r = _run("ap_duplicate_review", {"ap_invoices": ap, "check_register": reg})
+    assert not any(f.rule_used == "invoice_paid_by_multiple_checks" for f in r.findings)
+
+
+@pytest.mark.parametrize("value, ok", [("45678", True), ("20000", False), ("45678.5", False)])
+def test_serial_dates_are_bounded_and_reported(tmp_path, value, ok):
+    ap = _write(tmp_path, "ap.csv", AP_HEADER + f"INV-1,1001 Alpha,{value},10.00\n")
+    if not ok:
+        with pytest.raises(ValueError, match="unparseable date"):
+            normalize_tyler_export(ap, "ap_invoice_detail")
+        return
+    exp = normalize_tyler_export(ap, "ap_invoice_detail")
+    assert any(w.startswith("excel_serial_dates") for w in exp.warnings)
+
+
+def test_unposted_journals_are_reported(tmp_path):
+    gl = _write(tmp_path, "gl.csv", "Fund,Org,Object,YR/PR,JNL,EFF DATE,AMOUNT,Description\n"
+                "100,1000,5210,*26/03,412,03/10/26,5.00,x\n")
+    assert any(w.startswith("unposted_journals") for w in
+               normalize_tyler_export(gl, "gl_detail").warnings)
+
+
+@pytest.mark.parametrize("text, header", [
+    ("account,\n1000,5\n2000,6\n", ["account", "Unnamed: 1"]),          # 1-cell header is real
+    (",Amount\nRevenue,\nProperty Tax,1000\n", ["Unnamed: 0", "Amount"]),  # blank first header
+    ("Account,Amount\n5010,10.00\n", ["Account", "Amount"]),
+])
+def test_title_block_rule_never_eats_a_real_header(tmp_path, text, header):
+    assert list(read_csv_table(_write(tmp_path, "t.csv", text)).columns) == header
+
+
+def test_preflight_fails_where_the_normalizer_would(tmp_path):
+    """Exact Tyler columns, not fuzzy matches: no PASS followed by a run error."""
+    ap = _write(tmp_path, "ap.csv", "Vendor Name,Invoice Number,Invoice Date,Invoice Amount\n"
+                                    "Alpha,INV-1,03/01/2026,10.00\n")
+    po = _write(tmp_path, "po.csv", "PO Number,PO Date,Vendor Number,Vendor Name,PO Type,Line,Qty,Unit Price,Line Amount\n"
+                                    "PO-1,03/01/2026,1001,Alpha,Blanket,1,1,10.00,10.00\n")
+    assert pipeline.run_preflight("ap_duplicate_review", {"ap_invoices": str(ap)}).status.value == "fail"
+    assert pipeline.run_preflight("po_invoice_review",
+                                  {"purchase_orders": str(po), "ap_invoices": str(ap)}).status.value == "fail"

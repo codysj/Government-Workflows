@@ -168,7 +168,7 @@ anyio.run(go)
   await view.getByText("AI draft check: passed").waitFor({ timeout: 15_000 });
   await view.getByText(/^High$/i).first().waitFor();
   await hostPage.waitForTimeout(300);  // let the size-changed resize land
-  await hostPage.screenshot({ path: path.join(MEDIA, "mcp-app.png"), fullPage: true });
+  await hostPage.locator("#v").screenshot({ path: path.join(MEDIA, "mcp-app.png") });
 
   await browser.close();
 

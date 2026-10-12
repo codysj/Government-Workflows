@@ -71,7 +71,11 @@ _REF_ALIASES: dict[str, str] = {
     "check_no": "check_number",
     "chk_no": "check_number",
     "warrant_no": "check_number",
-    # Verbatim Munis report headers (docs/tyler_assumptions.md section 0):
+}
+# Short, generic Munis report headers (docs/tyler_assumptions.md section 0). They
+# apply only when no more specific header already supplied the column, so e.g.
+# "Check Status" always wins over "Type".
+_REF_FALLBACKS: dict[str, str] = {
     "check": "check_number",  # "CHECK #"
     "p_o": "po_number",       # "P.O."
 }
@@ -93,6 +97,8 @@ class TylerDatasetSpec:
     required_columns: tuple[str, ...]
     optional_columns: tuple[str, ...] = ()
     aliases: dict[str, str] = field(default_factory=dict)
+    # Generic headers, applied after ``aliases`` and only for still-missing columns.
+    fallback_aliases: dict[str, str] = field(default_factory=lambda: dict(_REF_FALLBACKS))
     date_columns: tuple[str, ...] = ()
     amount_columns: tuple[str, ...] = ()
 
@@ -155,8 +161,6 @@ TYLER_DATASET_TYPES: dict[str, TylerDatasetSpec] = {
             "invoice_total": "invoice_amount",
             "inv_amount": "invoice_amount",
             "gross_amount": "invoice_amount",
-            "invoice_net": "invoice_amount",  # "INVOICE NET" (vendor payment history)
-            "net_amount": "invoice_amount",   # Invoice Central "Net Amount" (Gross wins if both)
             "quantity": "qty",
             "units": "qty",
             "price": "unit_price",
@@ -164,9 +168,13 @@ TYLER_DATASET_TYPES: dict[str, TylerDatasetSpec] = {
             "chk_date": "check_date",
             "payment_date": "check_date",
             "invoice_status": "status",
-            "sts": "status",                  # "STS" (PD / APP)
-            "vendor": "vendor_number",        # Invoice Central "Vendor"
             **_REF_ALIASES,
+        },
+        fallback_aliases={
+            **_REF_FALLBACKS,
+            "invoice_net": "invoice_amount",  # "INVOICE NET" (vendor payment history)
+            "net_amount": "invoice_amount",   # Invoice Central "Net Amount"
+            "sts": "status",                  # "STS" (PD / APP)
         },
         date_columns=("invoice_date", "due_date", "check_date"),
         amount_columns=("invoice_amount", "qty", "unit_price"),
@@ -208,11 +216,6 @@ TYLER_DATASET_TYPES: dict[str, TylerDatasetSpec] = {
             "chk_amount": "check_amount",
             "payment_amount": "check_amount",
             "warrant_amount": "check_amount",
-            "net": "check_amount",            # apcshdsb "NET"
-            "invoice": "invoice_numbers",     # apcshdsb "INVOICE" (one per line)
-            # apcshdsb has no status column; its TYPE carries PRTD / VOID. Only
-            # used when the file has no Status column of its own.
-            "type": "status",
             # "Invoice Number(s)" snake-cases to "invoice_number_s".
             "invoice_number_s": "invoice_numbers",
             "invoices": "invoice_numbers",
@@ -222,6 +225,13 @@ TYLER_DATASET_TYPES: dict[str, TylerDatasetSpec] = {
             "cleared_date": "clear_date",
             "date_cleared": "clear_date",
             **_REF_ALIASES,
+        },
+        fallback_aliases={
+            **_REF_FALLBACKS,
+            "net": "check_amount",            # apcshdsb "NET"
+            "invoice": "invoice_numbers",     # apcshdsb "INVOICE" (one per line)
+            # apcshdsb has no status column; its TYPE carries PRTD / VOID.
+            "type": "status",
         },
         date_columns=("check_date", "clear_date"),
         amount_columns=("check_amount",),
@@ -242,12 +252,6 @@ TYLER_DATASET_TYPES: dict[str, TylerDatasetSpec] = {
             "po_dt": "po_date",
             "line_no": "line",
             "line_number": "line",
-            "ln": "line",                     # poreporA "LN"
-            "po": "po_number",                # poreporA "PO #"
-            "vendor": "vendor_number",        # poreporA "Vendor" (+ "Vendor Name")
-            "ordered_amount": "line_amount",  # poreporA "Ordered Amount"
-            "amount_ordered": "line_amount",  # poreporG "Amount Ordered"
-            "line_description": "description",
             "quantity": "qty",
             "price": "unit_price",
             "unit_cost": "unit_price",
@@ -258,6 +262,14 @@ TYLER_DATASET_TYPES: dict[str, TylerDatasetSpec] = {
             "po_status": "status",
             "last_activity": "last_activity_date",
             **_REF_ALIASES,
+        },
+        fallback_aliases={
+            **_REF_FALLBACKS,
+            "ln": "line",                     # poreporA "LN"
+            "po": "po_number",                # poreporA "PO #"
+            "ordered_amount": "line_amount",  # poreporA "Ordered Amount"
+            "amount_ordered": "line_amount",  # poreporG "Amount Ordered"
+            "line_description": "description",
         },
         date_columns=("po_date", "last_activity_date"),
         amount_columns=(
@@ -278,7 +290,6 @@ TYLER_DATASET_TYPES: dict[str, TylerDatasetSpec] = {
         aliases={
             "original_approp": "original_budget",       # glytdbud "ORIGINAL APPROP"
             "tranfrs_adjstmts": "transfers_adjustments",  # glytdbud "TRANFRS/ADJSTMTS"
-            "used": "percent_used",                     # "% USED"
             "organization": "org",                      # Account Inquiry "Organization"
             "adopted_budget": "original_budget",
             "orig_budget": "original_budget",
@@ -297,6 +308,7 @@ TYLER_DATASET_TYPES: dict[str, TylerDatasetSpec] = {
             "account_desc": "account_description",
             "acct_description": "account_description",
         },
+        fallback_aliases={"used": "percent_used"},     # "% USED"
         amount_columns=(
             "original_budget", "transfers_adjustments", "revised_budget",
             "ytd_actual", "encumbrances", "available_budget", "percent_used",
@@ -570,16 +582,18 @@ _EXCEL_EPOCH = date(1899, 12, 30)
 
 
 def _excel_serial_date(value: Any) -> Optional[date]:
-    """A date column holding Excel serial numbers (a known Munis Excel-export
-    defect writes dates as e.g. 45678). Only for declared date columns, and
-    only 1954-2119, so ordinary numbers are never read as dates."""
-    try:
-        serial = float(str(value).strip())
-    except ValueError:
+    """A date column holding an Excel serial number (a known Munis Excel-export
+    defect writes dates as e.g. 45678). Only for declared date columns, only
+    whole serials within 15 years back / 5 years ahead of today, and every
+    conversion is reported as a warning; anything else still fails closed."""
+    text = str(value).strip()
+    if not re.fullmatch(r"\d{5}(\.0+)?", text):
         return None
-    if not 20000 <= serial < 80000:
+    converted = _EXCEL_EPOCH + timedelta(days=int(float(text)))
+    today = date.today()
+    if not today.year - 15 <= converted.year <= today.year + 5:
         return None
-    return _EXCEL_EPOCH + timedelta(days=int(serial))
+    return converted
 
 
 _VENDOR_NUMBER_NAME_RE = re.compile(r"^(\d+)\s+(?:-\s+)?(\S.*)$")
@@ -591,39 +605,61 @@ def _split_year_period(value: Any) -> tuple[str, str, bool]:
     unposted = text.startswith("*")
     year, _, period = text.lstrip("*").partition("/")
     if year.isdigit() and len(year) == 2:
-        year = str(2000 + int(year))
+        year = str((2000 if int(year) < 69 else 1900) + int(year))  # as Python's %y
     return year, period, unposted
 
 
-def _derive_munis_layout(df: pd.DataFrame, spec: TylerDatasetSpec) -> pd.DataFrame:
-    """Fill canonical columns from Munis Account Detail History layouts.
+def _vendor_ids(values: list, skip: set[int]) -> bool:
+    """Every filled value (report total lines aside) starts with a vendor number."""
+    filled = [str(v).strip() for i, v in enumerate(values) if not _is_blank_cell(v) and i not in skip]
+    return bool(filled) and all(re.match(r"\d+(\s|$)", v) for v in filled)
 
-    "YR/PR" -> fiscal_year + period (+ unposted flag), and one signed AMOUNT
-    (debit positive, as Munis prints revenue/credits negative) -> debit /
-    credit. Only when the file lacks the canonical columns; originals kept.
+
+def _derive_munis_layout(df: pd.DataFrame, spec: TylerDatasetSpec) -> pd.DataFrame:
+    """Fill canonical columns from real Munis layouts (originals kept).
+
+    * A bare "Vendor" column (Invoice Central, poreporA) is the vendor number
+      only when its values are numbers ("1022" or "1022 Valley Telecom");
+      otherwise it is read as the vendor name, so a missing number fails closed.
+    * One combined column ("1022 Valley Telecom", vendor number printed first)
+      becomes vendor_number + vendor_name; values that are not in that form
+      are kept as they are, never blanked.
+    * "YR/PR" -> fiscal_year + period (+ unposted flag for a leading "*").
+    * One signed AMOUNT (debit positive; Munis prints credits negative) ->
+      debit / credit.
     """
     required = set(spec.required_columns)
-    # Munis prints the vendor number in front of the name ("1001 ABC Supply"):
-    # one combined column (either name) becomes vendor_number + vendor_name.
     vendor_cols = {"vendor_number", "vendor_name"}
+    has_vendor_fields = vendor_cols <= set(spec.required_columns + spec.optional_columns)
+    if has_vendor_fields and "vendor" in df.columns and not vendor_cols <= set(df.columns):
+        ids = _vendor_ids(df["vendor"].tolist(), set(detect_footer_total_rows(df)))
+        target = ("vendor_number" if ids and "vendor_number" not in df.columns
+                  else "vendor_name" if not ids and "vendor_name" not in df.columns else None)
+        if target:
+            df = df.rename(columns={"vendor": target})
     present = vendor_cols & set(df.columns)
-    if len(present) == 1 and vendor_cols <= set(spec.required_columns + spec.optional_columns):
+    if has_vendor_fields and len(present) == 1:
         column = present.pop()
         values = df[column].tolist()
         totals = set(detect_footer_total_rows(df))  # "*** CASH ACCOUNT TOTAL ***" etc.
-        split = [None if _is_blank_cell(v) or i in totals else _VENDOR_NUMBER_NAME_RE.match(str(v).strip())
-                 for i, v in enumerate(values)]
-        if any(split) and all(m for i, (m, v) in enumerate(zip(split, values))
-                              if not _is_blank_cell(v) and i not in totals):
+        matches = [None if _is_blank_cell(v) else _VENDOR_NUMBER_NAME_RE.match(str(v).strip())
+                   for v in values]
+        decided = [m for i, (m, v) in enumerate(zip(matches, values))
+                   if not _is_blank_cell(v) and i not in totals]
+        if decided and all(decided):
+            keep = lambda v: "" if _is_blank_cell(v) else v  # noqa: E731
             df = df.assign(
-                vendor_number=[m.group(1) if m else "" for m in split],
-                vendor_name=[m.group(2) if m else ("" if column == "vendor_number" else v)
-                             for m, v in zip(split, values)])
-    if {"fiscal_year", "period"} <= required and "yr_pr" in df.columns             and "fiscal_year" not in df.columns and "period" not in df.columns:
+                vendor_number=[m.group(1) if m else (keep(v) if column == "vendor_number" else "")
+                               for m, v in zip(matches, values)],
+                vendor_name=[m.group(2) if m else (keep(v) if column == "vendor_name" else "")
+                             for m, v in zip(matches, values)])
+    if ({"fiscal_year", "period"} <= required and "yr_pr" in df.columns
+            and "fiscal_year" not in df.columns and "period" not in df.columns):
         parts = [_split_year_period(v) for v in df["yr_pr"].tolist()]
         df = df.assign(fiscal_year=[p[0] for p in parts], period=[p[1] for p in parts],
                        unposted=[p[2] for p in parts])
-    if {"debit", "credit"} <= required and "amount" in df.columns             and "debit" not in df.columns and "credit" not in df.columns:
+    if ({"debit", "credit"} <= required and "amount" in df.columns
+            and "debit" not in df.columns and "credit" not in df.columns):
         signed = [None if _is_blank_cell(v) else parse_amount(v) for v in df["amount"].tolist()]
         df = df.assign(debit=["" if a is None or a <= 0 else str(a) for a in signed],
                        credit=["" if a is None or a >= 0 else str(-a) for a in signed])
@@ -635,7 +671,8 @@ def canonical_frame(df: pd.DataFrame, dataset_type: str) -> pd.DataFrame:
     derived. Preflight profiles Tyler inputs through this, so the file check and
     the workflow agree on which column is which."""
     spec = TYLER_DATASET_TYPES[dataset_type]
-    return _derive_munis_layout(apply_aliases(df, spec.aliases, normalize=True), spec)
+    aliased = apply_aliases(df, spec.aliases, normalize=True)
+    return _derive_munis_layout(apply_aliases(aliased, spec.fallback_aliases, normalize=False), spec)
 
 
 def _is_blank_cell(value: Any) -> bool:
@@ -695,12 +732,9 @@ def normalize_tyler_export(
     spec = TYLER_DATASET_TYPES[dataset_type]
 
     # Snake-case + alias (rename only; never drops or reorders data).
-    snake_cols = [to_snake_case(c) for c in raw.columns]
-    applied: dict[str, str] = {}
-    for src, dst in spec.aliases.items():
-        if src in snake_cols and dst not in snake_cols and dst not in applied.values():
-            applied[src] = dst
     df = canonical_frame(raw, dataset_type)
+    snake_cols = [to_snake_case(c) for c in raw.columns]
+    applied = {a: b for a, b in zip(snake_cols, df.columns) if a != b}
 
     # Fail closed on missing required canonical columns.
     missing = [c for c in spec.required_columns if c not in df.columns]
@@ -749,6 +783,7 @@ def normalize_tyler_export(
     # Parse date columns -> datetime.date (None for blanks). Unparseable
     # non-blank cells outside flagged rows fail closed.
     errors: list[str] = []
+    serial_rows: dict[str, list[int]] = {}
     for col in spec.date_columns:
         if col not in df.columns:
             continue
@@ -757,7 +792,9 @@ def normalize_tyler_export(
             if _is_blank_cell(value):
                 parsed_vals.append(None)
                 continue
-            parsed = parse_date(value) or _excel_serial_date(value)
+            parsed = parse_date(value)
+            if parsed is None and (parsed := _excel_serial_date(value)) is not None:
+                serial_rows.setdefault(col, []).append(pos)
             if parsed is None:
                 if pos in flagged_rows:
                     parsed_vals.append(None)
@@ -767,6 +804,15 @@ def normalize_tyler_export(
                 continue
             parsed_vals.append(parsed)
         df[col] = pd.Series(parsed_vals, dtype=object)
+    for col, rows in serial_rows.items():
+        warnings.append(
+            f"excel_serial_dates: column '{col}' rows {rows} held Excel serial numbers "
+            "and were read as dates; check them against the source system.")
+    if "unposted" in df.columns and df["unposted"].any():
+        warnings.append(
+            "unposted_journals: rows "
+            f"{[i for i, u in enumerate(df['unposted'].tolist()) if u]} are marked '*' "
+            "(unposted) in YR/PR; they are included like posted lines.")
     if errors:
         raise ValueError(
             "tyler ingest failed (fail closed): unparseable date value(s) "

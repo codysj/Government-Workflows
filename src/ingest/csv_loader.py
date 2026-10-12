@@ -27,11 +27,23 @@ def title_block_length(rows: list[list]) -> int:
 
     Report exports (Munis "YEAR-TO-DATE BUDGET REPORT", city name, "FOR 2026 10")
     put a title block above the column headers: rows with at most one filled
-    cell. The header is the first row with two or more; 0 for an ordinary file.
+    cell, holding text. The header is the first row with two or more filled
+    cells. Skipped only when that row reads as headers (no amounts or dates) and
+    every row above it reads as a title, so real data is never dropped; 0 otherwise.
     """
+    from src.normalize.cleaning import parse_amount, parse_date
+
+    def filled(row):
+        return [str(c).strip() for c in row if str(c).strip()]
+
+    def is_value(text):
+        return parse_amount(text) is not None or parse_date(text) is not None
+
     for i, row in enumerate(rows[:_MAX_TITLE_ROWS + 1]):
-        if sum(1 for c in row if str(c).strip()) >= 2:
-            return i
+        cells = filled(row)
+        if len(cells) >= 2:
+            titles_ok = all(not any(is_value(c) for c in filled(r)) for r in rows[:i])
+            return i if i and titles_ok and not any(is_value(c) for c in cells) else 0
     return 0
 
 
@@ -39,16 +51,21 @@ def read_csv_table(path: str | Path) -> pd.DataFrame:
     """Read a CSV as all-text, skipping a report title block above the header."""
     with Path(path).open(newline="", encoding="utf-8-sig", errors="replace") as fh:
         head = list(itertools.islice(csv.reader(fh), _MAX_TITLE_ROWS + 1))
-    return pd.read_csv(path, dtype=str, keep_default_na=False,
-                       skiprows=title_block_length(head))
+    skip = title_block_length(head)
+    df = pd.read_csv(path, dtype=str, keep_default_na=False, skiprows=skip)
+    df.attrs["title_rows"] = skip
+    return df
 
 
 def read_excel_table(path: str | Path, sheet_name: str | int = 0) -> pd.DataFrame:
     """Read an Excel sheet as all-text (blanks as ""), skipping a title block."""
     head = pd.read_excel(path, sheet_name=sheet_name, header=None, dtype=str,
                          engine="openpyxl", nrows=_MAX_TITLE_ROWS + 1).fillna("")
-    return pd.read_excel(path, sheet_name=sheet_name, dtype=str, engine="openpyxl",
-                         header=title_block_length(head.values.tolist())).fillna("")
+    skip = title_block_length(head.values.tolist())
+    df = pd.read_excel(path, sheet_name=sheet_name, dtype=str, engine="openpyxl",
+                       header=skip).fillna("")
+    df.attrs["title_rows"] = skip
+    return df
 
 
 def load_csv(path: str | Path, table_name: str | None = None) -> ParsedTable:
