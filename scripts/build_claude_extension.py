@@ -8,8 +8,8 @@ folder, locks the dependencies to the exact versions in requirements.txt (so a
 user's first start installs what was tested, not whatever is newest), and packs
 it with the official CLI. An allowlist of tracked files, not an ignore file: a
 secrets file (.env), run history, or a stray local file can never ship.
-Needs git, uv, and Node.js (npx). Install: double-click the .mcpb in Claude
-Desktop; see docs/mcp.md.
+Needs git, uv, and Node.js (npx). Install in Claude Desktop: Settings ->
+Extensions -> Advanced settings -> Install Extension; see docs/mcp.md.
 """
 from __future__ import annotations
 

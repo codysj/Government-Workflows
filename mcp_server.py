@@ -55,7 +55,9 @@ _INSTRUCTIONS = (
     "get_run / ask_about_run. Files are local paths or names in the data folder; "
     "in ChatGPT, attached files go in uploaded_files. All figures in results come "
     "from deterministic code: quote them exactly and never recompute, round, or "
-    "invent amounts, dates, accounts, or row ids. The AI draft inside a run is a "
+    "invent amounts, dates, accounts, or row ids. When you add your own reading "
+    "(e.g. which payment to recover, or a likely cause), say it is your "
+    "interpretation, not a checked finding. The AI draft inside a run is a "
     "DRAFT for human review."
 )
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}

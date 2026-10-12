@@ -100,3 +100,22 @@ def test_turn_is_logged_for_audit_usage_and_packet(tmp_path):
     run = ledger.get_run(rid)
     assert len(run.get("validation_results") or []) == 1
     assert len(run_qa.qa_turns_for_run(run)) == 1
+
+
+def test_offline_answer_quotes_the_matching_findings():
+    """With no model connected the answer is the matching findings, verbatim,
+    not a generic sentence (seen in a live Claude Desktop test)."""
+    from src.core import pipeline
+    from src.workflows.registry import get_descriptor
+
+    ledger = RunLedger(":memory:")
+    rid = pipeline.run_workflow("ap_duplicate_review",
+                                get_descriptor("ap_duplicate_review").sample_inputs(),
+                                ledger=ledger, provider=pipeline.MOCK).run_id
+    turn = run_qa.answer_question(ledger, None, rid, "Which invoice was paid twice?")
+    assert turn["answerable"] and turn["validation"]["passed"]
+    assert "Offline answer" in turn["answer"]
+    assert "INV-10234 was paid by 2 different checks" in turn["answer"]
+    assert "Invoice 5521 was paid by 2 different checks" in turn["answer"]
+    assert set(turn["referenced_source_rows"]) == {"ap_invoices:46", "ap_invoices:47",
+                                                   "ap_invoices:50", "ap_invoices:51"}

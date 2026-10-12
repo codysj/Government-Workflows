@@ -224,7 +224,23 @@ class MockLLMProvider:
         meaningful = q_tokens - stop
         answerable = bool(meaningful and any(t in grounding_blob for t in meaningful))
 
-        if not answerable:
+        # Offline, the useful answer is the findings themselves: quote the ones
+        # whose wording matches the question, verbatim, with their rows.
+        # ponytail: word overlap (with plural folding) ranks findings; a real
+        # model answers in its own words, still checked by the validator.
+        def words(text: str) -> set[str]:
+            return {w[:-1] if len(w) > 3 and w.endswith("s") else w
+                    for w in re.findall(r"[a-z0-9]{3,}", text.lower())}
+
+        wanted = words(" ".join(meaningful))
+        scored = sorted(
+            ((len(wanted & words(f"{f.get('description', '')} {f.get('rule_used', '')}")), i, f)
+             for i, f in enumerate(findings)),
+            key=lambda t: (-t[0], t[1]))
+        top = scored[0][0] if scored else 0
+        best = [f for score, _, f in scored if score > 0 and score * 2 > top][:3]
+
+        if not answerable or not best:
             return {
                 "summary": (
                     "I can't answer that from this run's data. Try asking about "
@@ -233,14 +249,15 @@ class MockLLMProvider:
                 "referenced_source_rows": [],
                 "answerable": False,
             }
+        quoted = "\n".join(
+            f"- {f.get('description', '')} (rows: {', '.join(f.get('source_row_ids') or [])})"
+            for f in best)
         return {
             "summary": (
-                f"Based on this run's {len(findings)} finding(s): the flagged "
-                "items and their cited source rows are what the deterministic "
-                "checks produced. See the cited rows for the underlying values. "
-                "This is a draft for human review; no figures were computed here."
+                "Offline answer (no AI model connected): the findings that match "
+                "your question, quoted as the checks wrote them:\n" + quoted
             ),
-            "referenced_source_rows": refs,
+            "referenced_source_rows": sorted({r for f in best for r in (f.get("source_row_ids") or [])}),
             "answerable": True,
         }
 

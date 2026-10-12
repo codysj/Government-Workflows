@@ -50,22 +50,19 @@ Ordered by importance (top = do next). Each needs scoping (acceptance criteria,
 file plan) before implementation — move to *Active* and set `Status: scoped`
 once that is done.
 
-### GW-50 — Verify the Claude and ChatGPT integrations live, in the hosts
-- **Status:** not_started
+### GW-50 — Verify the ChatGPT integration live, in a workspace
+- **Status:** blocked
 - **Priority:** P1
 - **Area:** infra
-- **Why:** The MCP server, Claude extension (`.mcpb`), run view, and ChatGPT
-  file parameters are verified offline and by launching the packed extension
-  the way Claude Desktop does (docs/mcp.md "What has been verified"), but not
-  inside Claude Desktop's UI or a ChatGPT workspace. ChatGPT needs a
-  Business/Enterprise workspace with developer mode and a Platform org with a
-  Secure MCP Tunnel.
-- **Acceptance:** Extension installed from the `.mcpb` in Claude Desktop runs
-  a sample workflow and renders the run view; the same through the tunnel in
-  ChatGPT, including one attached CSV (record the observed download host and
-  adjust the `GOVWF_DOWNLOAD_HOSTS` default if needed). Results noted in
-  docs/mcp.md.
+- **Why:** The Claude Desktop half was verified live on 2026-10-11 (docs/mcp.md
+  "What has been verified"). ChatGPT needs a Business/Enterprise workspace with
+  developer mode and a Platform organization with a Secure MCP Tunnel.
+- **Acceptance:** The server through the tunnel in ChatGPT runs a sample
+  workflow and renders the run view, including one attached CSV (record the
+  observed download host and adjust the `GOVWF_DOWNLOAD_HOSTS` default if
+  needed). Results noted in docs/mcp.md.
 - **Files:** `docs/mcp.md`, `mcp_server.py` (only if a host needs a change)
+- **Blocked by:** access to a ChatGPT Business/Enterprise workspace.
 
 ### GW-52 — Confirm site-specific Munis layouts with a city's own system
 - **Status:** blocked

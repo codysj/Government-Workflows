@@ -27,10 +27,11 @@ connecting real files.
 python scripts/build_claude_extension.py
 ```
 
-This writes `dist/govworkflows-<version>.mcpb` from an allowlist of files (code,
+This writes `dist/govworkflows-<version>.mcpb` from git-tracked files only (code,
 the run view, synthetic samples; never `.env` or run history). In Claude
-Desktop, double-click it (or Settings → Extensions → Advanced → Install
-Extension) and choose:
+Desktop: Settings → Extensions → Advanced settings → Install Extension…, pick the
+file (double-clicking it works only where `.mcpb` files are associated with
+Claude), and choose:
 
 - **Data folder**: the folder with the finance exports. The tools can read files
   only inside it.
@@ -160,10 +161,10 @@ filed or published, review the run in the console.
 | Every tool, annotation, file parameter, and the view resource; data-folder confinement from the attacker's side (traversal, other drives, network paths, `.env` and other non-data files, junctions, no folder set); attachment rules (host allowlist, redirect re-check, size cap with cleanup, safe names, slot choice, duplicate slots); freeform confirmations given as "false" | `tests/integration/test_mcp_server.py` (in-process MCP client, offline) |
 | The packed extension starts the way Claude Desktop starts it (`uv run` in the unzipped bundle, user-config env vars) and runs a workflow over stdio | `python scripts/build_claude_extension.py`, then the bundle was unzipped, launched, and driven by an MCP stdio client: 6 tools, a run on a data-folder file with a validated draft, a path outside the data folder refused, history in the work folder |
 | The run view renders a real tool result after the MCP Apps handshake | `npm run docs:media` in `frontend/` (a stand-in host; produces `media/mcp-app.png`) |
+| Installed in Claude Desktop (Windows, 2026-10-11), then removed | Installed from the `.mcpb` via Settings; Claude Desktop set up Python and the locked dependencies; in a chat Claude called `list_files`, `run_workflow`, `get_run`, and `ask_about_run` on synthetic files: 13 findings, file check PASS, draft check passed; the run view rendered in the chat for `run_workflow` and `get_run` (Claude's dark theme applied); the ledger and export packet landed in the work folder, nothing in the extension folder. Found and fixed: the offline Q&A answered with a generic sentence (it now quotes the matching findings), and Claude's own "likely recovery" reading was not labelled as its interpretation (the server instructions now ask for that) |
 | A real model through MCP | the recorded session below |
 
-Not yet verified in the hosts themselves: installing the extension in Claude
-Desktop's UI, and a ChatGPT workspace over the tunnel (needs a Business or
+Not yet verified in a host: ChatGPT over the tunnel (needs a Business or
 Enterprise workspace and a Platform organization). The ChatGPT download host
 for attachments is from OpenAI's docs, not observed; if a download is refused,
 the error names the host to add to `GOVWF_DOWNLOAD_HOSTS`.
