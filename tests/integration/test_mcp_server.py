@@ -8,6 +8,7 @@ the confinement and download rules are tested from the attacker's side too.
 from __future__ import annotations
 
 import io
+import sys
 
 import anyio
 import pytest
@@ -181,7 +182,8 @@ def test_data_folder_lists_and_reads_its_files(data_server):
     ("notes.txt", "not a CSV, Excel, or JSON file"),
     ("\\\\attacker.example@SSL\\share\\a.csv", "Network and device paths"),
     ("//attacker.example/share/a.csv", "Network and device paths"),
-    ("Z:/elsewhere/a.csv", "Only files inside the data folder"),
+    pytest.param("Z:/elsewhere/a.csv", "Only files inside the data folder",
+                 marks=pytest.mark.skipif(sys.platform != "win32", reason="drive letters are Windows-only")),
 ])
 def test_paths_outside_the_data_folder_are_refused(data_server, path, message):
     server, tmp = data_server
