@@ -31,7 +31,7 @@ Tool. This file is meant to be read and updated by both humans and LLM agents.
    the completed log. **Do not invent scope** — only add tasks traceable to code,
    a review finding, or an explicit product decision.
 
-**Next ID:** `GW-49`
+**Next ID:** `GW-51`
 
 **Status legend:** `[ ]` not started/scoped &nbsp; `[~]` in progress &nbsp;
 `[!]` blocked &nbsp; `[x]` done
@@ -49,6 +49,23 @@ _(none)_
 Ordered by importance (top = do next). Each needs scoping (acceptance criteria,
 file plan) before implementation — move to *Active* and set `Status: scoped`
 once that is done.
+
+### GW-50 — Verify the Claude and ChatGPT integrations live, in the hosts
+- **Status:** not_started
+- **Priority:** P1
+- **Area:** infra
+- **Why:** The MCP server, Claude extension (`.mcpb`), run view, and ChatGPT
+  file parameters are verified offline and by launching the packed extension
+  the way Claude Desktop does (docs/mcp.md "What has been verified"), but not
+  inside Claude Desktop's UI or a ChatGPT workspace. ChatGPT needs a
+  Business/Enterprise workspace with developer mode and a Platform org with a
+  Secure MCP Tunnel.
+- **Acceptance:** Extension installed from the `.mcpb` in Claude Desktop runs
+  a sample workflow and renders the run view; the same through the tunnel in
+  ChatGPT, including one attached CSV (record the observed download host and
+  adjust the `GOVWF_DOWNLOAD_HOSTS` default if needed). Results noted in
+  docs/mcp.md.
+- **Files:** `docs/mcp.md`, `mcp_server.py` (only if a host needs a change)
 
 ### GW-47 — Validator: check amount signs and vendor/fund names
 - **Status:** not_started
@@ -151,6 +168,8 @@ once that is done.
 
 Condensed log, newest first (one line per task). Full rationale and Done detail
 live in `docs/decisions.md` (dated sections) and git history.
+
+**GW-49 — Claude and ChatGPT integrations (2026-10-11)** — one stdio MCP server for both: Claude Desktop extension (`scripts/build_claude_extension.py`), ChatGPT via Secure MCP Tunnel with attached-file support, an MCP Apps run view, data-folder confinement, tool annotations; see docs/mcp.md and ADR-8
 
 **GW-48 — AP duplicate review at 50k rows under 10 s (2026-10-11)** — 12.3 s → 6.9 s; findings and preflight reports hash-identical to before on all 7 workflows at 20k rows
 

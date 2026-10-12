@@ -1,0 +1,49 @@
+{
+  "manifest_version": "0.4",
+  "name": "govworkflows",
+  "display_name": "Municipal Finance Workflows",
+  "version": "0.1.0",
+  "description": "Auditable finance reviews (bank reconciliation, budget variance, AP duplicates, PO mismatches, and more) on your own CSV/Excel exports. Calculations by code; the AI only drafts.",
+  "long_description": "Runs the Municipal Finance AI Workflow Tool on this computer. Every finding is computed by deterministic code and cites its source rows; the tool's own AI draft is checked against your files and stays a draft until a person approves it. Files are read only from the data folder you choose. Runs are saved to the work folder and appear in the review console if it uses the same folder.",
+  "author": { "name": "Cody Jung" },
+  "server": {
+    "type": "uv",
+    "entry_point": "mcp_server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "mcp_server.py"],
+      "env": {
+        "GOVWF_DATA_DIR": "${user_config.data_folder}",
+        "GOVWF_HOME": "${user_config.work_folder}"
+      }
+    }
+  },
+  "user_config": {
+    "data_folder": {
+      "type": "directory",
+      "title": "Data folder",
+      "description": "Folder with the finance exports to review. The tools can read files only inside it.",
+      "required": true
+    },
+    "work_folder": {
+      "type": "directory",
+      "title": "Work folder",
+      "description": "Where run history, the audit log, and export packets are saved.",
+      "required": true,
+      "default": "${DOCUMENTS}/Municipal Finance Workflows"
+    }
+  },
+  "tools": [
+    { "name": "list_workflows", "description": "The finance workflows and the files each needs." },
+    { "name": "list_files", "description": "CSV / Excel files in your data folder." },
+    { "name": "preflight", "description": "Check files before running: PASS / PARTIAL / FAIL with next steps." },
+    { "name": "run_workflow", "description": "Run a workflow: deterministic findings with source rows, and a validated AI draft." },
+    { "name": "get_run", "description": "Every finding, the draft, and review status of a past run." },
+    { "name": "ask_about_run", "description": "A question answered only from one run's data, validated and audit-logged." }
+  ],
+  "compatibility": {
+    "platforms": ["win32", "darwin", "linux"],
+    "runtimes": { "python": ">=3.12" }
+  },
+  "keywords": ["finance", "municipal", "audit", "reconciliation", "government"]
+}

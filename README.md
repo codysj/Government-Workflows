@@ -186,7 +186,7 @@ Method, per-workflow tables, and the tuning history (including what went wrong):
 ```text
             React console             CLI                 MCP server
             (frontend/, via api/)     (cli/)              (mcp_server.py)
-            guided 4-step wizard      scripts, batch      tools for any chat host
+            guided 4-step wizard      scripts, batch      Claude / ChatGPT tools
                     │                   │                   │
                     └───────────────────┼───────────────────┘
                                         ▼
@@ -243,8 +243,11 @@ troubleshooting: [`scripts/README.md`](scripts/README.md).
 .venv/Scripts/python.exe cli/run_workflow.py ap-duplicate-review --sample
 ```
 
-**From a chat assistant** that runs local MCP servers (Claude Desktop, Claude Code,
-VS Code): see [`docs/mcp.md`](docs/mcp.md).
+**From Claude or ChatGPT** (MCP): a one-click Claude Desktop extension
+(`python scripts/build_claude_extension.py`), or ChatGPT Business/Enterprise through
+OpenAI's Secure MCP Tunnel, so no port is opened on the laptop. Both render the run
+in the chat (findings, source rows, the labelled draft), and tools read files only
+from a chosen data folder. Setup and what leaves the computer: [`docs/mcp.md`](docs/mcp.md).
 
 <details id="configuring-a-real-llm">
 <summary><b>Using a real model (opt-in)</b></summary>

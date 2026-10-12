@@ -29,6 +29,16 @@ def parse_bool(value: Any) -> bool:
     return str(value or "").strip().lower() in _TRUE_STRINGS
 
 
+def coerce_text_input(workflow_type: str, key: str, value: Any) -> Any:
+    """A text input as the workflows expect it: trimmed text, and freeform's two
+    confirmations as real booleans ("false" must never count as confirmed).
+    Shared by the console API and the MCP server."""
+    text = str(value).strip()
+    if workflow_type == "freeform" and key in _FREEFORM_BOOL_KEYS:
+        return parse_bool(text)
+    return text
+
+
 def parse_config_field(form: FormData) -> Optional[dict]:
     """Parse the optional ``config`` JSON-string form field."""
     raw = form.get("config")
@@ -104,13 +114,8 @@ def build_inputs(
         value = form.get(spec.key)
         if value is None or isinstance(value, UploadFile):
             continue
-        text = str(value).strip()
-        if not text:
-            continue
-        if workflow_type == "freeform" and spec.key in _FREEFORM_BOOL_KEYS:
-            inputs[spec.key] = parse_bool(text)
-        else:
-            inputs[spec.key] = text
+        if str(value).strip():
+            inputs[spec.key] = coerce_text_input(workflow_type, spec.key, value)
 
     if workflow_type == "freeform":
         # The freeform module expects all structured keys present.

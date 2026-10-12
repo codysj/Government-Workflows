@@ -129,6 +129,47 @@ try {
   await shot("home.png");
   await frame(1650);
 
+  // The MCP Apps view (what Claude / ChatGPT render for run_workflow), fed a
+  // real tool result by a minimal stand-in host that speaks the handshake.
+  const toolResult = spawnSync(PY, ["-c", `
+import anyio, json, sys, tempfile
+from pathlib import Path
+from mcp.client import Client
+from api.services.settings import ApiSettings
+from mcp_server import build_server
+t = Path(tempfile.mkdtemp())
+s = build_server(ApiSettings(ledger_db_path=t/"l.db", audit_dir=t/"a", export_dir=t/"e",
+                             upload_dir=t/"u", schedules_path=t/"s.json", frontend_dist=t/"n"))
+async def go():
+    async with Client(s) as c:
+        r = await c.call_tool("run_workflow", {"workflow_type": "ap_duplicate_review", "use_sample": True})
+        sys.stdout.write(json.dumps(r.structured_content))
+anyio.run(go)
+`], { cwd: ROOT, encoding: "utf8" });
+  if (toolResult.status !== 0) throw new Error(toolResult.stderr);
+  const inline = (js) => js.replaceAll("</", "<\\/");  // safe inside <script>
+  const viewHtml = fs.readFileSync(path.join(ROOT, "mcp_views", "run_view.html"), "utf8");
+  const hostPage = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
+  await hostPage.setContent(`<body style="margin:0;background:#f5f5f4">
+    <iframe id="v" sandbox="allow-scripts" style="border:0;width:100%;height:900px"></iframe>
+    <script>
+      const v = document.getElementById("v");
+      window.addEventListener("message", (e) => {
+        const m = e.data || {};
+        if (m.method === "ui/initialize") v.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id,
+          result: { protocolVersion: "2026-01-26", hostInfo: { name: "stand-in" }, hostContext: { theme: "light" } } }, "*");
+        if (m.method === "ui/notifications/initialized") v.contentWindow.postMessage({ jsonrpc: "2.0",
+          method: "ui/notifications/tool-result", params: { content: [], structuredContent: ${inline(toolResult.stdout)} } }, "*");
+        if (m.method === "ui/notifications/size-changed") v.style.height = m.params.height + "px";
+      });
+      v.srcdoc = ${inline(JSON.stringify(viewHtml))};
+    </script></body>`);
+  const view = hostPage.frameLocator("#v");
+  await view.getByText("AI draft check: passed").waitFor({ timeout: 15_000 });
+  await view.getByText(/^High$/i).first().waitFor();
+  await hostPage.waitForTimeout(300);  // let the size-changed resize land
+  await hostPage.screenshot({ path: path.join(MEDIA, "mcp-app.png"), fullPage: true });
+
   await browser.close();
 
   // demo.gif: home first, then the wizard and review frames, at 1000x625.

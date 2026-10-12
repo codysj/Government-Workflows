@@ -168,11 +168,12 @@ def _record_preflight_metadata(
 # --------------------------------------------------------------------------- #
 # Run helpers
 # --------------------------------------------------------------------------- #
-def _input_files_for(inputs: dict[str, Any]) -> list:
-    """InputFile provenance (name, hash, rows) for every CSV/Excel input."""
+def _input_files_for(inputs: dict[str, Any], file_keys: set[str]) -> list:
+    """InputFile provenance (name, hash, rows) for every CSV/Excel file input.
+    Only declared file slots: a text field that looks like a path is not read."""
     out = []
     for key, val in inputs.items():
-        if not isinstance(val, (str, Path)):
+        if key not in file_keys or not isinstance(val, (str, Path)):
             continue
         p = Path(val)
         if p.is_file() and p.suffix.lower() in (".csv", ".xlsx", ".xls"):
@@ -407,7 +408,7 @@ def run_workflow(
         retention = RetentionCategory.DRAFT_WORKING
 
     # 1. Ledger entry + input-file provenance.
-    input_files = _input_files_for(inputs)
+    input_files = _input_files_for(inputs, {u.key for u in get_descriptor(workflow_type).uploads})
     ledger.create_run(WorkflowRun(
         run_id=run_id,
         workflow_type=workflow_type,

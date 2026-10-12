@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,7 +76,9 @@ PROMPT_TEMPLATE_VERSION = "freeform.v3"  # v2: shared OUTPUT_RULES; v3: findings
 # discovery (spec Phase 5 "Discovery output").
 # Runtime data, not documentation: runs/ is gitignored, so running the tool
 # never edits a tracked file.
-DISCOVERY_LOG_PATH = Path(__file__).resolve().parents[2] / "runs" / "freeform_task_observations.md"
+# GOVWF_HOME (set by the Claude extension) moves it with the rest of the run data.
+DISCOVERY_LOG_PATH = (Path(os.environ["GOVWF_HOME"]) if os.environ.get("GOVWF_HOME")
+                      else Path(__file__).resolve().parents[2] / "runs") / "freeform_task_observations.md"
 
 EXPORT_FILE_NAMES = (
     "freeform_summary.md",
@@ -673,9 +676,12 @@ def append_discovery_observation(
     path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not path.exists() or path.stat().st_size == 0
     ts = datetime.now(timezone.utc).isoformat()
+    def cell(value: str) -> str:  # user text must not break the markdown table
+        return " ".join(str(value).split()).replace("|", "\\|")
+
     line = (
-        f"| {ts} | {run_id or '-'} | {task_type} | "
-        f"{desired_output or '-'} | {uploaded_file_count} |\n"
+        f"| {ts} | {run_id or '-'} | {cell(task_type)} | "
+        f"{cell(desired_output) or '-'} | {uploaded_file_count} |\n"
     )
     with path.open("a", encoding="utf-8") as fh:
         if is_new:

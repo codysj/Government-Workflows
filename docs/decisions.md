@@ -59,13 +59,16 @@ wrote. The four-step wizard (upload, check, run, review) with a visually
 distinct AI section replaced it; Streamlit was retired in 2026-10. The console
 never computes a value, even a display-only sum.
 
-## ADR-8 MCP server as a host-agnostic front end (2026-10)
-`mcp_server.py` exposes the workflows as tools to MCP-capable assistants,
-over stdio only. *Why:* cities standardize on different AI platforms; the
-same core is reachable from any local MCP host today (Claude Desktop, Claude
-Code, VS Code), and an HTTP transport for remote-only hosts (ChatGPT
-connectors, Copilot Studio) is a deployment decision, not a core change.
-The host model's own prose is outside the validated boundary (see mcp.md).
+## ADR-8 One stdio MCP server for Claude and ChatGPT (2026-10)
+`mcp_server.py` exposes the workflows as MCP tools over stdio only, and both
+approved platforms reach that same process: Claude Desktop starts it from a
+`.mcpb` extension; ChatGPT reaches it through OpenAI's Secure MCP Tunnel
+(outbound only). One MCP Apps view renders the run in both. *Why:* no public
+endpoint on a laptop with finance files, no second integration to maintain,
+and not Custom GPT Actions (being retired). Tools read files only inside a
+chosen data folder, and chat attachments are fetched only over https from
+allowlisted hosts. The host model's own prose is outside the validated
+boundary (see mcp.md).
 
 ## ADR-9 Tyler/Munis exports via a deterministic normalizer
 `src/ingest/tyler.py` detects the export type by header overlap, parses amounts
