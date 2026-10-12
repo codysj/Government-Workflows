@@ -331,3 +331,41 @@ def test_freeform_run_and_its_detail_work(server):
     run = _call(server, "run_workflow", {"workflow_type": "freeform", "use_sample": True})
     assert not run.is_error, run.content[0].text
     assert not _call(server, "get_run", {"run_id": run.structured_content["run_id"]}).is_error
+
+
+# --- The Claude extension's optional AI settings ---------------------------
+
+
+@pytest.mark.parametrize("env, expected, status", [
+    ({}, None, "offline (no API key set)"),
+    ({"GOVWF_AI_API_KEY": "${user_config.ai_api_key}"}, None, "offline"),  # unset placeholder
+    ({"LLM_API_KEY": "repo-dev-key"}, None, "offline"),  # a .env key alone never switches it on
+    ({"GOVWF_AI_API_KEY": "k"}, {"LLM_MODE": "real", "LLM_PROVIDER": "anthropic",
+                                  "LLM_MODEL": "claude-haiku-5-5"}, "anthropic:claude-haiku-5-5"),
+    ({"GOVWF_AI_API_KEY": "k", "GOVWF_AI_PROVIDER": "openai"}, None, "set a model name"),
+    ({"GOVWF_AI_API_KEY": "k", "GOVWF_AI_PROVIDER": "openai", "GOVWF_AI_MODEL": "m",
+      "GOVWF_AI_BASE_URL": "https://example.test/v1/chat/completions"},
+     {"LLM_MODE": "real", "LLM_PROVIDER": "openai", "LLM_MODEL": "m",
+      "LLM_BASE_URL": "https://example.test/v1/chat/completions"}, "openai:m"),
+    ({"GOVWF_AI_API_KEY": "k", "GOVWF_AI_PROVIDER": "acme"}, None, "unknown provider"),
+])
+def test_extension_ai_settings(env, expected, status):
+    environ = dict(env)
+    assert status in mcp_server.apply_extension_ai_settings(environ)
+    if expected is None:
+        assert "LLM_MODE" not in environ
+    else:
+        assert {k: environ[k] for k in expected} == expected
+        assert environ["LLM_API_KEY"] == "k"
+
+
+def test_manifest_declares_the_ai_settings_as_optional_and_the_key_as_secret():
+    import json
+    from pathlib import Path
+
+    manifest = json.loads((Path(mcp_server.__file__).parent / "manifest.json").read_text(encoding="utf-8"))
+    config = manifest["user_config"]
+    assert config["ai_api_key"]["sensitive"] is True
+    assert all(config[k]["required"] is False for k in ("ai_api_key", "ai_provider", "ai_model", "ai_base_url"))
+    env = manifest["server"]["mcp_config"]["env"]
+    assert env["GOVWF_AI_API_KEY"] == "${user_config.ai_api_key}"

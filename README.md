@@ -14,7 +14,7 @@ always grounded in that run's own data, validated the same way, and logged.
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-960%20py%20%2B%2057%20fe%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-968%20py%20%2B%2057%20fe%20passing-brightgreen)
 ![Runs offline](https://img.shields.io/badge/AI-mock%20by%20default%20%C2%B7%20runs%20offline-blue)
 ![Data](https://img.shields.io/badge/data-synthetic%20only-orange)
 
@@ -281,7 +281,7 @@ To measure a model yourself: `python -m src.eval.real_llm --repeat 3`.
 cd frontend && npm test && npm run typecheck && npm run lint
 ```
 
-**960 backend + 57 frontend tests pass.** CI (`.github/workflows/ci.yml`) runs all of
+**968 backend + 57 frontend tests pass.** CI (`.github/workflows/ci.yml`) runs all of
 the above except the scale benchmark. The backend suite includes offline replays of
 recorded real-model drafts (`tests/integration/test_real_llm_replay.py`), MCP protocol
 tests, and randomized equivalence tests for the rewritten matching, rollup, and

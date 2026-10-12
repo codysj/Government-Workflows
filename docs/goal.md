@@ -233,6 +233,7 @@ git ls-files '*.py' '*.ts' '*.tsx' | grep -v -E '^tests/|^frontend/e2e/|\.test\.
 | 2026-10-11 | Final held-out after review fixes: 8 x3 | deepseek/deepseek-v4.1-flash | $0.0961 | $0.1146 | $0.0185 |
 | 2026-10-11 | Re-record AP fixture after D8 change + MCP real session (run + 2 Q&A) | deepseek/deepseek-v4.1-flash | $0.1146 | $0.1209 | $0.0063 |
 | 2026-10-11 | Unlogged: debugging calls during the final review + usage-counter lag (reconciled from `GET /api/v1/key`) | deepseek/deepseek-v4.1-flash | $0.1209 | $0.1249 | $0.0040 |
+| 2026-10-11 | After the goal: Claude extension AI-settings check (1 draft + 1 answer through the packed extension) | deepseek/deepseek-v4.1-flash | $0.1249 | ~$0.126 | ~$0.001 (usage counter had not updated) |
 
 ## Log (append-only)
 

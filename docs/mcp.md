@@ -42,8 +42,16 @@ The extension uses the `uv` runtime: Claude Desktop installs Python and the
 dependencies on first start (locked at build time to the versions in
 `requirements.txt`), so the user does not install anything. On Team and
 Enterprise plans an owner uploads the `.mcpb` and allowlists it for members.
-Inside the extension the tool's own AI drafts use the offline mock (there is no
-API-key setting); Claude itself writes the conversation around the results.
+**Optional AI settings.** By default the tool's own drafts and answers stay
+offline (answers quote the matching findings). To have a model write them, fill
+in the extension's optional settings: an API key (kept in the system's secure
+storage), a provider (`anthropic`, the default, or `openai` for OpenAI and
+OpenAI-compatible services), a model (default `claude-haiku-5-5` for
+anthropic; required for openai), and an endpoint for non-OpenAI services. With
+a key, each run's findings and cited rows go to that provider; every draft and
+answer is still checked against the files. A key in the repo's `.env` never
+switches the extension on by itself (the extension uses its own `GOVWF_AI_*`
+variables). Claude itself writes the conversation around the results either way.
 
 **Manual config** (developers): `%APPDATA%\Claude\claude_desktop_config.json`
 
@@ -111,7 +119,8 @@ city's records-retention rules.
 | `GOVWF_DATA_DIR` | The only folder files are read from: CSV / Excel / JSON files inside it, by name relative to it (`list_files` shows them). Unset: no file is read by name. Network paths, links out of the folder, and other file types are refused. |
 | `GOVWF_HOME` | Where the ledger, audit log, exports, and uploads live (default: the repo's `runs/`). |
 | `GOVWF_DOWNLOAD_HOSTS` | Hosts that chat-attached files may be downloaded from (https only). |
-| `LLM_MODE`, `LLM_*` | The tool's own drafts and answers: offline mock by default; see `.env.example`. The server loads `.env` from the repo. |
+| `GOVWF_AI_API_KEY`, `GOVWF_AI_PROVIDER`, `GOVWF_AI_MODEL`, `GOVWF_AI_BASE_URL` | The Claude extension's optional AI settings; with a key they switch the tool's own drafts and answers to that model. |
+| `LLM_MODE`, `LLM_*` | The tool's own drafts and answers outside the extension: offline mock by default; see `.env.example`. The server loads `.env` from the repo. |
 
 ## Tools
 
@@ -162,6 +171,7 @@ filed or published, review the run in the console.
 | The packed extension starts the way Claude Desktop starts it (`uv run` in the unzipped bundle, user-config env vars) and runs a workflow over stdio | `python scripts/build_claude_extension.py`, then the bundle was unzipped, launched, and driven by an MCP stdio client: 6 tools, a run on a data-folder file with a validated draft, a path outside the data folder refused, history in the work folder |
 | The run view renders a real tool result after the MCP Apps handshake | `npm run docs:media` in `frontend/` (a stand-in host; produces `media/mcp-app.png`) |
 | Installed in Claude Desktop (Windows, 2026-10-11), then removed | Installed from the `.mcpb` via Settings; Claude Desktop set up Python and the locked dependencies; in a chat Claude called `list_files`, `run_workflow`, `get_run`, and `ask_about_run` on synthetic files: 13 findings, file check PASS, draft check passed; the run view rendered in the chat for `run_workflow` and `get_run` (Claude's dark theme applied); the ledger and export packet landed in the work folder, nothing in the extension folder. Found and fixed: the offline Q&A answered with a generic sentence (it now quotes the matching findings), and Claude's own "likely recovery" reading was not labelled as its interpretation (the server instructions now ask for that) |
+| The extension's optional AI settings with a real model | The packed extension launched with its AI settings filled in (OpenAI-compatible provider, `deepseek-v4.1-flash` via OpenRouter, 2026-10-11): the run's draft came from that model and passed the checker (100 claims verified); "Which invoice was paid twice, and by which checks?" was answered with INV-10234 and checks 50012 / 50044, citing rows 46-47, and passed. Settings logic: `test_extension_ai_settings` |
 | A real model through MCP | the recorded session below |
 
 Not yet verified in a host: ChatGPT over the tunnel (needs a Business or

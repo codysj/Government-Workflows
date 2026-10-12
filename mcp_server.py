@@ -20,6 +20,10 @@ Environment (all optional):
                        (default: the repo's runs/)
   GOVWF_DOWNLOAD_HOSTS hosts that chat-attached files may be downloaded from
                        (default: oaiusercontent.com,openai.com; https only)
+  GOVWF_AI_API_KEY     the Claude extension's optional AI settings (with
+  GOVWF_AI_PROVIDER    GOVWF_AI_*): with a key, the tool's own drafts and answers
+  GOVWF_AI_MODEL       use that model (still validated); without, they stay
+  GOVWF_AI_BASE_URL    offline. A repo .env key alone never switches this on.
 """
 from __future__ import annotations
 
@@ -233,6 +237,36 @@ def _finding_brief(f: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_DEFAULT_MODELS = {"anthropic": "claude-haiku-5-5"}
+
+
+def apply_extension_ai_settings(environ=os.environ) -> str:
+    """Map the extension's optional GOVWF_AI_* settings onto the LLM_* variables
+    the provider reads. Returns a one-line status for the server log.
+
+    Unset optional settings may arrive as "" or as the literal
+    "${user_config...}" placeholder; both mean "not set". Anything incomplete
+    keeps the offline mode rather than guessing.
+    """
+    def setting(name: str) -> str:
+        value = environ.get(name, "").strip()
+        return "" if value.startswith("${") else value
+
+    key = setting("GOVWF_AI_API_KEY")
+    if not key:
+        return "AI drafts: offline (no API key set)"
+    provider = (setting("GOVWF_AI_PROVIDER") or "anthropic").lower()
+    if provider not in ("anthropic", "openai"):
+        return f"AI drafts: offline (unknown provider {provider!r}; use anthropic or openai)"
+    model = setting("GOVWF_AI_MODEL") or _DEFAULT_MODELS.get(provider, "")
+    if not model:
+        return "AI drafts: offline (set a model name for an OpenAI-compatible provider)"
+    environ.update(LLM_MODE="real", LLM_API_KEY=key, LLM_PROVIDER=provider, LLM_MODEL=model)
+    if base := setting("GOVWF_AI_BASE_URL"):
+        environ["LLM_BASE_URL"] = base
+    return f"AI drafts: {provider}:{model}"
+
+
 def _settings_from_env() -> ApiSettings:
     settings = ApiSettings.from_app_settings()
     home = os.environ.get("GOVWF_HOME")
@@ -400,5 +434,8 @@ def build_server(settings: Optional[ApiSettings] = None) -> MCPServer:
 if __name__ == "__main__":
     from src.core.env import load_env_file
 
+    import sys
+
     load_env_file(Path(__file__).resolve().parent / ".env")
+    print(apply_extension_ai_settings(), file=sys.stderr)  # stdout carries the protocol
     build_server().run("stdio")

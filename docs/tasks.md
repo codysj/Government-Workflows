@@ -31,7 +31,7 @@ Tool. This file is meant to be read and updated by both humans and LLM agents.
    the completed log. **Do not invent scope** — only add tasks traceable to code,
    a review finding, or an explicit product decision.
 
-**Next ID:** `GW-53`
+**Next ID:** `GW-54`
 
 **Status legend:** `[ ]` not started/scoped &nbsp; `[~]` in progress &nbsp;
 `[!]` blocked &nbsp; `[x]` done
@@ -173,6 +173,8 @@ once that is done.
 
 Condensed log, newest first (one line per task). Full rationale and Done detail
 live in `docs/decisions.md` (dated sections) and git history.
+
+**GW-53 — Optional AI settings in the Claude extension (2026-10-11)** — API key (secure storage), provider, model, endpoint; with a key the tool's own drafts and answers use that model (still validated); verified with a real model through the packed extension
 
 **GW-37 — Tyler/Munis assumptions checked against real Munis output (2026-10-11)** — public Munis reports, Tyler docs and knowledge base: verbatim headers and report furniture now handled and tested (`test_munis_layouts.py`); GL sign convention consistent; "Description/Vendor" is not a Munis column; the JE template is site-generated, so site checks moved to GW-52 (docs/tyler_assumptions.md section 0)
 
